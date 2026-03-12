@@ -78,7 +78,7 @@ export default function AuthScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.socialButton}>
-              <AntDesign name="apple1" size={18} color="#000" />
+              <AntDesign name="apple" size={18} color="#000" />
               <Text style={styles.socialText}>Apple</Text>
             </TouchableOpacity>
           </View>
