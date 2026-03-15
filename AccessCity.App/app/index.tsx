@@ -12,6 +12,8 @@ import {
   Platform,
   Dimensions,
   StatusBar,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AntDesign, FontAwesome, Ionicons } from "@expo/vector-icons";
@@ -22,19 +24,62 @@ import Animated, {
   withTiming,
   interpolate,
 } from "react-native-reanimated";
+import { router } from "expo-router";
+import { useAuth } from "@/context/AuthContext";
+import { ErrorMessage } from "@/components/ErrorMessage";
+import { useFormAnimation } from "@/hooks/use-form-animation";
 
 const { width } = Dimensions.get("window");
 
 export default function AuthScreen() {
   const [isSignup, setIsSignup] = useState(false);
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
+  const { signIn, signUp, isAuthenticated } = useAuth();
+  const { shake, animatedStyle: shakeStyle } = useFormAnimation();
   const animation = useSharedValue(0);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.replace("/(tabs)/map");
+    }
+  }, [isAuthenticated]);
 
   useEffect(() => {
     animation.value = withSpring(isSignup ? 1 : 0, {
       damping: 20,
       stiffness: 90,
     });
+    setError(null); // Clear errors on tab switch
   }, [isSignup, animation]);
+
+  const handleSubmit = async () => {
+    setError(null);
+    if (!email || !password || (isSignup && !fullName)) {
+      setError("Please fill in all mandatory fields");
+      shake();
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      if (isSignup) {
+        await signUp(email, password, fullName);
+      } else {
+        await signIn(email, password);
+      }
+      router.replace("/(tabs)/map");
+    } catch (err: any) {
+      setError(err.message || "Failed to authenticate. Please try again.");
+      shake();
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const animatedSwitchStyle = useAnimatedStyle(() => {
     const translateX = interpolate(animation.value, [0, 1], [4, (width - 40 - 48 - 8) / 2 + 4]);
@@ -77,7 +122,7 @@ export default function AuthScreen() {
               </Text>
             </View>
 
-            <View style={styles.authCard}>
+            <Animated.View style={[styles.authCard, shakeStyle]}>
               <View style={styles.switchContainer}>
                 <Animated.View style={[styles.switchSlider, animatedSwitchStyle]} />
                 <TouchableOpacity
@@ -120,47 +165,22 @@ export default function AuthScreen() {
                   <View style={styles.dividerLine} />
                 </View>
 
-                {isSignup ? (
-                  <Animated.View style={[styles.form, animatedContentStyle]}>
-                    <View style={styles.inputContainer}>
-                      <Ionicons name="person-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
-                      <TextInput
-                        placeholder="Full Name"
-                        placeholderTextColor="#94A3B8"
-                        style={styles.input}
-                      />
+                <Animated.View style={[styles.form, animatedContentStyle]}>
+                  {isSignup && (
+                    <View>
+                      <View style={styles.inputContainer}>
+                        <Ionicons name="person-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
+                        <TextInput
+                          placeholder="Full Name"
+                          placeholderTextColor="#94A3B8"
+                          style={styles.input}
+                          value={fullName}
+                          onChangeText={setFullName}
+                        />
+                      </View>
                     </View>
-                    <View style={styles.inputContainer}>
-                      <Ionicons name="mail-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
-                      <TextInput
-                        placeholder="Email Address"
-                        placeholderTextColor="#94A3B8"
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        style={styles.input}
-                      />
-                    </View>
-                    <View style={styles.inputContainer}>
-                      <Ionicons name="lock-closed-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
-                      <TextInput
-                        placeholder="Password"
-                        placeholderTextColor="#94A3B8"
-                        secureTextEntry
-                        style={styles.input}
-                      />
-                    </View>
-                    
-                    <TouchableOpacity activeOpacity={0.85} style={styles.mainButtonContainer}>
-                      <LinearGradient
-                        colors={["#2563EB", "#1D4ED8"]}
-                        style={styles.mainButton}
-                      >
-                        <Text style={styles.mainButtonText}>Create Account</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </Animated.View>
-                ) : (
-                  <Animated.View style={[styles.form, animatedContentStyle]}>
+                  )}
+                  <View>
                     <View style={styles.inputContainer}>
                       <Ionicons name="mail-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
                       <TextInput
@@ -169,8 +189,12 @@ export default function AuthScreen() {
                         keyboardType="email-address"
                         autoCapitalize="none"
                         style={styles.input}
+                        value={email}
+                        onChangeText={setEmail}
                       />
                     </View>
+                  </View>
+                  <View>
                     <View style={styles.inputContainer}>
                       <Ionicons name="lock-closed-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
                       <TextInput
@@ -178,31 +202,48 @@ export default function AuthScreen() {
                         placeholderTextColor="#94A3B8"
                         secureTextEntry
                         style={styles.input}
+                        value={password}
+                        onChangeText={setPassword}
                       />
                     </View>
-
+                    <ErrorMessage visible={!!error} message={error ?? undefined} />
+                  </View>
+                  
+                  {!isSignup && (
                     <TouchableOpacity style={styles.forgotPasswordContainer}>
                       <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
                     </TouchableOpacity>
+                  )}
 
-                    <TouchableOpacity activeOpacity={0.85} style={styles.mainButtonContainer}>
-                      <LinearGradient
-                        colors={["#2563EB", "#1D4ED8"]}
-                        style={styles.mainButton}
-                      >
-                        <Text style={styles.mainButtonText}>Log In</Text>
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </Animated.View>
-                )}
+                  <TouchableOpacity 
+                    activeOpacity={0.85} 
+                    style={styles.mainButtonContainer}
+                    onPress={handleSubmit}
+                    disabled={isSubmitting}
+                  >
+                    <LinearGradient
+                      colors={["#2563EB", "#1D4ED8"]}
+                      style={styles.mainButton}
+                    >
+                      {isSubmitting ? (
+                        <ActivityIndicator color="#FFF" />
+                      ) : (
+                        <Text style={styles.mainButtonText}>
+                          {isSignup ? "Create Account" : "Log In"}
+                        </Text>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Animated.View>
               </View>
-            </View>
+            </Animated.View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   safeArea: {

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -10,12 +10,46 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AntDesign, FontAwesome, Ionicons } from "@expo/vector-icons";
+import Animated from "react-native-reanimated";
 import { router } from "expo-router";
+import { useAuth } from "@/context/AuthContext";
+import { ErrorMessage } from "@/components/ErrorMessage";
+import { useFormAnimation } from "@/hooks/use-form-animation";
 
 export default function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [errorStatus, setErrorStatus] = useState<string | null>(null);
+
+  const { signIn } = useAuth();
+  const { shake, animatedStyle: shakeStyle } = useFormAnimation();
+
+  const handleLogin = async () => {
+    setErrorStatus(null);
+    if (!email || !password) {
+      setErrorStatus("All fields are mandatory");
+      shake();
+      return;
+    }
+
+    setIsAuthenticating(true);
+    try {
+      await signIn(email, password);
+      router.replace("/(tabs)/map");
+    } catch (err: any) {
+      setErrorStatus(err.message || "Invalid credentials. Please try again.");
+      shake();
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
@@ -39,6 +73,8 @@ export default function LoginScreen() {
               <Text style={styles.title}>Welcome Back</Text>
               <Text style={styles.subtitle}>Enter your details to log in</Text>
             </View>
+
+            <Animated.View style={shakeStyle}>
 
             <View style={styles.socialRow}>
               <TouchableOpacity style={styles.socialButton}>
@@ -66,6 +102,8 @@ export default function LoginScreen() {
                   placeholderTextColor="#94A3B8"
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  value={email}
+                  onChangeText={setEmail}
                   style={styles.input}
                 />
               </View>
@@ -76,23 +114,37 @@ export default function LoginScreen() {
                   placeholder="Password"
                   placeholderTextColor="#94A3B8"
                   secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
                   style={styles.input}
                 />
               </View>
+
+              <ErrorMessage visible={!!errorStatus} message={errorStatus ?? undefined} />
 
               <TouchableOpacity style={styles.forgotPasswordContainer}>
                 <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity activeOpacity={0.85} style={styles.mainButtonContainer}>
+              <TouchableOpacity 
+                activeOpacity={0.85} 
+                style={styles.mainButtonContainer}
+                onPress={handleLogin}
+                disabled={isAuthenticating}
+              >
                 <LinearGradient
                   colors={["#2563EB", "#1D4ED8"]}
                   style={styles.mainButton}
                 >
-                  <Text style={styles.mainButtonText}>Log In</Text>
+                  {isAuthenticating ? (
+                    <ActivityIndicator color="#FFF" />
+                  ) : (
+                    <Text style={styles.mainButtonText}>Log In</Text>
+                  )}
                 </LinearGradient>
               </TouchableOpacity>
             </View>
+          </Animated.View>
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>Don&apos;t have an account? </Text>

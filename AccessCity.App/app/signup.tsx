@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -10,12 +10,55 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
+  Alert,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AntDesign, FontAwesome, Ionicons } from "@expo/vector-icons";
+import Animated from "react-native-reanimated";
 import { router } from "expo-router";
+import { useAuth } from "@/context/AuthContext";
+import { ErrorMessage } from "@/components/ErrorMessage";
+import { useFormAnimation } from "@/hooks/use-form-animation";
 
 export default function SignupScreen() {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  const { signUp } = useAuth();
+  const { shake, animatedStyle: shakeStyle } = useFormAnimation();
+
+  const handleSignup = async () => {
+    setValidationError(null);
+    if (!firstName || !lastName || !email || !password) {
+      setValidationError("Please fill in all mandatory fields");
+      shake();
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setValidationError("Passwords do not match");
+      shake();
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      await signUp(email, password, `${firstName} ${lastName}`);
+      router.replace("/(tabs)/map");
+    } catch (err: any) {
+      setValidationError(err.message || "Registration failed. Please try again.");
+      shake();
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" />
@@ -39,6 +82,8 @@ export default function SignupScreen() {
               <Text style={styles.title}>Create Account</Text>
               <Text style={styles.subtitle}>Join AccessCity and navigate safely</Text>
             </View>
+
+            <Animated.View style={shakeStyle}>
 
             <View style={styles.socialRow}>
               <TouchableOpacity style={styles.socialButton}>
@@ -64,6 +109,8 @@ export default function SignupScreen() {
                   <TextInput
                     placeholder="First Name"
                     placeholderTextColor="#94A3B8"
+                    value={firstName}
+                    onChangeText={setFirstName}
                     style={styles.input}
                   />
                 </View>
@@ -71,6 +118,8 @@ export default function SignupScreen() {
                   <TextInput
                     placeholder="Last Name"
                     placeholderTextColor="#94A3B8"
+                    value={lastName}
+                    onChangeText={setLastName}
                     style={styles.input}
                   />
                 </View>
@@ -83,6 +132,8 @@ export default function SignupScreen() {
                   placeholderTextColor="#94A3B8"
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  value={email}
+                  onChangeText={setEmail}
                   style={styles.input}
                 />
               </View>
@@ -93,6 +144,8 @@ export default function SignupScreen() {
                   placeholder="Password"
                   placeholderTextColor="#94A3B8"
                   secureTextEntry
+                  value={password}
+                  onChangeText={setPassword}
                   style={styles.input}
                 />
               </View>
@@ -103,19 +156,33 @@ export default function SignupScreen() {
                   placeholder="Confirm Password"
                   placeholderTextColor="#94A3B8"
                   secureTextEntry
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
                   style={styles.input}
                 />
               </View>
 
-              <TouchableOpacity activeOpacity={0.85} style={styles.mainButtonContainer}>
+              <ErrorMessage visible={!!validationError} message={validationError ?? undefined} />
+
+              <TouchableOpacity 
+                activeOpacity={0.85} 
+                style={styles.mainButtonContainer}
+                onPress={handleSignup}
+                disabled={isProcessing}
+              >
                 <LinearGradient
                   colors={["#2563EB", "#1D4ED8"]}
                   style={styles.mainButton}
                 >
-                  <Text style={styles.mainButtonText}>Sign Up</Text>
+                  {isProcessing ? (
+                    <ActivityIndicator color="#FFF" />
+                  ) : (
+                    <Text style={styles.mainButtonText}>Sign Up</Text>
+                  )}
                 </LinearGradient>
               </TouchableOpacity>
             </View>
+          </Animated.View>
 
             <View style={styles.footer}>
               <Text style={styles.footerText}>Already have an account? </Text>
