@@ -2,8 +2,8 @@ import * as FileSystem from 'expo-file-system';
 import * as SQLite from 'expo-sqlite';
 
 /**
- * Industrial-level Tile Cache Manager for Expo.
- * Follows the "Metadata in DB, Binaries on Disk" pattern to prevent DB bloat.
+ * Tile Cache Manager for Expo.
+ * Implements a metadata index in SQLite and binary storage on the filesystem.
  */
 class TileCacheManager {
   private db: SQLite.SQLiteDatabase | null = null;
