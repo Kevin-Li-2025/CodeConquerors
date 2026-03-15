@@ -7,9 +7,9 @@ using AccessCity.API.Models;
 namespace AccessCity.API.Services
 {
     /// <summary>
-    /// Industrial-level Spatial Caching Service.
-    /// Combines an in-memory R-Tree index for O(log N) spatial queries
-    /// with .NET 9 HybridCache for robust L1/L2 persistence.
+    /// Spatial Caching Service.
+    /// Uses an in-memory Quadtree for O(log N) spatial queries
+    /// combined with .NET 9 HybridCache for L1/L2 persistence.
     /// </summary>
     public interface ISpatialCacheService
     {
@@ -21,62 +21,89 @@ namespace AccessCity.API.Services
     public class SpatialCacheService : ISpatialCacheService
     {
         private readonly HybridCache _hybridCache;
+        private readonly ILogger<SpatialCacheService> _logger;
         private readonly Quadtree<HazardReport> _spatialIndex = new();
-        private readonly SemaphoreSlim _lock = new(1, 1);
+        private readonly ReaderWriterLockSlim _indexLock = new();
         private const string CacheKeyPrefix = "spatial:hazard:";
 
-        public SpatialCacheService(HybridCache hybridCache)
+        public SpatialCacheService(HybridCache hybridCache, ILogger<SpatialCacheService> logger)
         {
-            _hybridCache = hybridCache;
+            _hybridCache = hybridCache ?? throw new ArgumentNullException(nameof(hybridCache));
+            _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
         public async Task<IReadOnlyList<HazardReport>> GetHazardsInBoundsAsync(Envelope bounds)
         {
-            await _lock.WaitAsync();
+            _indexLock.EnterReadLock();
             try
             {
-                // O(log N) spatial query on the dynamic Quadtree
-                return (IReadOnlyList<HazardReport>)_spatialIndex.Query(bounds);
+                var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+                var results = (IReadOnlyList<HazardReport>)_spatialIndex.Query(bounds);
+                stopwatch.Stop();
+
+                if (stopwatch.ElapsedMilliseconds > 10)
+                {
+                    _logger.LogWarning("Spatial query execution reached warning threshold: {Elapsed}ms for bounds {Bounds}.", stopwatch.ElapsedMilliseconds, bounds);
+                }
+
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to query spatial index.");
+                return new List<HazardReport>();
             }
             finally
             {
-                _lock.Release();
+                _indexLock.ExitReadLock();
             }
         }
 
         public async Task UpdateHazardCacheAsync(HazardReport hazard)
         {
-            await _lock.WaitAsync();
+            if (hazard == null) return;
+
+            // 1. Update persistent L2 cache
+            string key = $"{CacheKeyPrefix}{hazard.Id}";
+            await _hybridCache.SetAsync(key, hazard);
+
+            // 2. Update in-memory spatial index
+            _indexLock.EnterWriteLock();
             try
             {
-                // 1. Update L1/L2 persistent cache
-                string key = $"{CacheKeyPrefix}{hazard.Id}";
-                await _hybridCache.SetAsync(key, hazard);
-
-                // 2. Update Dynamic Spatial Index
                 _spatialIndex.Insert(hazard.Location.EnvelopeInternal, hazard);
             }
             finally
             {
-                _lock.Release();
+                _indexLock.ExitWriteLock();
             }
         }
 
         public async Task BulkUpdateHazardsAsync(IEnumerable<HazardReport> hazards)
         {
-            await _lock.WaitAsync();
+            if (hazards == null) return;
+
+            var hazardList = hazards.ToList();
+            if (hazardList.Count == 0) return;
+
+            // 1. Bulk update L2 entries
+            foreach (var hazard in hazardList)
+            {
+                await _hybridCache.SetAsync($"{CacheKeyPrefix}{hazard.Id}", hazard);
+            }
+
+            // 2. Update in-memory spatial index
+            _indexLock.EnterWriteLock();
             try
             {
-                foreach (var hazard in hazards)
+                foreach (var hazard in hazardList)
                 {
-                    string key = $"{CacheKeyPrefix}{hazard.Id}";
-                    await _hybridCache.SetAsync(key, hazard);
                     _spatialIndex.Insert(hazard.Location.EnvelopeInternal, hazard);
                 }
             }
             finally
             {
-                _lock.Release();
+                _indexLock.ExitWriteLock();
             }
         }
     }
