@@ -40,7 +40,7 @@ export default function AuthScreen() {
   const [error, setError] = useState<string | null>(null);
   
   const { signIn, signUp, isAuthenticated } = useAuth();
-  const { shake, animatedStyle: shakeStyle } = useFormAnimation();
+  const { shake, shakeStyle } = useFormAnimation();
   const animation = useSharedValue(0);
 
   useEffect(() => {
@@ -212,7 +212,7 @@ export default function AuthScreen() {
                   {!isSignup && (
                     <TouchableOpacity 
                       style={styles.forgotPasswordContainer}
-                      onPress={() => router.push("/forgot-password")}
+                      onPress={() => router.push("/forgot-password" as any)}
                     >
                       <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
                     </TouchableOpacity>
