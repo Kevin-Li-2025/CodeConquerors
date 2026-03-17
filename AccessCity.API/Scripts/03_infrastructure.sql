@@ -1,4 +1,4 @@
-CREATE TABLE infrastructure_asset(
+CREATE TABLE IF NOT EXISTS infrastructure_asset(
     id                  BIGSERIAL PRIMARY KEY,
     asset_type          TEXT NOT NULL,
     name                TEXT,
@@ -13,14 +13,14 @@ CREATE TABLE infrastructure_asset(
     UNIQUE (source_system, source_record_id)
 );
 
-CREATE INDEX idx_infrastructure_asset_geom 
+CREATE INDEX IF NOT EXISTS idx_infrastructure_asset_geom 
 ON infrastructure_asset 
 USING GIST (geom);
 
-CREATE INDEX idx_infrastructure_asset_type 
+CREATE INDEX IF NOT EXISTS idx_infrastructure_asset_type 
 ON infrastructure_asset (asset_type);
 
-CREATE TABLE crime_incident (
+CREATE TABLE IF NOT EXISTS crime_incident (
     id                  BIGSERIAL PRIMARY KEY,
     source_system       TEXT NOT NULL,
     source_record_id    TEXT NOT NULL,
@@ -34,14 +34,14 @@ CREATE TABLE crime_incident (
     UNIQUE (source_system, source_record_id)
 );
 
-CREATE INDEX idx_crime_incident_geom 
+CREATE INDEX IF NOT EXISTS idx_crime_incident_geom 
 ON crime_incident 
 USING GIST (geom);
 
-CREATE INDEX idx_crime_incident_time 
+CREATE INDEX IF NOT EXISTS idx_crime_incident_time 
 ON crime_incident (occurred_at);
 
-CREATE TABLE feed_ingestion_run (
+CREATE TABLE IF NOT EXISTS feed_ingestion_run (
     id                  BIGSERIAL PRIMARY KEY,
     source_type         feed_source_type NOT NULL,
     source_name         TEXT NOT NULL,
@@ -56,7 +56,7 @@ CREATE TABLE feed_ingestion_run (
     metadata            JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
-CREATE TABLE risk_grid_cell (
+CREATE TABLE IF NOT EXISTS risk_grid_cell (
     id                  BIGSERIAL PRIMARY KEY,
     cell_geom           geometry(Polygon, 4326) NOT NULL,
     risk_score          NUMERIC(5,2) NOT NULL,
@@ -68,6 +68,6 @@ CREATE TABLE risk_grid_cell (
     model_version       TEXT NOT NULL
 );
 
-CREATE INDEX idx_risk_grid_cell_geom 
+CREATE INDEX IF NOT EXISTS idx_risk_grid_cell_geom 
 ON risk_grid_cell 
 USING GIST (cell_geom);

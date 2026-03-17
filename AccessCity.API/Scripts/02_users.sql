@@ -1,4 +1,4 @@
-CREATE TABLE app_user (
+CREATE TABLE IF NOT EXISTS app_user (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email               TEXT UNIQUE,
     password_hash       TEXT,
@@ -9,7 +9,7 @@ CREATE TABLE app_user (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE user_accessibility_profile (
+CREATE TABLE IF NOT EXISTS user_accessibility_profile (
     user_id                     UUID PRIMARY KEY REFERENCES app_user(id) ON DELETE CASCADE,
     mobility_profile            mobility_profile NOT NULL DEFAULT 'standard_pedestrian',
     prefers_step_free           BOOLEAN NOT NULL DEFAULT FALSE,
