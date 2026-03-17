@@ -14,3 +14,16 @@ CREATE TABLE IF NOT EXISTS maintenance_ticket (
 CREATE INDEX IF NOT EXISTS idx_maintenance_ticket_status 
 ON maintenance_ticket (status);
 
+CREATE TABLE IF NOT EXISTS road_closure (
+    id                      BIGSERIAL PRIMARY KEY,
+    title                   TEXT NOT NULL,
+    description             TEXT,
+    affected_geom           geometry(Geometry, 4326) NOT NULL,
+    start_time              TIMESTAMPTZ NOT NULL,
+    end_time                TIMESTAMPTZ,
+    created_by_user_id      UUID REFERENCES app_user(id) ON DELETE SET NULL,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
+);
+
+CREATE INDEX IF NOT EXISTS idx_road_closure_geom 
+ON road_closure USING GIST (affected_geom);
