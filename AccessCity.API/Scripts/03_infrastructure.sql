@@ -29,7 +29,6 @@ CREATE TABLE IF NOT EXISTS crime_incident (
     occurred_at         TIMESTAMPTZ,
     reported_at         TIMESTAMPTZ,
     geom                geometry(Point, 4326) NOT NULL,
-    raw_payload         JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (source_system, source_record_id)
 );
