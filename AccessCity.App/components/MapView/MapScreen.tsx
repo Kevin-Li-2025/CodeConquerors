@@ -11,8 +11,9 @@ import HazardDetailsModal from './HazardDetailsModal';
 import FilterModal from './FilterModal';
 import ReportHazardModal from './ReportHazardModal';
 import MapCanvas from './MapCanvas';
+import { api } from '../../services/api';
 
-import { hazards } from './mapData';
+import { hazards as staticHazards } from './mapData';
 import {
   Coordinate,
   Hazard,
@@ -28,6 +29,7 @@ export default function MapScreen() {
   const [travelTime, setTravelTime] = useState('');
   const [distance, setDistance] = useState('');
   const [safetyScore, setSafetyScore] = useState('');
+  const [hazardsState, setHazardsState] = useState<Hazard[]>([]);
 
   const [reportModalVisible, setReportModalVisible] = useState(false);
   const [selectedReportType, setSelectedReportType] =
@@ -55,7 +57,28 @@ export default function MapScreen() {
 
   useEffect(() => {
     getCurrentLocation();
+    fetchHazards();
   }, []);
+
+  async function fetchHazards() {
+    try {
+      const data: any = await api.get('/hazards');
+      const mapped = data.map((h: any) => ({
+        id: h.id,
+        title: h.description.split('.')[0],
+        type: h.type,
+        latitude: h.location.coordinates[1],
+        longitude: h.location.coordinates[0],
+        description: h.description,
+        status: h.status === 0 ? 'Reported' : h.status === 1 ? 'UnderReview' : 'Resolved',
+        locationText: 'Hazard reported',
+        reportedTime: new Date(h.reportedAt).toLocaleDateString()
+      }));
+      setHazardsState(mapped);
+    } catch (err) {
+      console.error("Failed to fetch hazards:", err);
+    }
+  }
 
   useEffect(() => {
     if (openReportModalParam) {
@@ -86,60 +109,75 @@ export default function MapScreen() {
     }
   }
 
-  function handleSetDestination() {
-    if (!destinationText.trim()) {
-      Alert.alert('Missing destination', 'Please enter a destination.');
-      return;
-    }
-
-    setDestination({
-      latitude: 52.4862,
-      longitude: -1.8904,
-    });
-  }
-
-  async function fetchRouteFromBackend() {
-    if (!currentLocation || !destination) {
-      Alert.alert('Missing data', 'Current location or destination is missing.');
-      return;
-    }
-
+  async function handleSearch(): Promise<Coordinate | null> {
+    if (!destinationText.trim()) return null;
+    
     try {
-      const response = await fetch('https://your-backend-api.com/route', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startLatitude: currentLocation.latitude,
-          startLongitude: currentLocation.longitude,
-          endLatitude: destination.latitude,
-          endLongitude: destination.longitude,
-          filters: routeFilters,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch route');
+      const results: any = await api.get(`/geocoding/search?query=${encodeURIComponent(destinationText)}`);
+      if (results && results.length > 0) {
+        const first = results[0];
+        const newDest: Coordinate = {
+          latitude: parseFloat(first.lat),
+          longitude: parseFloat(first.lon),
+        };
+        setDestination(newDest);
+        return newDest;
+      } else {
+        Alert.alert('Not found', 'Could not find that location.');
       }
-
-      const data = await response.json();
-
-      setRouteCoordinates(data.routeCoordinates || []);
-      setTravelTime(data.travelTime || '');
-      setDistance(data.distance || '');
-      setSafetyScore(data.safetyScore || '');
-    } catch (error) {
-      console.error('Error fetching route:', error);
-      Alert.alert('Route error', 'Could not load the route from backend.');
+    } catch (err) {
+      console.error("Search failed:", err);
     }
+    return null;
   }
 
   async function handleStartRoute() {
-    if (!destination) {
-      Alert.alert('No destination', 'Please set a destination first.');
-      return;
+    let finalDest = destination;
+
+    if (!finalDest) {
+      if (!destinationText.trim()) {
+        Alert.alert('Set destination', 'Type a place and tap Start Navigation.');
+        return;
+      }
+      finalDest = await handleSearch();
+      if (!finalDest) return;
     }
 
-    await fetchRouteFromBackend();
+    const start: Coordinate = currentLocation ?? { latitude: 52.4814, longitude: -1.9003 };
+
+    try {
+      const preferences = [];
+      if (routeFilters.wheelchairAccessible) preferences.push('wheelchair');
+      if (routeFilters.preferWellLitStreets) preferences.push('low-light-penalty');
+      if (routeFilters.avoidReportedHazards) preferences.push('avoid-reported-hazards');
+      if (routeFilters.avoidSteepHills) preferences.push('avoid-steep-hills');
+
+      const data: any = await api.post('/routing/safe-path', {
+        start: { x: start.longitude, y: start.latitude },
+        end: { x: finalDest.longitude, y: finalDest.latitude },
+        preferences: preferences,
+        safetyWeight: routeFilters.avoidReportedHazards ? 0.9 : 0.6
+      });
+
+      const path = data.path || data.Path;
+      const coords = path?.coordinates?.map((c: number[]) => ({
+        longitude: c[0],
+        latitude: c[1]
+      })) || [];
+      
+      setRouteCoordinates(coords);
+      
+      const dist = data.distance ?? data.Distance ?? 0;
+      const time = data.estimatedTime ?? data.EstimatedTime ?? 0;
+      const score = data.safetyScore ?? data.SafetyScore ?? 0;
+      
+      setTravelTime(`${Math.round(time / 60)} min`);
+      setDistance(`${(dist / 1000).toFixed(1)} km`);
+      setSafetyScore(`${Math.round(score * 100)}%`);
+    } catch (error) {
+      console.error(error);
+      Alert.alert('Routing Error', 'Could not compute route.');
+    }
   }
 
   function toggleFilter<K extends keyof RouteFilters>(key: K) {
@@ -267,7 +305,7 @@ export default function MapScreen() {
         initialRegion={initialRegion}
         currentLocation={currentLocation}
         destination={destination}
-        hazards={hazards}
+        hazards={hazardsState}
         routeCoordinates={routeCoordinates}
         onHazardPress={handleHazardPress}
       />
@@ -275,7 +313,7 @@ export default function MapScreen() {
       <SearchBar
         value={destinationText}
         onChangeText={setDestinationText}
-        onSubmitEditing={handleSetDestination}
+        onSubmitEditing={handleSearch}
       />
 
       <TouchableOpacity
