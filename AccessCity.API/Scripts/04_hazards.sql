@@ -30,7 +30,7 @@ CREATE TABLE hazard_report (
     reported_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
     duplicate_of_report_id  UUID REFERENCES hazard_report(id) ON DELETE SET NULL, --Other reports can be linked
     source                  TEXT NOT NULL DEFAULT 'user',
-    status                  hazard_status NOT NULL DEFAULT 'reported',                   
+    status                  hazard_status NOT NULL DEFAULT 'reported'                
 );
 
 CREATE INDEX idx_hazard_report_geom 
@@ -41,3 +41,17 @@ ON hazard_report (reporter_user_id);
 
 CREATE INDEX idx_hazard_report_cluster 
 ON hazard_report (hazard_cluster_id);
+
+CREATE TABLE hazard_status_history (
+    id                      BIGSERIAL PRIMARY KEY,
+    hazard_cluster_id       BIGINT NOT NULL REFERENCES hazard_cluster(id) ON DELETE CASCADE,
+    old_status              hazard_status,
+    new_status              hazard_status,
+    changed_by_user_id      UUID REFERENCES app_user(id) ON DELETE SET NULL,
+    changed_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_hazard_status_history_cluster
+ON hazard_status_history (hazard_cluster_id, changed_at DESC);
+
+
