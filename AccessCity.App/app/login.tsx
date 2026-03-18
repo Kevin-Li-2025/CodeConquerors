@@ -10,7 +10,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   StatusBar,
-  Alert,
   ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -20,6 +19,7 @@ import { router } from "expo-router";
 import { useAuth } from "@/context/AuthContext";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { useFormAnimation } from "@/hooks/use-form-animation";
+import { authService } from "@/services/auth.service";
 
 export default function LoginScreen() {
   const [email, setEmail] = useState("");
@@ -31,6 +31,8 @@ export default function LoginScreen() {
   const { shake, shakeStyle } = useFormAnimation();
 
   const handleLogin = async () => {
+    await authService.clearSession();
+
     setErrorStatus(null);
     if (!email || !password) {
       setErrorStatus("All fields are mandatory");
@@ -122,7 +124,10 @@ export default function LoginScreen() {
 
               <ErrorMessage visible={!!errorStatus} message={errorStatus ?? undefined} />
 
-              <TouchableOpacity style={styles.forgotPasswordContainer}>
+              <TouchableOpacity
+                style={styles.forgotPasswordContainer}
+                onPress={() => router.push("/forgot-password")}
+              >
                 <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
               </TouchableOpacity>
 
