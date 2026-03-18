@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using AccessCity.API.Models;
+using AccessCity.API.Services;
 
 namespace AccessCity.API.Controllers
 {
@@ -7,10 +8,18 @@ namespace AccessCity.API.Controllers
     [Route("api/[controller]")]
     public class HazardsController : ControllerBase
     {
-        [HttpGet]
-        public ActionResult<IEnumerable<HazardReport>> GetHazards([FromQuery] double? minLat, [FromQuery] double? minLng, [FromQuery] double? maxLat, [FromQuery] double? maxLng)
+        private readonly IRealHazardDataService _realHazardData;
+
+        public HazardsController(IRealHazardDataService realHazardData)
         {
-            return Ok(AccessCity.API.Data.StaticHazardData.GetActiveHazards());
+            _realHazardData = realHazardData;
+        }
+
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<HazardReport>>> GetHazards([FromQuery] double? minLat, [FromQuery] double? minLng, [FromQuery] double? maxLat, [FromQuery] double? maxLng)
+        {
+            var hazards = await _realHazardData.GetActiveHazardsAsync(minLat, minLng, maxLat, maxLng);
+            return Ok(hazards);
         }
 
         [HttpPost]

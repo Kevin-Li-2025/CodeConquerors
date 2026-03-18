@@ -1,6 +1,8 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using AccessCity.API.Exceptions;
 using AccessCity.API.Models.External;
+using Microsoft.Extensions.Configuration;
 
 namespace AccessCity.API.Services.External
 {
@@ -11,15 +13,22 @@ namespace AccessCity.API.Services.External
     public interface IOpenStreetMapClient
     {
         Task<List<OverpassElement>?> GetInfrastructureDataAsync(double minLat, double minLng, double maxLat, double maxLng);
+        /// <summary>Fetches real OSM features that represent hazards/barriers: barriers, steps, poor surface.</summary>
+        Task<List<OverpassElement>?> GetHazardLikeDataAsync(double minLat, double minLng, double maxLat, double maxLng);
     }
 
     public class OverpassApiClient : IOpenStreetMapClient
     {
+        private const string DefaultOverpassEndpoint = "https://overpass-api.de/api/interpreter";
         private readonly HttpClient _httpClient;
+        private readonly ILogger<OverpassApiClient> _logger;
+        private readonly string _overpassEndpoint;
 
-        public OverpassApiClient(HttpClient httpClient)
+        public OverpassApiClient(HttpClient httpClient, ILogger<OverpassApiClient> logger, IConfiguration configuration)
         {
             _httpClient = httpClient;
+            _logger = logger;
+            _overpassEndpoint = configuration["Overpass:Endpoint"] ?? DefaultOverpassEndpoint;
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "AccessCity-UniversityProject/1.0");
         }
 
@@ -37,13 +46,60 @@ namespace AccessCity.API.Services.External
             ";
 
             var response = await _httpClient.PostAsync(
-                "https://overpass-api.de/api/interpreter", 
+                _overpassEndpoint,
                 new StringContent(overpassQuery));
 
             if (!response.IsSuccessStatusCode) return null;
 
             var data = await response.Content.ReadFromJsonAsync<OverpassResponse>();
             return data?.Elements;
+        }
+
+        public async Task<List<OverpassElement>?> GetHazardLikeDataAsync(double minLat, double minLng, double maxLat, double maxLng)
+        {
+            var bbox = $"[{minLat:F4},{minLng:F4},{maxLat:F4},{maxLng:F4}]";
+            var overpassQuery = $@"
+                [out:json][timeout:30];
+                (
+                  node[""barrier""]({minLat},{minLng},{maxLat},{maxLng});
+                  way[""highway""=""steps""]({minLat},{minLng},{maxLat},{maxLng});
+                  way[""highway""=""path""][""surface""~""unpaved|gravel|cobblestone|mud|dirt""]({minLat},{minLng},{maxLat},{maxLng});
+                  way[""highway""=""footway""][""surface""~""unpaved|gravel|cobblestone|mud|dirt""]({minLat},{minLng},{maxLat},{maxLng});
+                );
+                out center;
+            ";
+
+            try
+            {
+                var response = await _httpClient.PostAsync(
+                    _overpassEndpoint,
+                    new StringContent(overpassQuery));
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    _logger.LogError(
+                        "Overpass API returned non-success. Endpoint: {Endpoint}, Bbox: {Bbox}, StatusCode: {StatusCode}, ResponseBody: {ResponseBody}",
+                        _overpassEndpoint, bbox, (int)response.StatusCode, body.Length > 500 ? body[..500] + "..." : body);
+                    throw new OverpassServiceException(
+                        $"Overpass returned {(int)response.StatusCode} ({response.StatusCode}). Bbox: {bbox}.");
+                }
+
+                var data = await response.Content.ReadFromJsonAsync<OverpassResponse>().ConfigureAwait(false);
+                return data?.Elements;
+            }
+            catch (OverpassServiceException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex,
+                    "Overpass request failed. Endpoint: {Endpoint}, Bbox: {Bbox}, ExceptionType: {ExceptionType}, Message: {Message}",
+                    _overpassEndpoint, bbox, ex.GetType().Name, ex.Message);
+                throw new OverpassServiceException(
+                    $"Overpass request failed: {ex.GetType().Name} - {ex.Message}. Bbox: {bbox}.", ex);
+            }
         }
     }
 
