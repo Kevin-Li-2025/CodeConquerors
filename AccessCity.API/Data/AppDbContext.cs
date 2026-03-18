@@ -36,18 +36,34 @@ namespace AccessCity.API.Data
                 value => value.Aggregate(0, (hash, item) => HashCode.Combine(hash, item.GetHashCode())),
                 value => value.ToList());
 
+            var hazardStatusConverter = new ValueConverter<HazardStatus, DatabaseHazardStatus>(
+                value => ConvertHazardStatusToDb(value),
+                value => ConvertHazardStatusFromDb(value));
+
+            var nullableGuidStringConverter = new ValueConverter<string?, Guid?>(
+                value => ConvertNullableStringToGuid(value),
+                value => ConvertNullableGuidToString(value));
+
             builder.Entity<HazardReport>(entity =>
             {
-                entity.ToTable("hazard_reports");
+                entity.ToTable("hazard_report");
                 entity.HasKey(e => e.Id);
-                entity.Property(e => e.Type).HasMaxLength(50);
-                entity.Property(e => e.Description).HasMaxLength(1000);
-                entity.Property(e => e.PhotoUrl).HasMaxLength(2048);
-                entity.Property(e => e.Source).HasMaxLength(50);
-                entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
-                entity.Property(e => e.Location).HasColumnType("geometry(Point,4326)");
-                entity.HasIndex(e => e.ReportedAt);
+                entity.Property(e => e.Id).HasColumnName("id");
+                entity.Property(e => e.Location).HasColumnName("geom").HasColumnType("geometry(Point,4326)");
+                entity.Property(e => e.Type).HasColumnName("hazard_type").HasColumnType("text");
+                entity.Property(e => e.Description).HasColumnName("description");
+                entity.Property(e => e.PhotoUrl).HasColumnName("photo_url").HasMaxLength(2048);
+                entity.Property(e => e.ReportedAt).HasColumnName("reported_at");
+                entity.Property(e => e.Source).HasColumnName("source");
+                entity.Property(e => e.Status).HasColumnName("status").HasConversion(hazardStatusConverter).HasColumnType("hazard_status");
+                entity.Property(e => e.ReporterUserId)
+                    .HasColumnName("reporter_user_id")
+                    .HasConversion(nullableGuidStringConverter)
+                    .HasColumnType("uuid");
+                entity.HasIndex(e => e.ReportedAt).HasDatabaseName("IX_hazard_report_reported_at");
             });
+
+            builder.HasPostgresEnum<DatabaseHazardStatus>("hazard_status");
 
             builder.Entity<AccessCityUser>(entity =>
             {
@@ -61,8 +77,16 @@ namespace AccessCity.API.Data
 
             builder.Entity<RefreshToken>(entity =>
             {
-                entity.ToTable("refresh_tokens");
-                entity.Property(e => e.Token).HasMaxLength(400);
+                entity.ToTable("refresh_token");
+                entity.Property(e => e.Token).HasColumnName("token").HasMaxLength(400);
+                entity.Property(e => e.CreatedByIp).HasColumnName("created_by_ip");
+                entity.Property(e => e.Expires).HasColumnName("expires_at");
+                entity.Property(e => e.Created).HasColumnName("created_at");
+                entity.Property(e => e.Revoked).HasColumnName("revoked");
+                entity.Property(e => e.RevokedByIp).HasColumnName("revoked_by_ip");
+                entity.Property(e => e.ReplacedByToken).HasColumnName("replaced_by_token");
+                entity.Property(e => e.ReasonRevoked).HasColumnName("reason_revoked");
+                entity.Property(e => e.UserId).HasColumnName("user_id");
                 entity.HasOne(d => d.User)
                     .WithMany(p => p.RefreshTokens)
                     .HasForeignKey(d => d.UserId)
@@ -118,6 +142,49 @@ namespace AccessCity.API.Data
                     .HasForeignKey(e => e.ToNodeId)
                     .OnDelete(DeleteBehavior.Cascade);
             });
+        }
+
+        private static DatabaseHazardStatus ConvertHazardStatusToDb(HazardStatus value)
+        {
+            return value switch
+            {
+                HazardStatus.Reported => DatabaseHazardStatus.Reported,
+                HazardStatus.UnderReview => DatabaseHazardStatus.UnderReview,
+                HazardStatus.Resolved => DatabaseHazardStatus.Resolved,
+                HazardStatus.Dismissed => DatabaseHazardStatus.Rejected,
+                _ => DatabaseHazardStatus.Reported
+            };
+        }
+
+        private static HazardStatus ConvertHazardStatusFromDb(DatabaseHazardStatus value)
+        {
+            return value switch
+            {
+                DatabaseHazardStatus.Reported => HazardStatus.Reported,
+                DatabaseHazardStatus.UnderReview => HazardStatus.UnderReview,
+                DatabaseHazardStatus.Verified => HazardStatus.UnderReview,
+                DatabaseHazardStatus.ActionPlanned => HazardStatus.UnderReview,
+                DatabaseHazardStatus.InProgress => HazardStatus.UnderReview,
+                DatabaseHazardStatus.Resolved => HazardStatus.Resolved,
+                DatabaseHazardStatus.Rejected => HazardStatus.Dismissed,
+                DatabaseHazardStatus.Duplicate => HazardStatus.Dismissed,
+                _ => HazardStatus.Reported
+            };
+        }
+
+        private static Guid? ConvertNullableStringToGuid(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            return Guid.Parse(value);
+        }
+
+        private static string? ConvertNullableGuidToString(Guid? value)
+        {
+            return value?.ToString();
         }
     }
 }

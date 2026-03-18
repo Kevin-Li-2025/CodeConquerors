@@ -37,11 +37,11 @@ public class HazardsController : ControllerBase
             var hazardsInBounds = await _dbContext.Hazards
                 .FromSqlInterpolated($"""
                     SELECT *
-                    FROM hazard_reports
+                    FROM hazard_report
                     WHERE ST_Intersects(
-                        "Location",
+                        geom,
                         ST_MakeEnvelope({minLng!.Value}, {minLat!.Value}, {maxLng!.Value}, {maxLat!.Value}, 4326))
-                    ORDER BY "ReportedAt" DESC
+                    ORDER BY reported_at DESC
                     """)
                 .AsNoTracking()
                 .ToListAsync();

@@ -72,9 +72,9 @@ namespace AccessCity.API.Services
             var databaseResults = await dbContext.Hazards
                 .FromSqlInterpolated($"""
                     SELECT *
-                    FROM hazard_reports
+                    FROM hazard_report
                     WHERE ST_Intersects(
-                        "Location",
+                        geom,
                         ST_MakeEnvelope({bounds.MinX}, {bounds.MinY}, {bounds.MaxX}, {bounds.MaxY}, 4326))
                     """)
                 .AsNoTracking()

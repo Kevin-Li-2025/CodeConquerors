@@ -4,6 +4,7 @@ using System.Text.Json;
 using AccessCity.API.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using NetTopologySuite.Geometries;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
@@ -13,9 +14,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace AccessCity.API.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260318223301_AlignRefreshTokenAndHazardPhotoSchema")]
+    partial class AlignRefreshTokenAndHazardPhotoSchema
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -23,10 +26,6 @@ namespace AccessCity.API.Data.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "postgis");
-            NpgsqlModelBuilderExtensions.HasPostgresEnum(
-                modelBuilder,
-                "hazard_status",
-                new[] { "reported", "under_review", "verified", "action_planned", "in_progress", "resolved", "rejected", "duplicate" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("AccessCity.API.Models.FeedIngestionRun", b =>
@@ -86,18 +85,16 @@ namespace AccessCity.API.Data.Migrations
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
+                        .HasColumnType("uuid");
 
                     b.Property<string>("Description")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("description");
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<Point>("Location")
                         .IsRequired()
-                        .HasColumnType("geometry(Point,4326)")
-                        .HasColumnName("geom");
+                        .HasColumnType("geometry(Point,4326)");
 
                     b.Property<string>("PhotoUrl")
                         .IsRequired()
@@ -106,32 +103,29 @@ namespace AccessCity.API.Data.Migrations
                         .HasColumnName("photo_url");
 
                     b.Property<DateTime>("ReportedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("reported_at");
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("ReporterUserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("reporter_user_id");
+                        .HasColumnType("text");
 
                     b.Property<string>("Source")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("source");
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("Status")
                         .IsRequired()
-                        .HasColumnType("hazard_status")
-                        .HasColumnName("status");
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("Type")
                         .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("hazard_type");
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("ReportedAt")
-                        .HasDatabaseName("IX_hazard_report_reported_at");
+                    b.HasIndex("ReportedAt");
 
                     b.ToTable("hazard_report", (string)null);
                 });

@@ -1,4 +1,5 @@
 using NetTopologySuite.Geometries;
+using NpgsqlTypes;
 
 namespace AccessCity.API.Models
 {
@@ -8,6 +9,26 @@ namespace AccessCity.API.Models
         UnderReview,
         Resolved,
         Dismissed
+    }
+
+    public enum DatabaseHazardStatus
+    {
+        [PgName("reported")]
+        Reported,
+        [PgName("under_review")]
+        UnderReview,
+        [PgName("verified")]
+        Verified,
+        [PgName("action_planned")]
+        ActionPlanned,
+        [PgName("in_progress")]
+        InProgress,
+        [PgName("resolved")]
+        Resolved,
+        [PgName("rejected")]
+        Rejected,
+        [PgName("duplicate")]
+        Duplicate
     }
 
     public class HazardReport

@@ -117,23 +117,37 @@ public class AccessCityApiFactory : WebApplicationFactory<Program>
         using var command = connection.CreateCommand();
         command.CommandText = """
             DO $$
+            DECLARE
+                current_table text;
             BEGIN
                 IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'AspNetUsers') THEN
-                    TRUNCATE TABLE
-                        "AspNetUserTokens",
-                        "AspNetUserRoles",
-                        "AspNetUserLogins",
-                        "AspNetUserClaims",
-                        "AspNetRoleClaims",
-                        "AspNetRoles",
-                        refresh_tokens,
-                        hazard_reports,
-                        infrastructure_assets,
-                        route_edges,
-                        route_nodes,
-                        feed_ingestion_runs,
-                        "AspNetUsers"
-                    RESTART IDENTITY CASCADE;
+                    FOREACH current_table IN ARRAY ARRAY[
+                        'AspNetUserTokens',
+                        'AspNetUserRoles',
+                        'AspNetUserLogins',
+                        'AspNetUserClaims',
+                        'AspNetRoleClaims',
+                        'AspNetRoles',
+                        'refresh_token',
+                        'refresh_tokens',
+                        'hazard_report',
+                        'hazard_reports',
+                        'infrastructure_assets',
+                        'route_edges',
+                        'route_nodes',
+                        'feed_ingestion_runs',
+                        'AspNetUsers'
+                    ]
+                    LOOP
+                        IF EXISTS (
+                            SELECT 1
+                            FROM information_schema.tables
+                            WHERE table_schema = 'public'
+                              AND table_name = current_table
+                        ) THEN
+                            EXECUTE format('TRUNCATE TABLE public.%I RESTART IDENTITY CASCADE', current_table);
+                        END IF;
+                    END LOOP;
                 END IF;
             END $$;
             """;
