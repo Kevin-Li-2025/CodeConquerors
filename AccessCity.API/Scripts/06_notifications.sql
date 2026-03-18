@@ -9,3 +9,18 @@ CREATE TABLE IF NOT EXISTS notification (
     created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
     read_at                 TIMESTAMPTZ   
 );
+
+CREATE INDEX IF NOT EXISTS idx_notification_user_created 
+ON notification (user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+    id                      BIGSERIAL PRIMARY KEY,
+    actor_user_id           UUID REFERENCES app_user(id) ON DELETE SET NULL,
+    action                  TEXT NOT NULL,       -- e.g. 'created', 'updated', 'deleted'
+    entity_type             TEXT NOT NULL,       -- e.g. 'hazard_report', 'maintenance_ticket'
+    entity_id               TEXT NOT NULL,       -- the id of the affected entity
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_entity 
+ON audit_log (entity_type, entity_id);
