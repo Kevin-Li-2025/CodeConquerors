@@ -33,7 +33,10 @@ builder.Services.AddSingleton<ISpatialCacheService, SpatialCacheService>();
 builder.Services.AddSingleton<IBloomFilterService, BloomFilterService>();
 builder.Services.AddScoped<IMapTileService, MapTileService>();
 
-builder.Services.AddControllers()
+builder.Services.AddControllers(options =>
+    {
+        options.Filters.Add<AccessCity.API.Filters.OverpassExceptionFilter>();
+    })
     .AddJsonOptions(options =>
     {
         var factory = new NetTopologySuite.IO.Converters.GeoJsonConverterFactory();
@@ -104,6 +107,7 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddHttpClient<AccessCity.API.Services.External.IOpenStreetMapClient, AccessCity.API.Services.External.OverpassApiClient>();
+builder.Services.AddScoped<IRealHazardDataService, RealHazardDataService>();
 builder.Services.AddHttpClient<AccessCity.API.Services.External.IUkPoliceDataClient, AccessCity.API.Services.External.UkPoliceDataClient>();
 builder.Services.AddHttpClient<AccessCity.API.Services.External.ISafeHavenPlacesClient, AccessCity.API.Services.External.GooglePlacesClient>();
 builder.Services.AddHttpClient<AccessCity.API.Services.External.ILiveHazardClient, AccessCity.API.Services.External.OpenWeatherClient>();
