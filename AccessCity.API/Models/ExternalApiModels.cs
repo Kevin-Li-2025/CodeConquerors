@@ -11,10 +11,26 @@ namespace AccessCity.API.Models.External
 
     public class OverpassElement
     {
+        [JsonPropertyName("id")]
         public long Id { get; set; }
-        public string Type { get; set; } = string.Empty;
+        [JsonPropertyName("type")]
+        public string Type { get; set; } = string.Empty; // "node" or "way"
+        [JsonPropertyName("tags")]
         public Dictionary<string, string> Tags { get; set; } = new();
+        [JsonPropertyName("lat")]
         public double Lat { get; set; }
+        [JsonPropertyName("lon")]
+        public double Lon { get; set; }
+        /// <summary>Present for ways when using "out center".</summary>
+        [JsonPropertyName("center")]
+        public OverpassLatLon? Center { get; set; }
+    }
+
+    public class OverpassLatLon
+    {
+        [JsonPropertyName("lat")]
+        public double Lat { get; set; }
+        [JsonPropertyName("lon")]
         public double Lon { get; set; }
         
         [JsonPropertyName("center")]

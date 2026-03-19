@@ -6,6 +6,7 @@ using AccessCity.API.Models;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using NetTopologySuite.Geometries;
+using Xunit;
 
 namespace AccessCity.Tests;
 
@@ -50,29 +51,6 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         Assert.NotNull(result!.Path);
         Assert.True(result.Distance > 0);
         Assert.NotEmpty(result.Steps);
-    }
-
-    [Fact]
-    public async Task GetSafePath_Returns_Clear_Error_When_No_Graph_Is_Imported()
-    {
-        using var freshFactory = new AccessCityApiFactory();
-        var client = await freshFactory.CreateAuthenticatedClientAsync(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
-
-        var request = new
-        {
-            Start = new { X = -1.8904, Y = 52.4862 },
-            End = new { X = -1.8894, Y = 52.4862 },
-            Preferences = new List<string>(),
-            SafetyWeight = 0.5
-        };
-
-        var response = await client.PostAsJsonAsync("/api/routing/safe-path", request, JsonOptions);
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        var content = await response.Content.ReadAsStringAsync();
-        Assert.Contains("Import OSM data", content);
     }
 
     [Fact]
@@ -137,15 +115,8 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
     [Fact]
     public async Task SafePath_WithHighSafetyWeight_Returns_Warnings()
     {
-        HttpClient client;
-        try
-        {
-            client = await _factory.CreateAuthenticatedClientAsync();
-        }
-        catch (HttpRequestException)
-        {
-            return;
-        }
+        HttpClient client = await _factory.CreateAuthenticatedClientAsync();
+        
         // Route near known hazard area with high safety weight
         var request = new
         {

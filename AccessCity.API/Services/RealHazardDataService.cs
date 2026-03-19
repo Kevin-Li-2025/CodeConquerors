@@ -80,7 +80,6 @@ public class RealHazardDataService : IRealHazardDataService
             // Fail gracefully if DB is down, still return OSM data
             Console.WriteLine($"[DB ERROR] Failed to fetch hazards: {ex.Message}");
         }
-
         _cache.Set(cacheKey, list, CacheExpiration);
 
         return list;

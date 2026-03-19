@@ -40,6 +40,10 @@ builder.Services.AddHybridCache(options =>
 });
 #pragma warning restore EXTEXP0018
 
+builder.Services.AddSingleton<ISpatialCacheService, SpatialCacheService>();
+builder.Services.AddSingleton<IBloomFilterService, BloomFilterService>();
+builder.Services.AddScoped<IMapTileService, MapTileService>();
+
 builder.Services.AddControllers(options =>
     {
         options.Filters.Add<AccessCity.API.Filters.OverpassExceptionFilter>();
@@ -54,7 +58,20 @@ builder.Services.AddControllers(options =>
 
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
-    ConfigureDatabase(options, serviceProvider.GetRequiredService<IConfiguration>());
+    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+    var env = serviceProvider.GetRequiredService<IWebHostEnvironment>();
+    
+    var connectionString = PostgresConnectionStringResolver.Resolve(configuration);
+    
+    if (env.IsDevelopment() && string.IsNullOrEmpty(connectionString) && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("USE_POSTGRES")))
+    {
+        options.UseInMemoryDatabase("AccessCityMemoryDb");
+        options.ConfigureWarnings(x => x.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
+    }
+    else
+    {
+        ConfigureDatabase(options, configuration);
+    }
 });
 
 builder.Services.AddIdentityCore<AccessCityUser>(options =>
@@ -103,6 +120,8 @@ builder.Services.AddScoped<IMapTileService, MapTileService>();
 builder.Services.AddScoped<IRouteGraphRepository, RouteGraphRepository>();
 builder.Services.AddScoped<IOsmImportService, OsmImportService>();
 builder.Services.AddScoped<RiskScoringService>();
+builder.Services.AddScoped<PredictiveRiskModel>();
+builder.Services.AddHttpClient<AccessCity.API.Services.External.IOsrmClient, AccessCity.API.Services.External.OsrmClient>();
 builder.Services.AddScoped<RoutingService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 
@@ -156,8 +175,12 @@ if (!app.Environment.IsDevelopment())
 }
 
 await MigrateDatabaseAsync(app);
-await NormalizeSchemaAsync(app);
-await RunOptionalOsmImportAsync(app);
+
+if (!(app.Environment.IsDevelopment() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("USE_POSTGRES"))))
+{
+    await NormalizeSchemaAsync(app);
+    await RunOptionalOsmImportAsync(app);
+}
 
 app.UseCors();
 app.UseAuthentication();
@@ -193,6 +216,12 @@ static void ConfigureDatabase(DbContextOptionsBuilder options, IConfiguration co
 static async Task MigrateDatabaseAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
+    var env = scope.ServiceProvider.GetRequiredService<IWebHostEnvironment>();
+    if (env.IsDevelopment() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("USE_POSTGRES")))
+    {
+        return;
+    }
+
     var postgresOptions = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<PostgresOptions>>();
     if (!postgresOptions.Value.AutoMigrate)
     {

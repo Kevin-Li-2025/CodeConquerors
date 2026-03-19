@@ -44,26 +44,42 @@ namespace AccessCity.API.Data
                 value => ConvertNullableStringToGuid(value),
                 value => ConvertNullableGuidToString(value));
 
+            var isRelational = this.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory";
+            
+            // Note: If Database.ProviderName throws, we might need a different approach.
+            // But usually it's fine here.
+
             builder.Entity<HazardReport>(entity =>
             {
                 entity.ToTable("hazard_report");
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Id).HasColumnName("id");
-                entity.Property(e => e.Location).HasColumnName("geom").HasColumnType("geometry(Point,4326)");
-                entity.Property(e => e.Type).HasColumnName("hazard_type").HasColumnType("text");
+                entity.Property(e => e.Location).HasColumnName("geom");
+                if (isRelational) entity.Property(e => e.Location).HasColumnType("geometry(Point,4326)");
+                
+                entity.Property(e => e.Type).HasColumnName("hazard_type");
+                if (isRelational) entity.Property(e => e.Type).HasColumnType("text");
+                
                 entity.Property(e => e.Description).HasColumnName("description");
                 entity.Property(e => e.PhotoUrl).HasColumnName("photo_url").HasMaxLength(2048);
                 entity.Property(e => e.ReportedAt).HasColumnName("reported_at");
                 entity.Property(e => e.Source).HasColumnName("source");
-                entity.Property(e => e.Status).HasColumnName("status").HasConversion(hazardStatusConverter).HasColumnType("hazard_status");
+                
+                entity.Property(e => e.Status).HasColumnName("status").HasConversion(hazardStatusConverter);
+                if (isRelational) entity.Property(e => e.Status).HasColumnType("hazard_status");
+                
                 entity.Property(e => e.ReporterUserId)
                     .HasColumnName("reporter_user_id")
-                    .HasConversion(nullableGuidStringConverter)
-                    .HasColumnType("uuid");
+                    .HasConversion(nullableGuidStringConverter);
+                if (isRelational) entity.Property(e => e.ReporterUserId).HasColumnType("uuid");
+
                 entity.HasIndex(e => e.ReportedAt).HasDatabaseName("IX_hazard_report_reported_at");
             });
 
-            builder.HasPostgresEnum<DatabaseHazardStatus>("hazard_status");
+            if (isRelational)
+            {
+                builder.HasPostgresEnum<DatabaseHazardStatus>("hazard_status");
+            }
 
             builder.Entity<AccessCityUser>(entity =>
             {
@@ -71,8 +87,9 @@ namespace AccessCity.API.Data
                 entity.Property(e => e.FullName).HasMaxLength(150);
                 entity.Property(e => e.PreferredRoutes)
                     .HasConversion(preferredRoutesConverter)
-                    .HasColumnType("jsonb")
                     .Metadata.SetValueComparer(preferredRoutesComparer);
+                
+                if (isRelational) entity.Property(e => e.PreferredRoutes).HasColumnType("jsonb");
             });
 
             builder.Entity<RefreshToken>(entity =>
@@ -87,6 +104,7 @@ namespace AccessCity.API.Data
                 entity.Property(e => e.ReplacedByToken).HasColumnName("replaced_by_token");
                 entity.Property(e => e.ReasonRevoked).HasColumnName("reason_revoked");
                 entity.Property(e => e.UserId).HasColumnName("user_id");
+                
                 entity.HasOne(d => d.User)
                     .WithMany(p => p.RefreshTokens)
                     .HasForeignKey(d => d.UserId)
@@ -101,8 +119,13 @@ namespace AccessCity.API.Data
                 entity.Property(e => e.Status).HasMaxLength(50);
                 entity.Property(e => e.SourceSystem).HasMaxLength(100);
                 entity.Property(e => e.SourceRecordId).HasMaxLength(250);
-                entity.Property(e => e.Geometry).HasColumnType("geometry(Geometry,4326)");
-                entity.Property(e => e.AccessibilityInfo).HasColumnType("jsonb");
+                
+                if (isRelational)
+                {
+                    entity.Property(e => e.Geometry).HasColumnType("geometry(Geometry,4326)");
+                    entity.Property(e => e.AccessibilityInfo).HasColumnType("jsonb");
+                }
+                
                 entity.HasIndex(e => new { e.SourceSystem, e.SourceRecordId }).IsUnique();
             });
 
@@ -113,7 +136,7 @@ namespace AccessCity.API.Data
                 entity.Property(e => e.SourceType).HasMaxLength(50);
                 entity.Property(e => e.SourceName).HasMaxLength(512);
                 entity.Property(e => e.Status).HasMaxLength(50);
-                entity.Property(e => e.Metadata).HasColumnType("jsonb");
+                if (isRelational) entity.Property(e => e.Metadata).HasColumnType("jsonb");
             });
 
             builder.Entity<RouteNode>(entity =>
@@ -121,21 +144,29 @@ namespace AccessCity.API.Data
                 entity.ToTable("route_nodes");
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Id).ValueGeneratedNever();
-                entity.Property(e => e.Location).HasColumnType("geometry(Point,4326)");
-                entity.Property(e => e.Tags).HasColumnType("jsonb");
+                if (isRelational)
+                {
+                    entity.Property(e => e.Location).HasColumnType("geometry(Point,4326)");
+                    entity.Property(e => e.Tags).HasColumnType("jsonb");
+                }
             });
 
             builder.Entity<RouteEdge>(entity =>
             {
                 entity.ToTable("route_edges");
                 entity.HasKey(e => e.Id);
-                entity.Property(e => e.Geometry).HasColumnType("geometry(LineString,4326)");
                 entity.Property(e => e.SurfaceType).HasMaxLength(50);
                 entity.Property(e => e.KerbHeight).HasColumnName("kerb_height");
                 entity.Property(e => e.Smoothness).HasColumnName("smoothness").HasMaxLength(50);
                 entity.Property(e => e.WidthMetres).HasColumnName("width_metres");
                 entity.Property(e => e.HasTactilePaving).HasColumnName("has_tactile_paving");
-                entity.Property(e => e.Tags).HasColumnType("jsonb");
+                
+                if (isRelational)
+                {
+                    entity.Property(e => e.Geometry).HasColumnType("geometry(LineString,4326)");
+                    entity.Property(e => e.Tags).HasColumnType("jsonb");
+                }
+                
                 entity.HasIndex(e => new { e.FromNodeId, e.ToNodeId });
                 entity.HasOne(e => e.FromNode)
                     .WithMany()
