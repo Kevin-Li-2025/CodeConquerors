@@ -1,0 +1,32 @@
+@AccessCity.API_HostAddress = http://localhost:5005
+
+### health check
+GET {{AccessCity.API_HostAddress}}/health
+Accept: application/json
+
+### register user
+POST {{AccessCity.API_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "password123",
+  "fullName": "Test User"
+}
+
+### login user
+# @name login
+POST {{AccessCity.API_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "password123"
+}
+
+### read token
+@token = {{login.response.body.token}}
+
+### test the endpoint, if 204 returned it is a success
+GET {{AccessCity.API_HostAddress}}/api/tiles/1/1/1.pbf
+Authorization: Bearer {{token}}
