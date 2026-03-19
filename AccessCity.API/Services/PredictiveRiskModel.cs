@@ -275,18 +275,4 @@ namespace AccessCity.API.Services
             return 1.0 / (1.0 + Math.Exp(-k * (x - midpoint)));
         }
     }
-
-    /// <summary>
-    /// Result of a predictive risk evaluation — all sub-scores + explanation.
-    /// </summary>
-    public class PredictiveRiskResult
-    {
-        public double OverallRisk { get; set; }
-        public double HazardRisk { get; set; }
-        public double TimeOfDayRisk { get; set; }
-        public double WeatherRisk { get; set; }
-        public double CrimeRisk { get; set; }
-        public double InfrastructureRisk { get; set; }
-        public List<string> RiskFactors { get; set; } = new();
-    }
 }
