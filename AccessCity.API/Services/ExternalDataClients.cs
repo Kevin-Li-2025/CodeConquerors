@@ -11,6 +11,7 @@ namespace AccessCity.API.Services.External
     public interface IOpenStreetMapClient
     {
         Task<List<OverpassElement>?> GetInfrastructureDataAsync(double minLat, double minLng, double maxLat, double maxLng);
+        Task<List<OverpassElement>?> GetHazardLikeDataAsync(double minLat, double minLng, double maxLat, double maxLng);
     }
 
     public class OverpassApiClient : IOpenStreetMapClient
@@ -32,6 +33,29 @@ namespace AccessCity.API.Services.External
                   way[""highway""=""steps""]({minLat},{minLng},{maxLat},{maxLng});
                   way[""sidewalk""]({minLat},{minLng},{maxLat},{maxLng});
                   way[""lit""=""yes""]({minLat},{minLng},{maxLat},{maxLng});
+                );
+                out center;
+            ";
+
+            var response = await _httpClient.PostAsync(
+                "https://overpass-api.de/api/interpreter", 
+                new StringContent(overpassQuery));
+
+            if (!response.IsSuccessStatusCode) return null;
+
+            var data = await response.Content.ReadFromJsonAsync<OverpassResponse>();
+            return data?.Elements;
+        }
+
+        public async Task<List<OverpassElement>?> GetHazardLikeDataAsync(double minLat, double minLng, double maxLat, double maxLng)
+        {
+            // Queries for barriers, narrow paths, or steps that might be considered "hazards" or obstacles
+            var overpassQuery = $@"
+                [out:json][timeout:25];
+                (
+                  node[""barrier""]({minLat},{minLng},{maxLat},{maxLng});
+                  way[""highway""=""steps""]({minLat},{minLng},{maxLat},{maxLng});
+                  way[""surface""~""cobblestone|unpaved|gravel""]({minLat},{minLng},{maxLat},{maxLng});
                 );
                 out center;
             ";
