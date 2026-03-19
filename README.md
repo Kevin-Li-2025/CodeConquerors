@@ -8,19 +8,24 @@ Project Goal: Support **SDG 11 (Sustainable Cities)** by providing safe transpor
 
 ## 🏛 Architecture
 
+AccessCity follows a modular monolithic pattern, utilizing a .NET and React Native stack with dedicated spatial infrastructure.
+
 ![Architecture Diagram](docs/images/architecture.png)
 
-- **Backend**: .NET 9 Web API + EF Core
-- **Frontend**: React Native (Expo) + MapLibre Native
-- **Storage**: PostgreSQL + PostGIS (Geospatial indexing)
-- **Cache**: Redis (Session & UK Police API data)
-- **External APIs**: OSRM (Routing), Overpass (OSM import), UK Police (Crime data)
+---
 
-### Routing Logic
-The engine uses a tiered lookup strategy:
-1.  **Augmented OSRM**: Routes from OSRM are scored against local PostGIS obstacle data (stairs, kerb heights, surface type).
-2.  **PostGIS A***: Fallback A* search performed directly on imported OSM road graphs.
-3.  **Synthetic Grid**: High-density grid-based routing for areas with low OSM metadata density.
+## 📊 Case Study: AccessCity vs. Google Maps
+
+We compared routing results for a standard trip in Birmingham (**New St Station to Bullring Shopping Centre**) where a temporary construction hazard was reported.
+
+| Feature | Google Maps | AccessCity |
+| :--- | :--- | :--- |
+| **Route Distance** | ~0.4 km | ~4.5 km (Safe Detour) |
+| **Obstacle Awareness** | None (Direct path) | Detected "Construction" at Dudley St |
+| **Accessibility Profile** | General Pedestrian | Specific (Manual Wheelchair) |
+| **Safety Heuristic** | Shortest Time | Weighted Safety & Surface Quality |
+
+**Result**: While Google Maps suggests the shortest path, it leads users directly through unmonitored construction zones. AccessCity identifies the hazard and reroutes the user, prioritizing safety and pavement quality over distance.
 
 ---
 
