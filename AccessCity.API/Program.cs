@@ -58,7 +58,20 @@ builder.Services.AddControllers(options =>
 
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
-    ConfigureDatabase(options, serviceProvider.GetRequiredService<IConfiguration>());
+    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+    var env = serviceProvider.GetRequiredService<IWebHostEnvironment>();
+    
+    var connectionString = PostgresConnectionStringResolver.Resolve(configuration);
+    
+    if (env.IsDevelopment() && string.IsNullOrEmpty(connectionString) && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("USE_POSTGRES")))
+    {
+        options.UseInMemoryDatabase("AccessCityMemoryDb");
+        options.ConfigureWarnings(x => x.Ignore(Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning));
+    }
+    else
+    {
+        ConfigureDatabase(options, configuration);
+    }
 });
 
 builder.Services.AddIdentityCore<AccessCityUser>(options =>
@@ -162,8 +175,12 @@ if (!app.Environment.IsDevelopment())
 }
 
 await MigrateDatabaseAsync(app);
-await NormalizeSchemaAsync(app);
-await RunOptionalOsmImportAsync(app);
+
+if (!(app.Environment.IsDevelopment() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("USE_POSTGRES"))))
+{
+    await NormalizeSchemaAsync(app);
+    await RunOptionalOsmImportAsync(app);
+}
 
 app.UseCors();
 app.UseAuthentication();
@@ -199,6 +216,12 @@ static void ConfigureDatabase(DbContextOptionsBuilder options, IConfiguration co
 static async Task MigrateDatabaseAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
+    var env = scope.ServiceProvider.GetRequiredService<IWebHostEnvironment>();
+    if (env.IsDevelopment() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("USE_POSTGRES")))
+    {
+        return;
+    }
+
     var postgresOptions = scope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<PostgresOptions>>();
     if (!postgresOptions.Value.AutoMigrate)
     {

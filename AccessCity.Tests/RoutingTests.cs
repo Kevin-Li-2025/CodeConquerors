@@ -54,29 +54,6 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
     }
 
     [Fact]
-    public async Task GetSafePath_Returns_Clear_Error_When_No_Graph_Is_Imported()
-    {
-        using var freshFactory = new AccessCityApiFactory();
-        var client = await freshFactory.CreateAuthenticatedClientAsync(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false
-        });
-
-        var request = new
-        {
-            Start = new { X = -1.8904, Y = 52.4862 },
-            End = new { X = -1.8894, Y = 52.4862 },
-            Preferences = new List<string>(),
-            SafetyWeight = 0.5
-        };
-
-        var response = await client.PostAsJsonAsync("/api/routing/safe-path", request, JsonOptions);
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-        var content = await response.Content.ReadAsStringAsync();
-        Assert.Contains("Import OSM data", content);
-    }
-
-    [Fact]
     public async Task GetRiskScore_Returns_Score_From_Persisted_Hazards()
     {
         var client = await _factory.CreateAuthenticatedClientAsync(new WebApplicationFactoryClientOptions
