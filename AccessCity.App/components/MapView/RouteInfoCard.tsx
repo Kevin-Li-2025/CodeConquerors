@@ -19,6 +19,33 @@ export default function RouteInfoCard({
   onPressRoute,
   onStartNavigation,
 }: RouteInfoCardProps) {
+  const numericSafetyScore = safetyScore
+    ? Number(safetyScore.replace('%', ''))
+    : null;
+
+  const safetyStatus =
+    numericSafetyScore === null || Number.isNaN(numericSafetyScore)
+      ? '--'
+      : numericSafetyScore >= 80
+      ? 'Good'
+      : numericSafetyScore >= 65
+      ? 'Moderate'
+      : 'Low';
+
+  const riskLevel =
+    numericSafetyScore === null || Number.isNaN(numericSafetyScore)
+      ? '--'
+      : numericSafetyScore >= 80
+      ? 'Low'
+      : numericSafetyScore >= 65
+      ? 'Moderate'
+      : 'High';
+
+  const progressWidth =
+    numericSafetyScore === null || Number.isNaN(numericSafetyScore)
+      ? '0%'
+      : `${Math.max(0, Math.min(100, numericSafetyScore))}%`;
+
   if (!visible) {
     return (
       <View style={styles.compactCard}>
@@ -28,7 +55,9 @@ export default function RouteInfoCard({
 
         <View style={styles.textSection}>
           <Text style={styles.routeTitle}>Ready to plan route</Text>
-          <Text style={styles.routeSubtitle}>Tap Route to load route details</Text>
+          <Text style={styles.routeSubtitle}>
+            Tap Route to load route details
+          </Text>
         </View>
 
         <TouchableOpacity style={styles.routeActionButton} onPress={onPressRoute}>
@@ -59,20 +88,14 @@ export default function RouteInfoCard({
 
         <View style={styles.scoreMainRow}>
           <Text style={styles.scoreValue}>
-            {safetyScore ? safetyScore.replace('%', '') : '--'}
+            {numericSafetyScore !== null && !Number.isNaN(numericSafetyScore)
+              ? numericSafetyScore
+              : '--'}
           </Text>
           <Text style={styles.scoreOutOf}>/100</Text>
         </View>
 
-        <Text style={styles.scoreStatus}>
-          {safetyScore
-            ? Number(safetyScore.replace('%', '')) >= 80
-              ? 'Good'
-              : Number(safetyScore.replace('%', '')) >= 65
-              ? 'Moderate'
-              : 'Low'
-            : '--'}
-        </Text>
+        <Text style={styles.scoreStatus}>{safetyStatus}</Text>
 
         <View style={styles.metricRow}>
           <Text style={styles.metricLabel}>Route Safety Breakdown</Text>
@@ -84,9 +107,7 @@ export default function RouteInfoCard({
             style={[
               styles.progressFill,
               {
-                width: `${
-                  safetyScore ? Math.max(0, Math.min(100, Number(safetyScore.replace('%', '')))) : 0
-                }%`,
+                width: 100,
               },
             ]}
           />
@@ -113,15 +134,7 @@ export default function RouteInfoCard({
 
         <View style={styles.statItem}>
           <Ionicons name="people-outline" size={22} color="#184A8C" />
-          <Text style={styles.statValue}>
-            {safetyScore
-              ? Number(safetyScore.replace('%', '')) >= 80
-                ? 'Low'
-                : Number(safetyScore.replace('%', '')) >= 65
-                ? 'Moderate'
-                : 'High'
-              : '--'}
-          </Text>
+          <Text style={styles.statValue}>{riskLevel}</Text>
           <Text style={styles.statLabel}>Risk Level</Text>
         </View>
       </View>
@@ -230,14 +243,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingVertical: 13,
     borderRadius: 18,
-    marginLeft: 12,
+    elevation: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
 
   routeActionText: {
     color: '#FFFFFF',
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
   },
 
