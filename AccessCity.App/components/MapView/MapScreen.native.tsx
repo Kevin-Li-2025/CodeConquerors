@@ -3,14 +3,13 @@ import MapView from 'react-native-maps';
 import { StyleSheet, View, Text, TouchableOpacity, Alert } from 'react-native';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
-import { router, useGlobalSearchParams } from 'expo-router';
+import { router } from 'expo-router';
 
 import SearchBar from './SearchBar';
 import RouteInfoCard from './RouteInfoCard';
 import HazardPreviewCard from './HazardPreviewCard';
 import HazardDetailsModal from './HazardDetailsModal';
 import FilterModal from './FilterModal';
-import ReportHazardModal from './ReportHazardModal';
 import MapCanvas from './MapCanvas';
 import {
   runVoiceGuidance,
@@ -24,21 +23,15 @@ import { api } from '../../services/api';
 import {
   Coordinate,
   Hazard,
-  ReportHazardType,
   RouteFilters,
 } from './MapTypes';
 
 async function fetchHazardsApi() {
+  // TODO: Update this endpoint if the backend later separates
+  // public map hazards from user-submitted hazard reports.
+  // Example future change:
+  // /hazards/approved or /hazards/map-visible
   return api.get<any[]>('/hazards', { skipAuth: true });
-}
-
-async function submitHazardReportApi(payload: {
-  type: string;
-  description: string;
-  latitude: number;
-  longitude: number;
-}) {
-  return api.post('/hazards', payload, { skipAuth: true });
 }
 
 export default function MapScreen() {
@@ -59,12 +52,6 @@ export default function MapScreen() {
 
   const [hazards, setHazards] = useState<Hazard[]>([]);
 
-  const [reportModalVisible, setReportModalVisible] = useState(false);
-  const [selectedReportType, setSelectedReportType] =
-    useState<ReportHazardType | null>(null);
-  const [reportStep, setReportStep] = useState<1 | 2 | 3>(1);
-  const [reportDescription, setReportDescription] = useState('');
-
   const [filterModalVisible, setFilterModalVisible] = useState(false);
 
   const [routeFilters, setRouteFilters] = useState<RouteFilters>({
@@ -81,10 +68,8 @@ export default function MapScreen() {
   const [hazardDetailsVisible, setHazardDetailsVisible] = useState(false);
 
   const [navigationMode, setNavigationMode] = useState(false);
+  const [routeInfoVisible, setRouteInfoVisible] = useState(false);
   const [heading, setHeading] = useState(0);
-
-  const { openReportModal: openReportModalParam } =
-    useGlobalSearchParams<{ openReportModal?: string }>();
 
   useEffect(() => {
     navigationModeRef.current = navigationMode;
@@ -99,6 +84,9 @@ export default function MapScreen() {
     const rawStatus = String(item.status ?? '').toLowerCase();
 
     return {
+      // TODO: Replace fallback values once the backend response contract is finalized.
+      // Right now this mapping is intentionally defensive because the backend field
+      // names may still change during integration.
       id: item.id ?? Date.now().toString(),
       title: item.title ?? item.name ?? 'Hazard',
       type: rawType === 'lighting' ? 'lighting' : 'wheelchair',
@@ -188,6 +176,7 @@ export default function MapScreen() {
   function resetRouteState(clearSearchText = false) {
     setNavigationMode(false);
     navigationModeRef.current = false;
+    setRouteInfoVisible(false);
 
     setDestination(null);
     setRouteCoordinates([]);
@@ -220,6 +209,10 @@ export default function MapScreen() {
 
   function handleClearSearch() {
     resetRouteState(true);
+  }
+
+  function handleOpenReportPage() {
+    router.push('/report/reportpage');
   }
 
   useEffect(() => {
@@ -326,21 +319,18 @@ export default function MapScreen() {
     };
   }, []);
 
-  useEffect(() => {
-    if (openReportModalParam) {
-      setReportModalVisible(true);
-      setReportStep(1);
-      setSelectedReportType(null);
-      setReportDescription('');
-    }
-  }, [openReportModalParam]);
-
   async function searchLocation(query: string) {
     try {
       const results = await api.get<any[]>(
         `/geocoding/search?query=${encodeURIComponent(query)}`,
-        { skipAuth: true }
+        {
+          // TODO: Change skipAuth to false if geocoding later becomes a protected endpoint.
+          skipAuth: true,
+        }
       );
+
+      // TODO: Update this parsing logic if the backend later wraps the response,
+      // for example: { data: [...] } or { results: [...] }.
       console.log('Geocoding results:', results);
       return Array.isArray(results) ? results : [];
     } catch (error) {
@@ -367,6 +357,8 @@ export default function MapScreen() {
 
     const firstResult = results[0];
 
+    // TODO: Confirm the exact field names returned by the geocoding API.
+    // Some backends may return latitude/longitude instead of lat/lon.
     const lat = parseFloat(String(firstResult.lat));
     const lon = parseFloat(String(firstResult.lon));
 
@@ -375,9 +367,9 @@ export default function MapScreen() {
       return;
     }
 
-    // 先清掉旧路线和旧导航状态，但保留新的搜索文字
     setNavigationMode(false);
     navigationModeRef.current = false;
+    setRouteInfoVisible(false);
     setRouteCoordinates([]);
     setRouteSteps([]);
     setTravelTime('');
@@ -407,20 +399,43 @@ export default function MapScreen() {
     }
 
     try {
-      const data = await api.post<any>('/routing/safe-path', {
-        start: {
-          x: currentLocation.longitude,
-          y: currentLocation.latitude,
+      const data = await api.post<any>(
+        '/routing/safe-path',
+        {
+          start: {
+            x: currentLocation.longitude,
+            y: currentLocation.latitude,
+          },
+          end: {
+            x: destination.longitude,
+            y: destination.latitude,
+          },
+
+          // TODO: Replace the hardcoded safetyWeight once the final filter-to-backend
+          // mapping is agreed with the backend team.
+          safetyWeight: 0.5,
+
+          // TODO: Send routeFilters to the backend when the route API supports them.
+          // Example future payload:
+          // filters: {
+          //   avoidSteepHills: routeFilters.avoidSteepHills,
+          //   wheelchairAccessible: routeFilters.wheelchairAccessible,
+          //   avoidReportedHazards: routeFilters.avoidReportedHazards,
+          //   preferWellLitStreets: routeFilters.preferWellLitStreets,
+          //   minSafetyScore: routeFilters.minSafetyScore,
+          //   maxSafetyScore: routeFilters.maxSafetyScore,
+          // }
         },
-        end: {
-          x: destination.longitude,
-          y: destination.latitude,
-        },
-        safetyWeight: 0.5,
-      }, { skipAuth: true });
+        {
+          // TODO: Change skipAuth to false if the route API later requires login.
+          skipAuth: true,
+        }
+      );
 
       console.log('Route API data:', data);
 
+      // TODO: Simplify this once the backend response structure is finalized.
+      // Right now multiple fallback paths are used to prevent integration breakage.
       const rawCoordinates =
         data?.path?.coordinates ||
         data?.route?.coordinates ||
@@ -447,9 +462,15 @@ export default function MapScreen() {
         return false;
       }
 
+      // TODO: Confirm whether the backend will always return structured step data.
+      // If yes, stepsFromCoordinates may be kept only as a fallback.
       const apiSteps = stepsFromApi(data?.steps);
       setRouteSteps(apiSteps.length > 0 ? apiSteps : stepsFromCoordinates(coords));
       setRouteCoordinates(coords);
+
+      // TODO: Align these field names with the final backend contract.
+      // Example possibilities:
+      // durationSeconds / distanceMeters / score / safety_rating
       setTravelTime(
         data?.estimatedTime
           ? `${Math.round(data.estimatedTime / 60)} min`
@@ -486,8 +507,29 @@ export default function MapScreen() {
     if (!success) return;
 
     lastSpokenStepRef.current = -1;
+    setRouteInfoVisible(true);
+
+    mapRef.current?.animateToRegion(
+      {
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      },
+      500
+    );
+  }
+
+  function handleStartNavigation() {
+    if (!currentLocation) {
+      Alert.alert('Location unavailable', 'Current location is not ready yet.');
+      return;
+    }
+
+    setRouteInfoVisible(false);
     setNavigationMode(true);
     navigationModeRef.current = true;
+    lastSpokenStepRef.current = -1;
 
     const nextHeading = getNavigationHeading(currentLocation);
 
@@ -506,6 +548,7 @@ export default function MapScreen() {
   function handleExitNavigation() {
     setNavigationMode(false);
     navigationModeRef.current = false;
+    setRouteInfoVisible(false);
     stopVoiceGuidance();
     lastSpokenStepRef.current = -1;
 
@@ -574,62 +617,15 @@ export default function MapScreen() {
 
   function handleApplyFilters() {
     setFilterModalVisible(false);
+
+    // TODO: After the backend supports route filters,
+    // re-fetch the route here if a destination already exists.
+    // Example:
+    // if (destination) {
+    //   handleStartRoute();
+    // }
+
     Alert.alert('Filters applied', 'Your route preferences have been updated.');
-  }
-
-  function closeReportModal() {
-    setReportModalVisible(false);
-    setReportStep(1);
-    setSelectedReportType(null);
-    setReportDescription('');
-
-    router.setParams({
-      openReportModal: undefined,
-    });
-  }
-
-  function handleNextFromReportModal() {
-    if (!selectedReportType) {
-      Alert.alert('Missing type', 'Please select a hazard type.');
-      return;
-    }
-
-    setReportStep(2);
-  }
-
-  function handleBackToStep1() {
-    setReportStep(1);
-  }
-
-  async function handleSubmitReport() {
-    if (!selectedReportType) {
-      Alert.alert('Missing type', 'Please select a hazard type.');
-      return;
-    }
-
-    if (!currentLocation) {
-      Alert.alert('Location unavailable', 'Current location is not ready yet.');
-      return;
-    }
-
-    try {
-      await submitHazardReportApi({
-        type: selectedReportType,
-        description: reportDescription.trim(),
-        latitude: currentLocation.latitude,
-        longitude: currentLocation.longitude,
-      });
-
-      await loadHazards();
-      setReportStep(3);
-    } catch (error) {
-      console.error('Error submitting hazard report:', error);
-      Alert.alert('Submit error', 'Could not submit hazard report.');
-    }
-  }
-
-  function handleDoneFromSuccess() {
-    closeReportModal();
   }
 
   function handleHazardPress(hazard: Hazard) {
@@ -641,6 +637,11 @@ export default function MapScreen() {
 
   function openHazardDetails() {
     if (!selectedHazard) return;
+
+    // TODO: If the backend later provides a hazard details endpoint,
+    // fetch the full hazard details here before opening the modal.
+    // Example:
+    // GET /hazards/{id}
     setHazardDetailsVisible(true);
   }
 
@@ -693,6 +694,13 @@ export default function MapScreen() {
             onPress={() => setFilterModalVisible(true)}
           >
             <Ionicons name="options-outline" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.reportButton}
+            onPress={handleOpenReportPage}
+          >
+            <Ionicons name="warning-outline" size={22} color="#FFFFFF" />
           </TouchableOpacity>
         </>
       )}
@@ -764,10 +772,12 @@ export default function MapScreen() {
       {destination && !navigationMode && (
         <View style={styles.routeInfoWrapper}>
           <RouteInfoCard
+            visible={routeInfoVisible}
             travelTime={travelTime}
             distance={distance}
             safetyScore={safetyScore}
             onPressRoute={handleStartRoute}
+            onStartNavigation={handleStartNavigation}
           />
         </View>
       )}
@@ -796,20 +806,6 @@ export default function MapScreen() {
           </TouchableOpacity>
         </View>
       )}
-
-      <ReportHazardModal
-        visible={reportModalVisible}
-        reportStep={reportStep}
-        selectedReportType={selectedReportType}
-        reportDescription={reportDescription}
-        onClose={closeReportModal}
-        onSelectType={setSelectedReportType}
-        onChangeDescription={setReportDescription}
-        onNext={handleNextFromReportModal}
-        onBack={handleBackToStep1}
-        onSubmit={handleSubmitReport}
-        onDone={handleDoneFromSuccess}
-      />
 
       <FilterModal
         visible={filterModalVisible}
@@ -852,6 +848,24 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
     backgroundColor: '#0F3D91',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    zIndex: 20,
+  },
+
+  reportButton: {
+    position: 'absolute',
+    top: 122,
+    right: 16,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#EF4444',
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
