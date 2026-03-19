@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using NetTopologySuite.Geometries;
 using AccessCity.API.Data;
 using AccessCity.API.Models;
+using AccessCity.API.Models.DTOs;
 using AccessCity.API.Services;
 
 namespace AccessCity.API.Controllers;
@@ -33,34 +35,25 @@ public class HazardsController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<ActionResult<HazardReport>> ReportHazard([FromBody] HazardReport report)
+    public async Task<ActionResult<HazardReport>> ReportHazard([FromBody] CreateHazardRequest request)
     {
-        if (report?.Location == null)
-            return BadRequest(new { error = "Location is required." });
+        // FluentValidation automatically returns 400 if CreateHazardRequest is invalid
         
-        if (string.IsNullOrWhiteSpace(report.Type))
-            return BadRequest(new { error = "Type is required." });
-        
-        if (string.IsNullOrWhiteSpace(report.Description))
-            return BadRequest(new { error = "Description is required." });
+        var report = new HazardReport
+        {
+            Id = Guid.NewGuid(),
+            Location = new Point(request.Location) { SRID = 4326 },
+            Type = request.Type.Trim(),
+            Description = request.Description.Trim(),
+            PhotoUrl = request.PhotoUrl ?? string.Empty,
+            ReportedAt = DateTime.UtcNow,
+            Status = HazardStatus.Reported,
+            Source = string.IsNullOrWhiteSpace(request.Source) ? "user" : request.Source
+        };
 
-        var x = report.Location.X;
-        var y = report.Location.Y;
-        if (x < -180 || x > 180 || y < -90 || y > 90)
-            return BadRequest(new { error = "Location must be valid WGS-84 coordinates (lon in [-180,180], lat in [-90,90])." });
-
-        report.Id = report.Id == Guid.Empty ? Guid.NewGuid() : report.Id;
-        report.ReportedAt = DateTime.UtcNow;
-        report.Status = HazardStatus.Reported;
-        report.Source = string.IsNullOrWhiteSpace(report.Source) ? "user" : report.Source;
-        report.Location.SRID = 4326;
-        // Leave ReporterUserId unset: DB column is UUID FK and Identity uses string Id; setting it would cause FK violation without DB schema change.
-        report.PhotoUrl ??= string.Empty;
-        
-        report.Type = report.Type.Trim();
-        report.Description = report.Description.Trim();
         if (report.Type.Length > 50) report.Type = report.Type[..50];
         if (report.Description.Length > 500) report.Description = report.Description[..500];
+        report.Location.SRID = 4326;
 
         _dbContext.Hazards.Add(report);
         await _dbContext.SaveChangesAsync();

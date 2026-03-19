@@ -15,10 +15,34 @@ using Microsoft.Extensions.Caching.Hybrid;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Http.Resilience;
+using Serilog;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using FluentValidation;
+using FluentValidation.AspNetCore;
+using AccessCity.API.Validators;
 
 EnvironmentBootstrap.LoadRepoRootDotEnv();
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseSerilog((context, services, configuration) => configuration
+    .ReadFrom.Configuration(context.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .WriteTo.Console());
+
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracing => tracing
+        .AddSource("AccessCity.API")
+        .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("AccessCity.API"))
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddEntityFrameworkCoreInstrumentation()
+        .AddOtlpExporter());
 
 builder.Services.Configure<PostgresOptions>(builder.Configuration.GetSection(PostgresOptions.SectionName));
 builder.Services.Configure<OsmImportOptions>(builder.Configuration.GetSection(OsmImportOptions.SectionName));
@@ -55,6 +79,9 @@ builder.Services.AddControllers(options =>
         options.JsonSerializerOptions.Converters.Add(factory);
         options.JsonSerializerOptions.NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowNamedFloatingPointLiterals;
     });
+
+builder.Services.AddFluentValidationAutoValidation();
+builder.Services.AddValidatorsFromAssemblyContaining<CreateHazardRequestValidator>();
 
 builder.Services.AddDbContext<AppDbContext>((serviceProvider, options) =>
 {
@@ -121,7 +148,8 @@ builder.Services.AddScoped<IRouteGraphRepository, RouteGraphRepository>();
 builder.Services.AddScoped<IOsmImportService, OsmImportService>();
 builder.Services.AddScoped<RiskScoringService>();
 builder.Services.AddScoped<PredictiveRiskModel>();
-builder.Services.AddHttpClient<AccessCity.API.Services.External.IOsrmClient, AccessCity.API.Services.External.OsrmClient>();
+builder.Services.AddHttpClient<AccessCity.API.Services.External.IOsrmClient, AccessCity.API.Services.External.OsrmClient>()
+    .AddStandardResilienceHandler();
 builder.Services.AddScoped<RoutingService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 
@@ -137,19 +165,23 @@ builder.Services.AddRateLimiter(options =>
 });
 
 builder.Services.AddHttpClient<AccessCity.API.Services.External.IOpenStreetMapClient, AccessCity.API.Services.External.OverpassApiClient>()
-    .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(30));
+    .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(30))
+    .AddStandardResilienceHandler();
 builder.Services.AddHttpClient("Nominatim", c =>
 {
     c.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
     c.DefaultRequestHeaders.Add("User-Agent", "AccessCity-App/1.0");
     c.Timeout = TimeSpan.FromSeconds(10);
-});
+}).AddStandardResilienceHandler();
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<AppDbContext>("db", tags: new[] { "ready" });
 builder.Services.AddScoped<IRealHazardDataService, RealHazardDataService>();
-builder.Services.AddHttpClient<AccessCity.API.Services.External.IUkPoliceDataClient, AccessCity.API.Services.External.UkPoliceDataClient>();
-builder.Services.AddHttpClient<AccessCity.API.Services.External.ISafeHavenPlacesClient, AccessCity.API.Services.External.GooglePlacesClient>();
-builder.Services.AddHttpClient<AccessCity.API.Services.External.ILiveHazardClient, AccessCity.API.Services.External.OpenWeatherClient>();
+builder.Services.AddHttpClient<AccessCity.API.Services.External.IUkPoliceDataClient, AccessCity.API.Services.External.UkPoliceDataClient>()
+    .AddStandardResilienceHandler();
+builder.Services.AddHttpClient<AccessCity.API.Services.External.ISafeHavenPlacesClient, AccessCity.API.Services.External.GooglePlacesClient>()
+    .AddStandardResilienceHandler();
+builder.Services.AddHttpClient<AccessCity.API.Services.External.ILiveHazardClient, AccessCity.API.Services.External.OpenWeatherClient>()
+    .AddStandardResilienceHandler();
 
 builder.Services.AddOpenApi();
 builder.Services.AddCors(options =>
@@ -186,6 +218,7 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
+app.UseSerilogRequestLogging();
 app.MapControllers();
 app.MapHealthChecks("/health");
 app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });

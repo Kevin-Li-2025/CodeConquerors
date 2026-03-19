@@ -1,5 +1,6 @@
 using AccessCity.API.Data;
 using AccessCity.API.Models;
+using AccessCity.API.Models.DTOs;
 using AccessCity.API.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -31,15 +32,7 @@ public class RoutingController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<RouteResponse>> GetSafePath([FromBody] RouteRequest request, CancellationToken cancellationToken)
     {
-        if (request.Start == null || request.End == null)
-            return BadRequest(new { error = "Both 'start' and 'end' coordinates are required." });
-
-        if (!IsValidCoordinate(request.Start) || !IsValidCoordinate(request.End))
-            return BadRequest(new { error = "Coordinates must be valid WGS-84 (lon/lat) values." });
-
-        if (request.SafetyWeight < 0 || request.SafetyWeight > 1)
-            return BadRequest(new { error = "'safetyWeight' must be between 0 and 1." });
-
+        // FluentValidation automatically returns 400 if RouteRequest is invalid
         var hazards = await LoadActiveHazardsAsync(cancellationToken);
         var result = await _routing.FindSafePathAsync(request, hazards);
 
@@ -59,19 +52,11 @@ public class RoutingController : ControllerBase
     [ProducesResponseType(typeof(RiskScoreResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<RiskScoreResponse>> GetRiskScore(
-        [FromQuery] double lat,
-        [FromQuery] double lng,
-        [FromQuery] double radius = 500,
+        [FromQuery] RiskScoreRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
-            return BadRequest(new { error = "Invalid WGS-84 coordinates." });
-
-        if (radius <= 0 || radius > 5000)
-            return BadRequest(new { error = "Radius must be between 1 and 5000 metres." });
-
         var hazards = await LoadActiveHazardsAsync(cancellationToken);
-        var result = await _risk.EvaluateRiskAsync(lat, lng, radius, hazards);
+        var result = await _risk.EvaluateRiskAsync(request.Lat, request.Lng, request.Radius, hazards);
         return Ok(result);
     }
 
@@ -79,16 +64,11 @@ public class RoutingController : ControllerBase
     [ProducesResponseType(typeof(PredictiveRiskResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<PredictiveRiskResult>> GetAiRiskScore(
-        [FromQuery] double lat,
-        [FromQuery] double lng,
-        [FromQuery] double radius = 200,
+        [FromQuery] RiskScoreRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
-            return BadRequest(new { error = "Invalid WGS-84 coordinates." });
-
         var hazards = await LoadActiveHazardsAsync(cancellationToken);
-        var result = await _aiRisk.EvaluateSegmentRiskAsync(lat, lng, hazards, radius);
+        var result = await _aiRisk.EvaluateSegmentRiskAsync(request.Lat, request.Lng, hazards, request.Radius);
         return Ok(result);
     }
 
@@ -99,7 +79,4 @@ public class RoutingController : ControllerBase
             .AsNoTracking()
             .ToListAsync(cancellationToken);
     }
-
-    private static bool IsValidCoordinate(NetTopologySuite.Geometries.Coordinate coordinate)
-        => coordinate.X >= -180 && coordinate.X <= 180 && coordinate.Y >= -90 && coordinate.Y <= 90;
 }
