@@ -4,7 +4,7 @@ using System.Net.Http.Json;
 namespace AccessCity.API.Controllers
 {
     [ApiController]
-    [Route("api/[controller]")]
+    [Route("api/geocoding")]
     public class GeocodingController : ControllerBase
     {
         private readonly IHttpClientFactory _httpClientFactory;

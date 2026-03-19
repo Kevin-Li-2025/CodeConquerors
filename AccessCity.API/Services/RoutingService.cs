@@ -28,6 +28,7 @@ public class RoutingService
     {
         ["low-light-penalty"] = e => 1.0 + (1.0 - e.LightingQuality) * 0.5,
         ["prefer-crossings"] = e => e.HasCrossing ? 0.85 : 1.15,
+        ["prefer-tactile"] = e => e.HasTactilePaving ? 0.7 : 1.1,
     };
 
     public RoutingService(RiskScoringService riskService, IRouteGraphRepository routeGraphRepository)
@@ -175,7 +176,11 @@ public class RoutingService
         var midLat = (fromNode.Location.Y + toNode.Location.Y) / 2.0;
         var midLon = (fromNode.Location.X + toNode.Location.X) / 2.0;
         var liveRisk = _riskService.QuickRisk(midLat, midLon, hazards, radiusMetres: 200);
-        var safetyCost = (edge.BaseSafetyCost + liveRisk) / 2.0 * edge.DistanceMetres;
+        var crimeRisk = _riskService.QuickCrimeRisk(midLat, midLon);
+        
+        // Combine base safety (OSM tags), live hazards (user reports), and crime (police data)
+        var combinedRisk = (edge.BaseSafetyCost + liveRisk + crimeRisk) / 3.0;
+        var safetyCost = combinedRisk * edge.DistanceMetres;
 
         var modifier = 1.0;
         foreach (var preference in request.Preferences)
@@ -185,6 +190,35 @@ public class RoutingService
                 modifier *= modifierFunc(edge);
             }
         }
+
+        // Profile-specific logic
+        switch (request.Profile?.ToLowerInvariant())
+        {
+            case "wheelchair" or "manual-wheelchair":
+                if (edge.HasStairs) modifier *= 100.0; // Hard avoid
+                if (edge.KerbHeight > 0.05) modifier *= 20.0;
+                else if (edge.KerbHeight > 0.03) modifier *= 5.0;
+                
+                if (edge.Smoothness is "bad" or "very_bad" or "horrible") modifier *= 3.0;
+                else if (edge.Smoothness is "excellent" or "good") modifier *= 0.8;
+                
+                if (edge.WidthMetres.HasValue && edge.WidthMetres < 0.9) modifier *= 2.0;
+                break;
+
+            case "visually-impaired":
+                if (edge.HasTactilePaving) modifier *= 0.7;
+                if (edge.LightingQuality < 0.3) modifier *= 2.5;
+                if (!edge.HasCrossing && edge.HasStairs) modifier *= 1.5;
+                break;
+
+            case "stroller":
+                if (edge.HasStairs) modifier *= 50.0;
+                if (edge.KerbHeight > 0.1) modifier *= 10.0;
+                break;
+        }
+
+        if (edge.HasBarrier) modifier *= 2.0;
+        if (string.Equals(edge.Access, "private", StringComparison.OrdinalIgnoreCase)) modifier *= 10.0;
 
         var blended = ((1.0 - weight) * edge.DistanceMetres + weight * safetyCost) * modifier;
         return Math.Max(blended, 0.001);
@@ -203,13 +237,49 @@ public class RoutingService
         return path;
     }
 
+    /// <summary>Build the route polyline from edge geometries so the line follows actual roads, not straight segments between nodes.</summary>
+    private static Coordinate[] BuildPathCoordinates(List<long> path, Dictionary<long, GraphNode> graph)
+    {
+        var coords = new List<Coordinate>();
+        for (var i = 0; i < path.Count - 1; i++)
+        {
+            var fromNode = graph[path[i]];
+            var toNode = graph[path[i + 1]];
+            var edge = fromNode.Edges[path[i + 1]];
+
+            if (edge.Geometry is { Length: > 0 })
+            {
+                var geom = edge.Geometry;
+                var start = i == 0 ? 0 : 1;
+                for (var j = start; j < geom.Length; j++)
+                {
+                    coords.Add(geom[j]);
+                }
+            }
+            else
+            {
+                if (i == 0)
+                {
+                    coords.Add(fromNode.Location);
+                }
+                coords.Add(toNode.Location);
+            }
+        }
+        if (coords.Count == 0 && path.Count >= 2)
+        {
+            coords.Add(graph[path[0]].Location);
+            coords.Add(graph[path[^1]].Location);
+        }
+        return coords.ToArray();
+    }
+
     private RouteResponse BuildResponse(
         List<long> path,
         Dictionary<long, GraphNode> graph,
         IEnumerable<HazardReport> hazards)
     {
         var hazardList = hazards.ToList();
-        var coordinates = path.Select(id => graph[id].Location).ToArray();
+        var coordinates = BuildPathCoordinates(path, graph);
         var lineString = new LineString(coordinates);
         var warnings = new List<string>();
         var steps = new List<RouteStep>();
@@ -350,7 +420,10 @@ public class RoutingService
                 DistanceMetres = distance,
                 BaseSafetyCost = 0.1,
                 SurfaceType = "asphalt",
-                LightingQuality = 0.8
+                LightingQuality = 0.8,
+                KerbHeight = 0.0,
+                Smoothness = "excellent",
+                HasTactilePaving = false
             };
 
             node.Edges[virtualId] = new GraphEdge
@@ -359,7 +432,10 @@ public class RoutingService
                 DistanceMetres = distance,
                 BaseSafetyCost = 0.1,
                 SurfaceType = "asphalt",
-                LightingQuality = 0.8
+                LightingQuality = 0.8,
+                KerbHeight = 0.0,
+                Smoothness = "excellent",
+                HasTactilePaving = false
             };
         }
     }

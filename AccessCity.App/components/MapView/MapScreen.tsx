@@ -235,7 +235,11 @@ export default function MapScreen() {
       });
     } catch (error) {
       console.error('Routing failed:', error);
-      const message = error instanceof Error ? error.message : 'Unknown error';
+      const raw = error instanceof Error ? error.message : 'Unknown error';
+      const isNoRouteData = /no imported|routing network|404/i.test(raw);
+      const message = isNoRouteData
+        ? 'No route data for this area yet. Map data may still be loading, or this region isn\'t covered. Try again later or choose a location in London or Birmingham.'
+        : raw;
       Alert.alert('Routing Error', `Could not compute route: ${message}`);
     } finally {
       setIsLoading(false);

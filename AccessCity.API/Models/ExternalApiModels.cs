@@ -16,6 +16,17 @@ namespace AccessCity.API.Models.External
         public Dictionary<string, string> Tags { get; set; } = new();
         public double Lat { get; set; }
         public double Lon { get; set; }
+        
+        [JsonPropertyName("center")]
+        public OverpassCenter? Center { get; set; }
+    }
+
+    public class OverpassCenter
+    {
+        [JsonPropertyName("lat")]
+        public double Lat { get; set; }
+        [JsonPropertyName("lon")]
+        public double Lon { get; set; }
     }
 
     public class StreetCrimeRecord

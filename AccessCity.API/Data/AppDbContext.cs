@@ -131,6 +131,10 @@ namespace AccessCity.API.Data
                 entity.HasKey(e => e.Id);
                 entity.Property(e => e.Geometry).HasColumnType("geometry(LineString,4326)");
                 entity.Property(e => e.SurfaceType).HasMaxLength(50);
+                entity.Property(e => e.KerbHeight).HasColumnName("kerb_height");
+                entity.Property(e => e.Smoothness).HasColumnName("smoothness").HasMaxLength(50);
+                entity.Property(e => e.WidthMetres).HasColumnName("width_metres");
+                entity.Property(e => e.HasTactilePaving).HasColumnName("has_tactile_paving");
                 entity.Property(e => e.Tags).HasColumnType("jsonb");
                 entity.HasIndex(e => new { e.FromNodeId, e.ToNodeId });
                 entity.HasOne(e => e.FromNode)

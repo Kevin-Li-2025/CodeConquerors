@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AccessCity.API.Controllers;
 
-[Authorize]
+[AllowAnonymous]
 [ApiController]
 [Route("api/[controller]")]
 public class RoutingController : ControllerBase
@@ -50,7 +50,8 @@ public class RoutingController : ControllerBase
         {
             return NotFound(new
             {
-                error = "No imported routing network covers the requested area. Import OSM data for this area first."
+                error = "No imported routing network covers the requested area. Import OSM data for this area first.",
+                hint = "In Docker, set OsmImport:ImportOnStartup to true and wait for OSM import to finish. Use start/end coordinates within the imported region (e.g. London or Birmingham)."
             });
         }
 
@@ -78,6 +79,25 @@ public class RoutingController : ControllerBase
 
         var hazards = await LoadActiveHazardsAsync(cancellationToken);
         var result = await _risk.EvaluateRiskAsync(lat, lng, radius, hazards);
+        return Ok(result);
+    }
+
+    [HttpGet("ai-risk-score")]
+    [ProducesResponseType(typeof(PredictiveRiskResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<PredictiveRiskResult>> GetAiRiskScore(
+        [FromQuery] double lat,
+        [FromQuery] double lng,
+        [FromQuery] double radius = 500,
+        CancellationToken cancellationToken = default)
+    {
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
+        {
+            return BadRequest(new { error = "Invalid WGS-84 coordinates." });
+        }
+
+        var hazards = await LoadActiveHazardsAsync(cancellationToken);
+        var result = await _risk.PredictRiskAsync(lat, lng, radius, hazards);
         return Ok(result);
     }
 

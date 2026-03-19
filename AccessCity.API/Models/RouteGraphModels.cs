@@ -25,6 +25,12 @@ public class RouteEdge
     public bool IsUnderConstruction { get; set; }
     public double LightingQuality { get; set; } = 0.5;
     public bool IsSteep { get; set; }
+    public double KerbHeight { get; set; }
+    public string? Smoothness { get; set; }
+    public double? WidthMetres { get; set; }
+    public bool HasTactilePaving { get; set; }
+    public bool HasBarrier { get; set; }
+    public string? Access { get; set; }
     public JsonDocument Tags { get; set; } = JsonDocument.Parse("{}");
 
     public RouteNode FromNode { get; set; } = null!;

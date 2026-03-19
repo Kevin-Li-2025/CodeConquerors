@@ -205,6 +205,26 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var response = await client.GetAsync("/api/routing/ai-risk-score?lat=999&lng=999");
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
-> Stashed changes
+
+    [Fact]
+    public async Task SafePath_WithProfile_Returns_Valid_Route()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        await _factory.ImportOsmAsync(client);
+
+        var request = new
+        {
+            Start = new { X = -1.8904, Y = 52.4862 }, // Node 1001
+            End   = new { X = -1.8894, Y = 52.4862 }, // Node 1003
+            Profile = "wheelchair",
+            Preferences = new List<string> { "avoid-stairs" }
+        };
+
+        var response = await client.PostAsJsonAsync("/api/routing/safe-path", request, JsonOptions);
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<RouteResponse>(JsonOptions);
+        Assert.NotNull(result);
+        Assert.NotNull(result.Path);
     }
 }

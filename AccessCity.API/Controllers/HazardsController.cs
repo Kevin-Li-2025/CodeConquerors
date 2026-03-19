@@ -36,6 +36,17 @@ public class HazardsController : ControllerBase
 
         if (minLat.HasValue)
         {
+            if (minLat < -90 || minLat > 90 || maxLat < -90 || maxLat > 90 ||
+                minLng < -180 || minLng > 180 || maxLng < -180 || maxLng > 180)
+            {
+                return BadRequest(new { error = "Coordinates must be valid WGS-84 values." });
+            }
+
+            if (minLat > maxLat || minLng > maxLng)
+            {
+                return BadRequest(new { error = "minLat/minLng must be less than or equal to maxLat/maxLng." });
+            }
+
             var hazardsInBounds = await _dbContext.Hazards
                 .FromSqlInterpolated($"""
                     SELECT *
@@ -81,7 +92,7 @@ public class HazardsController : ControllerBase
         report.Status = HazardStatus.Reported;
         report.Source = string.IsNullOrWhiteSpace(report.Source) ? "user" : report.Source;
         report.Location.SRID = 4326;
-        report.ReporterUserId ??= User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        // Leave ReporterUserId unset: DB column is UUID FK and Identity uses string Id; setting it would cause FK violation without DB schema change.
         report.PhotoUrl ??= string.Empty;
         
         report.Type = report.Type.Trim();
@@ -115,7 +126,5 @@ public class HazardsController : ControllerBase
         await _spatialCache.UpdateHazardCacheAsync(hazard);
 
         return NoContent();
-    }
-}
     }
 }

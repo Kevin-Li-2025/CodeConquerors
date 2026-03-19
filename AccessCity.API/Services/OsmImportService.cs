@@ -48,123 +48,118 @@ public sealed class OsmImportService : IOsmImportService
 
     public async Task<OsmImportResult> ImportConfiguredAsync(CancellationToken cancellationToken = default)
     {
-        var filePath = _options.Value.FilePath;
-        if (string.IsNullOrWhiteSpace(filePath))
+        var filePathConfig = _options.Value.FilePath;
+        if (string.IsNullOrWhiteSpace(filePathConfig))
         {
             throw new InvalidOperationException("OsmImport:FilePath is not configured.");
         }
 
-        var fullPath = Path.GetFullPath(filePath);
-        if (!File.Exists(fullPath))
-        {
-            throw new FileNotFoundException("Configured OSM import file was not found.", fullPath);
-        }
+        var filePaths = filePathConfig.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var combinedCounters = new ImportCounters();
+        var startedAt = DateTime.UtcNow;
 
         var executionStrategy = _dbContext.Database.CreateExecutionStrategy();
 
         return await executionStrategy.ExecuteAsync(async () =>
         {
-            await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+            if (_options.Value.ReplaceExisting)
+            {
+                await _dbContext.RouteEdges.ExecuteDeleteAsync(cancellationToken);
+                await _dbContext.RouteNodes.ExecuteDeleteAsync(cancellationToken);
+                await _dbContext.InfrastructureAssets
+                    .Where(asset => asset.SourceSystem == "osm")
+                    .ExecuteDeleteAsync(cancellationToken);
+            }
 
-            var startedAt = DateTime.UtcNow;
+            var globalSeenNodes = new HashSet<long>();
+            foreach (var filePath in filePaths)
+            {
+                var fullPath = Path.GetFullPath(filePath);
+                if (!File.Exists(fullPath))
+                {
+                    _logger.LogWarning("OSM import file not found: {FullPath}", fullPath);
+                    continue;
+                }
+
+                await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
+                var fileCounters = await ImportFileAsync(_dbContext, fullPath, globalSeenNodes, cancellationToken);
+                await transaction.CommitAsync(cancellationToken);
+                
+                // Help GC recover memory between large files
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                
+                combinedCounters.RecordsSeen += fileCounters.RecordsSeen;
+                combinedCounters.RouteNodesInserted += fileCounters.RouteNodesInserted;
+                combinedCounters.RouteEdgesInserted += fileCounters.RouteEdgesInserted;
+                combinedCounters.InfrastructureAssetsInserted += fileCounters.InfrastructureAssetsInserted;
+            }
+
+            var finishedAt = DateTime.UtcNow;
             var run = new FeedIngestionRun
             {
                 SourceType = "osm",
-                SourceName = fullPath,
-                Status = "running",
+                SourceName = string.Join(';', filePaths),
+                Status = "completed",
                 StartedAt = startedAt,
+                FinishedAt = finishedAt,
+                RecordsSeen = combinedCounters.RecordsSeen,
+                RecordsInserted = combinedCounters.RouteNodesInserted + combinedCounters.RouteEdgesInserted + combinedCounters.InfrastructureAssetsInserted,
                 Metadata = JsonSerializer.SerializeToDocument(new
                 {
-                    filePath = fullPath,
-                    replaceExisting = _options.Value.ReplaceExisting
+                    filePaths = filePaths,
+                    routeNodesInserted = combinedCounters.RouteNodesInserted,
+                    routeEdgesInserted = combinedCounters.RouteEdgesInserted,
+                    infrastructureAssetsInserted = combinedCounters.InfrastructureAssetsInserted
                 })
             };
 
             _dbContext.FeedIngestionRuns.Add(run);
             await _dbContext.SaveChangesAsync(cancellationToken);
 
-            try
+            return new OsmImportResult
             {
-                if (_options.Value.ReplaceExisting)
-                {
-                    await _dbContext.RouteEdges.ExecuteDeleteAsync(cancellationToken);
-                    await _dbContext.RouteNodes.ExecuteDeleteAsync(cancellationToken);
-                    await _dbContext.InfrastructureAssets
-                        .Where(asset => asset.SourceSystem == "osm")
-                        .ExecuteDeleteAsync(cancellationToken);
-                }
-
-                var counters = await ImportFileAsync(_dbContext, fullPath, cancellationToken);
-
-                run.Status = "completed";
-                run.FinishedAt = DateTime.UtcNow;
-                run.RecordsSeen = counters.RecordsSeen;
-                run.RecordsInserted = counters.RouteNodesInserted + counters.RouteEdgesInserted + counters.InfrastructureAssetsInserted;
-                run.RecordsUpdated = 0;
-                run.RecordsFailed = counters.RecordsFailed;
-                run.Metadata = JsonSerializer.SerializeToDocument(new
-                {
-                    filePath = fullPath,
-                    routeNodesInserted = counters.RouteNodesInserted,
-                    routeEdgesInserted = counters.RouteEdgesInserted,
-                    infrastructureAssetsInserted = counters.InfrastructureAssetsInserted
-                });
-
-                await _dbContext.SaveChangesAsync(cancellationToken);
-                await transaction.CommitAsync(cancellationToken);
-
-                return new OsmImportResult
-                {
-                    RunId = run.Id,
-                    SourceName = fullPath,
-                    Status = run.Status,
-                    RecordsSeen = counters.RecordsSeen,
-                    RouteNodesInserted = counters.RouteNodesInserted,
-                    RouteEdgesInserted = counters.RouteEdgesInserted,
-                    InfrastructureAssetsInserted = counters.InfrastructureAssetsInserted,
-                    RecordsFailed = counters.RecordsFailed,
-                    Duration = run.FinishedAt.GetValueOrDefault(startedAt) - startedAt
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "OSM import failed for {FilePath}", fullPath);
-
-                run.Status = "failed";
-                run.FinishedAt = DateTime.UtcNow;
-                run.ErrorSummary = ex.Message;
-                await _dbContext.SaveChangesAsync(cancellationToken);
-                await transaction.RollbackAsync(cancellationToken);
-
-                throw;
-            }
+                RunId = run.Id,
+                SourceName = run.SourceName,
+                Status = run.Status,
+                RecordsSeen = combinedCounters.RecordsSeen,
+                RouteNodesInserted = combinedCounters.RouteNodesInserted,
+                RouteEdgesInserted = combinedCounters.RouteEdgesInserted,
+                InfrastructureAssetsInserted = combinedCounters.InfrastructureAssetsInserted,
+                Duration = finishedAt - startedAt
+            };
         });
     }
 
     private async Task<ImportCounters> ImportFileAsync(
         AppDbContext dbContext,
         string filePath,
+        HashSet<long> seenRouteNodeIds,
         CancellationToken cancellationToken)
     {
-        using var stream = File.OpenRead(filePath);
-        var source = CreateSource(stream, filePath);
-        var completeSource = new OsmSimpleCompleteStreamSource(source);
-
-        var seenRouteNodeIds = new HashSet<long>();
+        var nodeCache = new Dictionary<long, (double Lon, double Lat)>();
         var seenAssetKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var pendingRouteNodes = new List<RouteNode>();
-        var pendingRouteEdges = new List<RouteEdge>();
-        var pendingAssets = new List<InfrastructureAsset>();
+        var pendingRouteNodes = new List<RouteNode>(250);
+        var pendingRouteEdges = new List<RouteEdge>(250);
+        var pendingAssets = new List<InfrastructureAsset>(250);
         var counters = new ImportCounters();
 
-        foreach (var osmGeo in completeSource)
+        _logger.LogInformation("Importing file (Pass 1 - Nodes): {FilePath}", filePath);
+        
+        // Pass 1: Nodes
+        using (var stream = File.OpenRead(filePath))
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            counters.RecordsSeen++;
-
-            switch (osmGeo)
+            var source = CreateSource(stream, filePath);
+            foreach (var osmGeo in source)
             {
-                case Node node:
+                cancellationToken.ThrowIfCancellationRequested();
+                counters.RecordsSeen++;
+                
+                if (osmGeo is Node node && node.Id.HasValue && node.Longitude.HasValue && node.Latitude.HasValue)
+                {
+                    nodeCache[node.Id.Value] = (node.Longitude.Value, node.Latitude.Value);
+                    
                     if (TryCreatePointInfrastructureAsset(node, out var pointAsset) &&
                         pointAsset is not null &&
                         seenAssetKeys.Add(pointAsset.SourceRecordId!))
@@ -172,29 +167,182 @@ public sealed class OsmImportService : IOsmImportService
                         pendingAssets.Add(pointAsset);
                         counters.InfrastructureAssetsInserted++;
                     }
-                    break;
+                }
 
-                case CompleteWay way:
-                    AddWalkableWay(way, seenRouteNodeIds, pendingRouteNodes, pendingRouteEdges, counters);
+                if (pendingAssets.Count >= 500)
+                {
+                    await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
+                }
+            }
+            await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
+        }
 
-                    if (TryCreateWayInfrastructureAsset(way, out var wayAsset) &&
+        _logger.LogInformation("Importing file (Pass 2 - Ways): {FilePath}", filePath);
+
+        // Pass 2: Ways
+        using (var stream = File.OpenRead(filePath))
+        {
+            var source = CreateSource(stream, filePath);
+            foreach (var osmGeo in source)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                
+                if (osmGeo is Way way)
+                {
+                    if (IsWalkable(way))
+                    {
+                        AddWalkableWayManual(way, nodeCache, seenRouteNodeIds, pendingRouteNodes, pendingRouteEdges, counters);
+                    }
+
+                    if (TryCreateWayInfrastructureAssetManual(way, nodeCache, out var wayAsset) &&
                         wayAsset is not null &&
                         seenAssetKeys.Add(wayAsset.SourceRecordId!))
                     {
                         pendingAssets.Add(wayAsset);
                         counters.InfrastructureAssetsInserted++;
                     }
-                    break;
-            }
+                }
 
-            if (pendingRouteNodes.Count >= 2000 || pendingRouteEdges.Count >= 4000 || pendingAssets.Count >= 1000)
+                if (pendingRouteNodes.Count >= 500 || pendingRouteEdges.Count >= 1000 || pendingAssets.Count >= 500)
+                {
+                    await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
+                }
+            }
+            await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
+        }
+
+        nodeCache.Clear();
+        return counters;
+    }
+
+    private void AddWalkableWayManual(
+        Way way,
+        Dictionary<long, (double Lon, double Lat)> nodeCache,
+        HashSet<long> seenRouteNodeIds,
+        List<RouteNode> pendingRouteNodes,
+        List<RouteEdge> pendingRouteEdges,
+        ImportCounters counters)
+    {
+        if (way.Nodes == null || way.Nodes.Length < 2) return;
+
+        var validNodes = new List<(long Id, double Lon, double Lat)>();
+        foreach (var nodeId in way.Nodes)
+        {
+            if (nodeCache.TryGetValue(nodeId, out var coords))
             {
-                await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
+                validNodes.Add((nodeId, coords.Lon, coords.Lat));
             }
         }
 
-        await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
-        return counters;
+        if (validNodes.Count < 2) return;
+
+        foreach (var node in validNodes)
+        {
+            if (seenRouteNodeIds.Add(node.Id))
+            {
+                pendingRouteNodes.Add(new RouteNode
+                {
+                    Id = node.Id,
+                    Location = CreatePoint(node.Lon, node.Lat)
+                });
+                counters.RouteNodesInserted++;
+            }
+        }
+
+        for (var i = 0; i < validNodes.Count - 1; i++)
+        {
+            var from = validNodes[i];
+            var to = validNodes[i + 1];
+
+            var fromPoint = CreatePoint(from.Lon, from.Lat);
+            var toPoint = CreatePoint(to.Lon, to.Lat);
+            
+            var edge = CreateRouteEdgeManual(way, from.Id, to.Id, fromPoint, toPoint);
+            pendingRouteEdges.Add(edge);
+            counters.RouteEdgesInserted++;
+
+            if (IsBidirectionalForWalking(way))
+            {
+                pendingRouteEdges.Add(CreateRouteEdgeManual(way, to.Id, from.Id, toPoint, fromPoint));
+                counters.RouteEdgesInserted++;
+            }
+        }
+    }
+
+    private RouteEdge CreateRouteEdgeManual(Way way, long fromId, long toId, Point fromPoint, Point toPoint)
+    {
+        var tags = ToDictionary(way.Tags);
+        var surface = tags.GetValueOrDefault("surface", "asphalt");
+        var lit = tags.GetValueOrDefault("lit");
+        var highway = tags.GetValueOrDefault("highway");
+        var incline = tags.GetValueOrDefault("incline");
+        var barrier = tags.GetValueOrDefault("barrier");
+        var access = tags.GetValueOrDefault("access");
+
+        var line = _geometryFactory.CreateLineString(new[]
+        {
+            fromPoint.Coordinate,
+            toPoint.Coordinate
+        });
+
+        return new RouteEdge
+        {
+            FromNodeId = fromId,
+            ToNodeId = toId,
+            SourceWayId = way.Id,
+            Geometry = line,
+            DistanceMetres = RiskScoringService.HaversineDistance(fromPoint.Y, fromPoint.X, toPoint.Y, toPoint.X),
+            BaseSafetyCost = ComputeBaseSafetyCost(surface, lit, highway, incline, barrier),
+            SurfaceType = surface,
+            HasStairs = string.Equals(highway, "steps", StringComparison.OrdinalIgnoreCase),
+            LightingQuality = lit?.ToLowerInvariant() switch
+            {
+                "yes" => 0.95,
+                "limited" => 0.55,
+                "no" => 0.1,
+                _ => 0.45
+            },
+            IsSteep = IsSteep(incline),
+            HasBarrier = !string.IsNullOrWhiteSpace(barrier),
+            Access = access,
+            Tags = ToJsonDocument(tags)
+        };
+    }
+
+    private bool TryCreateWayInfrastructureAssetManual(Way way, Dictionary<long, (double Lon, double Lat)> nodeCache, out InfrastructureAsset? asset)
+    {
+        asset = null;
+        var tags = ToDictionary(way.Tags);
+        var assetType = GetInfrastructureAssetType(tags);
+        if (assetType is null || way.Nodes == null) return false;
+
+        var points = new List<Coordinate>();
+        foreach (var nodeId in way.Nodes)
+        {
+            if (nodeCache.TryGetValue(nodeId, out var coords))
+            {
+                points.Add(new Coordinate(coords.Lon, coords.Lat));
+            }
+        }
+
+        if (points.Count == 0) return false;
+
+        Geometry geometry = points.Count == 1
+            ? _geometryFactory.CreatePoint(points[0])
+            : _geometryFactory.CreateLineString(points.ToArray());
+
+        asset = new InfrastructureAsset
+        {
+            AssetType = assetType,
+            Name = tags.GetValueOrDefault("name"),
+            Geometry = geometry,
+            SourceSystem = "osm",
+            SourceRecordId = $"way:{way.Id}",
+            LastObservedAt = way.TimeStamp,
+            AccessibilityInfo = ToJsonDocument(tags)
+        };
+
+        return true;
     }
 
     private static OsmStreamSource CreateSource(Stream stream, string filePath)
@@ -207,102 +355,7 @@ public sealed class OsmImportService : IOsmImportService
         return new XmlOsmStreamSource(stream);
     }
 
-    private void AddWalkableWay(
-        CompleteWay way,
-        HashSet<long> seenRouteNodeIds,
-        List<RouteNode> pendingRouteNodes,
-        List<RouteEdge> pendingRouteEdges,
-        ImportCounters counters)
-    {
-        if (!IsWalkable(way))
-        {
-            return;
-        }
 
-        var orderedNodes = way.Nodes
-            .Where(node => node?.Id is not null && node.Latitude is not null && node.Longitude is not null)
-            .ToArray();
-
-        if (orderedNodes.Length < 2)
-        {
-            return;
-        }
-
-        foreach (var node in orderedNodes)
-        {
-            var nodeId = node.Id!.Value;
-            if (seenRouteNodeIds.Add(nodeId))
-            {
-                pendingRouteNodes.Add(new RouteNode
-                {
-                    Id = nodeId,
-                    Location = CreatePoint(node.Longitude!.Value, node.Latitude!.Value),
-                    Tags = ToJsonDocument(ToDictionary(node.Tags))
-                });
-                counters.RouteNodesInserted++;
-            }
-        }
-
-        for (var i = 0; i < orderedNodes.Length - 1; i++)
-        {
-            var from = orderedNodes[i];
-            var to = orderedNodes[i + 1];
-
-            if (from.Id is null || to.Id is null)
-            {
-                continue;
-            }
-
-            var fromPoint = CreatePoint(from.Longitude!.Value, from.Latitude!.Value);
-            var toPoint = CreatePoint(to.Longitude!.Value, to.Latitude!.Value);
-            var edge = CreateRouteEdge(way, from.Id.Value, to.Id.Value, fromPoint, toPoint);
-            pendingRouteEdges.Add(edge);
-            counters.RouteEdgesInserted++;
-
-            if (IsBidirectionalForWalking(way))
-            {
-                pendingRouteEdges.Add(CreateRouteEdge(way, to.Id.Value, from.Id.Value, toPoint, fromPoint));
-                counters.RouteEdgesInserted++;
-            }
-        }
-    }
-
-    private RouteEdge CreateRouteEdge(CompleteWay way, long fromNodeId, long toNodeId, Point fromPoint, Point toPoint)
-    {
-        var tags = ToDictionary(way.Tags);
-        var surface = tags.GetValueOrDefault("surface", "asphalt");
-        var lit = tags.GetValueOrDefault("lit");
-        var highway = tags.GetValueOrDefault("highway");
-        var incline = tags.GetValueOrDefault("incline");
-        var crossing = tags.GetValueOrDefault("crossing");
-        var footway = tags.GetValueOrDefault("footway");
-
-        var line = _geometryFactory.CreateLineString(new[]
-        {
-            fromPoint.Coordinate,
-            toPoint.Coordinate
-        });
-
-        return new RouteEdge
-        {
-            FromNodeId = fromNodeId,
-            ToNodeId = toNodeId,
-            SourceWayId = way.Id,
-            Geometry = line,
-            DistanceMetres = RiskScoringService.HaversineDistance(fromPoint.Y, fromPoint.X, toPoint.Y, toPoint.X),
-            BaseSafetyCost = ComputeBaseSafetyCost(surface, lit, highway, incline),
-            SurfaceType = surface,
-            HasStairs = string.Equals(highway, "steps", StringComparison.OrdinalIgnoreCase),
-            HasCrossing = string.Equals(crossing, "marked", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(footway, "crossing", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(highway, "crossing", StringComparison.OrdinalIgnoreCase),
-            IsUnderConstruction = string.Equals(highway, "construction", StringComparison.OrdinalIgnoreCase)
-                || tags.ContainsKey("construction"),
-            LightingQuality = string.Equals(lit, "yes", StringComparison.OrdinalIgnoreCase) ? 0.95 : 0.45,
-            IsSteep = IsSteep(incline),
-            Tags = ToJsonDocument(tags)
-        };
-    }
 
     private bool TryCreatePointInfrastructureAsset(Node node, out InfrastructureAsset? asset)
     {
@@ -333,46 +386,7 @@ public sealed class OsmImportService : IOsmImportService
         return true;
     }
 
-    private bool TryCreateWayInfrastructureAsset(CompleteWay way, out InfrastructureAsset? asset)
-    {
-        asset = null;
-
-        var tags = ToDictionary(way.Tags);
-        var assetType = GetInfrastructureAssetType(tags);
-        if (assetType is null)
-        {
-            return false;
-        }
-
-        var points = way.Nodes
-            .Where(node => node?.Latitude is not null && node.Longitude is not null)
-            .Select(node => new Coordinate(node!.Longitude!.Value, node.Latitude!.Value))
-            .ToArray();
-
-        if (points.Length == 0)
-        {
-            return false;
-        }
-
-        Geometry geometry = points.Length == 1
-            ? _geometryFactory.CreatePoint(points[0])
-            : _geometryFactory.CreateLineString(points);
-
-        asset = new InfrastructureAsset
-        {
-            AssetType = assetType,
-            Name = tags.GetValueOrDefault("name"),
-            Geometry = geometry,
-            SourceSystem = "osm",
-            SourceRecordId = $"way:{way.Id}",
-            LastObservedAt = way.TimeStamp,
-            AccessibilityInfo = ToJsonDocument(tags)
-        };
-
-        return true;
-    }
-
-    private static bool IsWalkable(CompleteWay way)
+    private static bool IsWalkable(Way way)
     {
         var tags = ToDictionary(way.Tags);
         var highway = tags.GetValueOrDefault("highway");
@@ -388,8 +402,17 @@ public sealed class OsmImportService : IOsmImportService
         }
 
         if (tags.TryGetValue("access", out var access) &&
-            string.Equals(access, "private", StringComparison.OrdinalIgnoreCase) &&
+            (string.Equals(access, "no", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(access, "private", StringComparison.OrdinalIgnoreCase)) &&
             !string.Equals(tags.GetValueOrDefault("foot"), "yes", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var barrier = tags.GetValueOrDefault("barrier");
+        if (!string.IsNullOrWhiteSpace(barrier) && 
+            (string.Equals(barrier, "wall", StringComparison.OrdinalIgnoreCase) || 
+             string.Equals(barrier, "fence", StringComparison.OrdinalIgnoreCase)))
         {
             return false;
         }
@@ -399,7 +422,7 @@ public sealed class OsmImportService : IOsmImportService
             || string.Equals(tags.GetValueOrDefault("foot"), "designated", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static bool IsBidirectionalForWalking(CompleteWay way)
+    private static bool IsBidirectionalForWalking(Way way)
     {
         var tags = ToDictionary(way.Tags);
         if (string.Equals(tags.GetValueOrDefault("oneway:foot"), "yes", StringComparison.OrdinalIgnoreCase))
@@ -448,7 +471,7 @@ public sealed class OsmImportService : IOsmImportService
         return null;
     }
 
-    private static double ComputeBaseSafetyCost(string surface, string? lit, string? highway, string? incline)
+    private static double ComputeBaseSafetyCost(string surface, string? lit, string? highway, string? incline, string? barrier)
     {
         var score = surface.ToLowerInvariant() switch
         {
@@ -474,6 +497,11 @@ public sealed class OsmImportService : IOsmImportService
         if (IsSteep(incline))
         {
             score += 0.15;
+        }
+
+        if (!string.IsNullOrWhiteSpace(barrier))
+        {
+            score += 0.3; // Obstacle penalty
         }
 
         return Math.Clamp(score, 0.01, 0.95);

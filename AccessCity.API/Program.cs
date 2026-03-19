@@ -110,7 +110,7 @@ builder.Services.AddRateLimiter(options =>
 {
     options.AddFixedWindowLimiter("auth", opt =>
     {
-        opt.PermitLimit = 5;
+        opt.PermitLimit = builder.Environment.IsDevelopment() ? 100 : 5;
         opt.Window = TimeSpan.FromMinutes(1);
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
         opt.QueueLimit = 0;
@@ -381,6 +381,17 @@ static async Task NormalizeSchemaAsync(WebApplication app)
                 END IF;
             END IF;
 
+            -- Fix naming inconsistencies
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'Users' AND table_schema = 'public') AND 
+               NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'AspNetUsers' AND table_schema = 'public') THEN
+                ALTER TABLE public."Users" RENAME TO "AspNetUsers";
+            END IF;
+
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'RefreshTokens' AND table_schema = 'public') AND 
+               NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE (table_name = 'refresh_token' OR table_name = 'refresh_tokens') AND table_schema = 'public') THEN
+                ALTER TABLE public."RefreshTokens" RENAME TO refresh_token;
+            END IF;
+
             IF EXISTS (
                 SELECT 1
                 FROM information_schema.tables
@@ -398,6 +409,11 @@ static async Task NormalizeSchemaAsync(WebApplication app)
                 FROM information_schema.tables
                 WHERE table_schema = 'public'
                   AND table_name = 'refresh_token'
+            ) AND EXISTS (
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_name = 'AspNetUsers'
             ) THEN
                 CREATE TABLE public.refresh_token
                 (
@@ -417,6 +433,15 @@ static async Task NormalizeSchemaAsync(WebApplication app)
                         REFERENCES public."AspNetUsers" ("Id")
                         ON DELETE CASCADE
                 );
+            END IF;
+
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'route_edges' AND table_schema = 'public') THEN
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'route_edges' AND column_name = 'Access') THEN
+                    ALTER TABLE public.route_edges ADD COLUMN "Access" text;
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'route_edges' AND column_name = 'HasBarrier') THEN
+                    ALTER TABLE public.route_edges ADD COLUMN "HasBarrier" boolean NOT NULL DEFAULT false;
+                END IF;
             END IF;
 
             IF EXISTS (
@@ -481,6 +506,20 @@ static async Task NormalizeSchemaAsync(WebApplication app)
                   AND column_name = 'revoked'
             ) THEN
                 ALTER TABLE public.refresh_token RENAME COLUMN "Revoked" TO revoked;
+            END IF;
+
+            -- RouteEdge accessibility enhancements
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'kerb_height') THEN
+                ALTER TABLE public.route_edges ADD COLUMN kerb_height double precision NOT NULL DEFAULT 0.0;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'smoothness') THEN
+                ALTER TABLE public.route_edges ADD COLUMN smoothness character varying(50);
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'width_metres') THEN
+                ALTER TABLE public.route_edges ADD COLUMN width_metres double precision;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'has_tactile_paving') THEN
+                ALTER TABLE public.route_edges ADD COLUMN has_tactile_paving boolean NOT NULL DEFAULT false;
             END IF;
         END $$;
         """);

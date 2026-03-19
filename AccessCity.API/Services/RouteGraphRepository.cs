@@ -82,7 +82,14 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
                 HasCrossing = edge.HasCrossing,
                 IsUnderConstruction = edge.IsUnderConstruction,
                 LightingQuality = edge.LightingQuality,
-                IsSteep = edge.IsSteep
+                IsSteep = edge.IsSteep,
+                KerbHeight = edge.KerbHeight,
+                Smoothness = edge.Smoothness,
+                WidthMetres = edge.WidthMetres,
+                HasTactilePaving = edge.HasTactilePaving,
+                HasBarrier = edge.HasBarrier,
+                Access = edge.Access,
+                Geometry = edge.Geometry?.Coordinates
             };
         }
 
