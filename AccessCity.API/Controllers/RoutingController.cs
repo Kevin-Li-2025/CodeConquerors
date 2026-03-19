@@ -14,12 +14,14 @@ public class RoutingController : ControllerBase
 {
     private readonly RoutingService _routing;
     private readonly RiskScoringService _risk;
+    private readonly PredictiveRiskModel _aiRisk;
     private readonly AppDbContext _dbContext;
 
-    public RoutingController(RoutingService routing, RiskScoringService risk, AppDbContext dbContext)
+    public RoutingController(RoutingService routing, RiskScoringService risk, PredictiveRiskModel aiRisk, AppDbContext dbContext)
     {
         _routing = routing;
         _risk = risk;
+        _aiRisk = aiRisk;
         _dbContext = dbContext;
     }
 
@@ -30,28 +32,23 @@ public class RoutingController : ControllerBase
     public async Task<ActionResult<RouteResponse>> GetSafePath([FromBody] RouteRequest request, CancellationToken cancellationToken)
     {
         if (request.Start == null || request.End == null)
-        {
             return BadRequest(new { error = "Both 'start' and 'end' coordinates are required." });
-        }
 
         if (!IsValidCoordinate(request.Start) || !IsValidCoordinate(request.End))
-        {
             return BadRequest(new { error = "Coordinates must be valid WGS-84 (lon/lat) values." });
-        }
 
         if (request.SafetyWeight < 0 || request.SafetyWeight > 1)
-        {
             return BadRequest(new { error = "'safetyWeight' must be between 0 and 1." });
-        }
 
         var hazards = await LoadActiveHazardsAsync(cancellationToken);
-        var result = await _routing.FindSafePathAsync(request, hazards, cancellationToken);
+        var result = await _routing.FindSafePathAsync(request, hazards);
+
         if (result is null)
         {
             return NotFound(new
             {
-                error = "No imported routing network covers the requested area. Import OSM data for this area first.",
-                hint = "In Docker, set OsmImport:ImportOnStartup to true and wait for OSM import to finish. Use start/end coordinates within the imported region (e.g. London or Birmingham)."
+                error = "No route found.",
+                hint = "The routing engine could not find a path. If you are using real-world routing, ensure OSRM is reachable. Otherwise, check if the chosen area is supported."
             });
         }
 
@@ -68,14 +65,10 @@ public class RoutingController : ControllerBase
         CancellationToken cancellationToken = default)
     {
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
-        {
             return BadRequest(new { error = "Invalid WGS-84 coordinates." });
-        }
 
         if (radius <= 0 || radius > 5000)
-        {
             return BadRequest(new { error = "Radius must be between 1 and 5000 metres." });
-        }
 
         var hazards = await LoadActiveHazardsAsync(cancellationToken);
         var result = await _risk.EvaluateRiskAsync(lat, lng, radius, hazards);
@@ -88,16 +81,14 @@ public class RoutingController : ControllerBase
     public async Task<ActionResult<PredictiveRiskResult>> GetAiRiskScore(
         [FromQuery] double lat,
         [FromQuery] double lng,
-        [FromQuery] double radius = 500,
+        [FromQuery] double radius = 200,
         CancellationToken cancellationToken = default)
     {
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180)
-        {
             return BadRequest(new { error = "Invalid WGS-84 coordinates." });
-        }
 
         var hazards = await LoadActiveHazardsAsync(cancellationToken);
-        var result = await _risk.PredictRiskAsync(lat, lng, radius, hazards);
+        var result = await _aiRisk.EvaluateSegmentRiskAsync(lat, lng, hazards, radius);
         return Ok(result);
     }
 

@@ -6,6 +6,7 @@ using AccessCity.API.Models;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using NetTopologySuite.Geometries;
+using Xunit;
 
 namespace AccessCity.Tests;
 
@@ -137,15 +138,8 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
     [Fact]
     public async Task SafePath_WithHighSafetyWeight_Returns_Warnings()
     {
-        HttpClient client;
-        try
-        {
-            client = await _factory.CreateAuthenticatedClientAsync();
-        }
-        catch (HttpRequestException)
-        {
-            return;
-        }
+        HttpClient client = await _factory.CreateAuthenticatedClientAsync();
+        
         // Route near known hazard area with high safety weight
         var request = new
         {

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -381,95 +382,17 @@ export default function MapScreen() {
     routeStats?.travelTime || routeStats?.distance || routeStats?.safetyScore
   );
 
+import React from 'react';
+import { View, Text, StyleSheet } from 'react-native';
+
+export default function MapScreen() {
   return (
     <View style={styles.container}>
-      <MapView
-        centerCoordinate={
-          destination
-            ? [destination.longitude, destination.latitude]
-            : currentLocation
-              ? [currentLocation.longitude, currentLocation.latitude]
-              : [-1.8904, 52.4862]
-        }
-        markers={hazards}
-        routeGeoJSON={routeGeoJSON}
-        onMarkerPress={handleHazardPress}
-      />
-
-      <SearchBar
-        value={destinationText}
-        onChangeText={setDestinationText}
-        onSubmitEditing={() => {
-          void handleStartRoute();
-        }}
-      />
-
-      <TouchableOpacity
-        style={styles.filterButton}
-        onPress={() => setFilterModalVisible(true)}
-      >
-        <Ionicons name="options-outline" size={20} color="#FFFFFF" />
-      </TouchableOpacity>
-
-      {hasRouteStats ? (
-        <RouteInfoCard
-          travelTime={routeStats?.travelTime ?? ''}
-          distance={routeStats?.distance ?? ''}
-          safetyScore={routeStats?.safetyScore ?? ''}
-        />
-      ) : (
-        <TouchableOpacity
-          style={[styles.routeButton, isLoading && styles.routeButtonDisabled]}
-          onPress={() => {
-            void handleStartRoute();
-          }}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.routeButtonText}>Start Navigation</Text>
-          )}
-        </TouchableOpacity>
-      )}
-
-      <HazardPreviewCard
-        visible={hazardPreviewVisible && !hazardDetailsVisible}
-        hazard={selectedHazard}
-        onClose={closeHazardPreview}
-        onOpenDetails={openHazardDetails}
-      />
-
-      <FilterModal
-        visible={filterModalVisible}
-        routeFilters={routeFilters}
-        onClose={() => setFilterModalVisible(false)}
-        onToggleFilter={toggleFilter}
-        onAdjustMinSafety={adjustMinSafety}
-        onAdjustMaxSafety={adjustMaxSafety}
-        onApply={handleApplyFilters}
-        onReset={handleResetFilters}
-      />
-
-      <HazardDetailsModal
-        visible={hazardDetailsVisible}
-        hazard={selectedHazard}
-        onClose={closeHazardDetails}
-      />
-
-      <ReportHazardModal
-        visible={reportModalVisible}
-        reportStep={reportStep}
-        selectedReportType={selectedReportType}
-        reportDescription={reportDescription}
-        onClose={closeReportModal}
-        onSelectType={setSelectedReportType}
-        onNext={handleNextFromReportModal}
-        onBack={handleBackToStep1}
-        onSubmit={handleSubmitReport}
-        onDone={handleDoneFromSuccess}
-        onChangeDescription={setReportDescription}
-      />
+      <Text style={styles.title}>Map Not Available on Web</Text>
+      <Text style={styles.message}>
+        The interactive map and routing features are optimized for mobile devices.
+        Please use the Expo Go app on your phone to view the map.
+      </Text>
     </View>
   );
 }
@@ -477,36 +400,20 @@ export default function MapScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  filterButton: {
-    position: 'absolute',
-    top: 60,
-    right: 16,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#0F3D91',
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 4,
+    padding: 20,
+    backgroundColor: '#F8FAFC',
   },
-  routeButton: {
-    position: 'absolute',
-    bottom: 40,
-    left: 20,
-    right: 20,
-    backgroundColor: '#1D4ED8',
-    borderRadius: 16,
-    paddingVertical: 18,
-    alignItems: 'center',
-    elevation: 8,
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 10,
+    color: '#0F3D91',
   },
-  routeButtonDisabled: {
-    opacity: 0.7,
-  },
-  routeButtonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '800',
+  message: {
+    fontSize: 16,
+    textAlign: 'center',
+    color: '#64748B',
   },
 });

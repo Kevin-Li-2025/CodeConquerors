@@ -28,45 +28,7 @@ public class HazardsController : ControllerBase
         [FromQuery] double? maxLat,
         [FromQuery] double? maxLng)
     {
-        if (new[] { minLat, minLng, maxLat, maxLng }.Any(value => value.HasValue) &&
-            new[] { minLat, minLng, maxLat, maxLng }.Any(value => !value.HasValue))
-        {
-            return BadRequest(new { error = "Provide all bounding-box values or none of them." });
-        }
-
-        if (minLat.HasValue)
-        {
-            if (minLat < -90 || minLat > 90 || maxLat < -90 || maxLat > 90 ||
-                minLng < -180 || minLng > 180 || maxLng < -180 || maxLng > 180)
-            {
-                return BadRequest(new { error = "Coordinates must be valid WGS-84 values." });
-            }
-
-            if (minLat > maxLat || minLng > maxLng)
-            {
-                return BadRequest(new { error = "minLat/minLng must be less than or equal to maxLat/maxLng." });
-            }
-
-            var hazardsInBounds = await _dbContext.Hazards
-                .FromSqlInterpolated($"""
-                    SELECT *
-                    FROM hazard_report
-                    WHERE ST_Intersects(
-                        geom,
-                        ST_MakeEnvelope({minLng!.Value}, {minLat!.Value}, {maxLng!.Value}, {maxLat!.Value}, 4326))
-                    ORDER BY reported_at DESC
-                    """)
-                .AsNoTracking()
-                .ToListAsync();
-
-            return Ok(hazardsInBounds);
-        }
-
-        var hazards = await _dbContext.Hazards
-            .AsNoTracking()
-            .OrderByDescending(hazard => hazard.ReportedAt)
-            .ToListAsync();
-
+        var hazards = await _realHazardData.GetActiveHazardsAsync(minLat, minLng, maxLat, maxLng);
         return Ok(hazards);
     }
 

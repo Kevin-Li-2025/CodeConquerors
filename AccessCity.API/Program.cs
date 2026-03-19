@@ -40,6 +40,10 @@ builder.Services.AddHybridCache(options =>
 });
 #pragma warning restore EXTEXP0018
 
+builder.Services.AddSingleton<ISpatialCacheService, SpatialCacheService>();
+builder.Services.AddSingleton<IBloomFilterService, BloomFilterService>();
+builder.Services.AddScoped<IMapTileService, MapTileService>();
+
 builder.Services.AddControllers(options =>
     {
         options.Filters.Add<AccessCity.API.Filters.OverpassExceptionFilter>();
@@ -103,6 +107,8 @@ builder.Services.AddScoped<IMapTileService, MapTileService>();
 builder.Services.AddScoped<IRouteGraphRepository, RouteGraphRepository>();
 builder.Services.AddScoped<IOsmImportService, OsmImportService>();
 builder.Services.AddScoped<RiskScoringService>();
+builder.Services.AddScoped<PredictiveRiskModel>();
+builder.Services.AddHttpClient<AccessCity.API.Services.External.IOsrmClient, AccessCity.API.Services.External.OsrmClient>();
 builder.Services.AddScoped<RoutingService>();
 builder.Services.AddScoped<ITokenService, TokenService>();
 

@@ -1,35 +1,42 @@
+using System.Net;
+using AccessCity.API.Exceptions;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using System.Net;
 
-namespace AccessCity.API.Filters
+namespace AccessCity.API.Filters;
+
+/// <summary>
+/// Returns 503 Service Unavailable with correlation id when Overpass (or other external hazard data) fails.
+/// </summary>
+public class OverpassExceptionFilter : IExceptionFilter
 {
-    public class OverpassExceptionFilter : IExceptionFilter
+    private readonly ILogger<OverpassExceptionFilter> _logger;
+
+    public OverpassExceptionFilter(ILogger<OverpassExceptionFilter> logger)
     {
-        private readonly ILogger<OverpassExceptionFilter> _logger;
+        _logger = logger;
+    }
 
-        public OverpassExceptionFilter(ILogger<OverpassExceptionFilter> logger)
+    public void OnException(ExceptionContext context)
+    {
+        if (context.Exception is not OverpassServiceException)
+            return;
+
+        var correlationId = context.HttpContext.TraceIdentifier;
+        _logger.LogWarning(context.Exception,
+            "Overpass failure mapped to 503. CorrelationId: {CorrelationId}",
+            correlationId);
+
+        context.Result = new ObjectResult(new
         {
-            _logger = logger;
-        }
-
-        public void OnException(ExceptionContext context)
+            error = "Hazard data service temporarily unavailable.",
+            correlationId,
+        })
         {
-            _logger.LogError(context.Exception, "An error occurred while calling the Overpass API.");
-
-            var response = new
-            {
-                error = "External API Error",
-                message = "The service is temporarily unable to fetch data from OpenStreetMap. Please try again later.",
-                details = context.Exception.InnerException?.Message ?? context.Exception.Message
-            };
-
-            context.Result = new ObjectResult(response)
-            {
-                StatusCode = (int)HttpStatusCode.ServiceUnavailable
-            };
-
-            context.ExceptionHandled = true;
-        }
+            StatusCode = (int)HttpStatusCode.ServiceUnavailable,
+        };
+        context.ExceptionHandled = true;
+    }
+}
     }
 }

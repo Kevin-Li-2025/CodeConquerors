@@ -33,3 +33,5 @@ public sealed class AppDbContextFactory : IDesignTimeDbContextFactory<AppDbConte
         return new AppDbContext(optionsBuilder.Options);
     }
 }
+    }
+}
