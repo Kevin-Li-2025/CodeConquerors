@@ -255,6 +255,36 @@ namespace AccessCity.API.Services
         }
 
         /// <summary>
+        /// Lightweight sync infrastructure risk score.
+        /// Queries PostGIS route edges within ~100m of the point for lighting,
+        /// stairs, and kerb height. Result is consistent with per-edge routing.
+        /// Falls back to 0.25 baseline when no PostGIS data is available.
+        /// </summary>
+        public double QuickInfrastructureRisk(double lat, double lng)
+        {
+            if (_cache != null)
+            {
+                var cacheKey = $"infra:{Math.Round(lat, 4):F4}:{Math.Round(lng, 4):F4}";
+                if (_cache.TryGetValue(cacheKey, out double cached)) return cached;
+
+                try
+                {
+                    double risk = EstimateInfrastructureRiskAsync(lat, lng, 150)
+                        .GetAwaiter().GetResult();
+                    _cache.Set(cacheKey, risk, TimeSpan.FromMinutes(10));
+                    return risk;
+                }
+                catch
+                {
+                    return 0.25;
+                }
+            }
+
+            // No cache — just return baseline instead of random
+            return 0.25;
+        }
+
+        /// <summary>
         /// Haversine distance in metres between two WGS-84 points.
         /// </summary>
         public static double HaversineDistance(double lat1, double lon1, double lat2, double lon2)

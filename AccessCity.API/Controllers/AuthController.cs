@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -8,10 +9,11 @@ using AccessCity.API.Data;
 
 namespace AccessCity.API.Controllers
 {
-    [ApiController]
-    [Route("api/[controller]")]
-    [EnableRateLimiting("auth")]
-    public class AuthController : ControllerBase
+[ApiController]
+[ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/[controller]")]
+[EnableRateLimiting("auth")]
+public class AuthController : ControllerBase
     {
         private readonly UserManager<AccessCityUser> _userManager;
         private readonly ITokenService _tokenService;

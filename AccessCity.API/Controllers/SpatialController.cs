@@ -1,6 +1,7 @@
 using System.Text.Json;
 using AccessCity.API.Data;
 using AccessCity.API.Models;
+using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
@@ -8,7 +9,8 @@ using NetTopologySuite.Geometries;
 namespace AccessCity.API.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/[controller]")]
 public class SpatialController : ControllerBase
 {
     private readonly AppDbContext _dbContext;

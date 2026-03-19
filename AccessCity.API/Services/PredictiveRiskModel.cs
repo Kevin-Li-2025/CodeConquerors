@@ -64,11 +64,11 @@ namespace AccessCity.API.Services
             // Factor 3: Weather risk
             double weatherRisk = await GetWeatherRiskAsync(lat, lon);
 
-            // Factor 4: Crime risk (use base service's existing crime integration)
-            double crimeRisk = EstimateCrimeRisk(lat, lon);
+            // Factor 4: Crime risk — uses cached UK Police street crime data
+            double crimeRisk = _baseRisk.QuickCrimeRisk(lat, lon);
 
-            // Factor 5: Infrastructure quality
-            double infraRisk = EstimateInfrastructureRisk(lat, lon);
+            // Factor 5: Infrastructure quality — uses real PostGIS route edge data
+            double infraRisk = _baseRisk.QuickInfrastructureRisk(lat, lon);
 
             // ──── Logistic Regression Combination ────
             // z = w₁·x₁ + w₂·x₂ + ... + wₙ·xₙ
@@ -105,8 +105,8 @@ namespace AccessCity.API.Services
             double hazardRisk = _baseRisk.QuickRisk(lat, lon, hazards, radiusMetres);
             double timeRisk = ComputeTimeOfDayRisk(DateTime.UtcNow);
             double weatherRisk = GetCachedWeatherRisk(lat, lon);
-            double crimeRisk = EstimateCrimeRisk(lat, lon);
-            double infraRisk = EstimateInfrastructureRisk(lat, lon);
+            double crimeRisk = _baseRisk.QuickCrimeRisk(lat, lon);
+            double infraRisk = _baseRisk.QuickInfrastructureRisk(lat, lon);
 
             double z = W_Hazard * hazardRisk +
                        W_TimeOfDay * timeRisk +
@@ -218,28 +218,8 @@ namespace AccessCity.API.Services
             return Math.Clamp(risk, 0, 1);
         }
 
-        /// <summary>
-        /// Crime risk estimate using spatial hash.
-        /// In production, this would query the cached UK Police data.
-        /// </summary>
-        private static double EstimateCrimeRisk(double lat, double lon)
-        {
-            // Use deterministic spatial hash for consistent risk per location
-            int hash = HashCode.Combine(Math.Round(lat, 3), Math.Round(lon, 3));
-            var rng = new Random(hash);
-            return 0.05 + rng.NextDouble() * 0.25; // Range [0.05, 0.30]
-        }
-
-        /// <summary>
-        /// Infrastructure quality estimate — lighting, pavement condition, sidewalk width.
-        /// Simulated for PoC using spatial hashing.
-        /// </summary>
-        private static double EstimateInfrastructureRisk(double lat, double lon)
-        {
-            int hash = HashCode.Combine(Math.Round(lat, 4), Math.Round(lon, 4));
-            var rng = new Random(hash);
-            return 0.10 + rng.NextDouble() * 0.30; // Range [0.10, 0.40]
-        }
+        // Crime and infrastructure risk are now delegated to RiskScoringService
+        // which uses real cached UK Police data and PostGIS infrastructure queries.
 
         /// <summary>
         /// Generate human-readable risk factor explanations for the API response.

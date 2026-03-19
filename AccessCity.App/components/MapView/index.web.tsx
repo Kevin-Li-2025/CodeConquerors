@@ -5,7 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { Hazard } from '../../models/spatial';
 import { API_BASE_URL } from '../../services/api';
 
-const TILE_URL = `${API_BASE_URL}/api/tiles/{z}/{x}/{y}.pbf`;
+const TILE_URL = `${API_BASE_URL}/api/v1/tiles/{z}/{x}/{y}.pbf`;
 
 interface MapViewProps {
   centerCoordinate?: [number, number];

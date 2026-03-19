@@ -13,21 +13,27 @@ namespace AccessCity.API.Validators
             RuleFor(x => x.End)
                 .NotNull().WithMessage("End coordinate is required.");
 
-            RuleFor(x => x.Start.X)
-                .InclusiveBetween(-180, 180)
-                .WithMessage("Start Longitude must be between -180 and 180.");
+            When(x => x.Start != null, () =>
+            {
+                RuleFor(x => x.Start.X)
+                    .InclusiveBetween(-180, 180)
+                    .WithMessage("Start Longitude must be between -180 and 180.");
 
-            RuleFor(x => x.Start.Y)
-                .InclusiveBetween(-90, 90)
-                .WithMessage("Start Latitude must be between -90 and 90.");
+                RuleFor(x => x.Start.Y)
+                    .InclusiveBetween(-90, 90)
+                    .WithMessage("Start Latitude must be between -90 and 90.");
+            });
 
-            RuleFor(x => x.End.X)
-                .InclusiveBetween(-180, 180)
-                .WithMessage("End Longitude must be between -180 and 180.");
+            When(x => x.End != null, () =>
+            {
+                RuleFor(x => x.End.X)
+                    .InclusiveBetween(-180, 180)
+                    .WithMessage("End Longitude must be between -180 and 180.");
 
-            RuleFor(x => x.End.Y)
-                .InclusiveBetween(-90, 90)
-                .WithMessage("End Latitude must be between -90 and 90.");
+                RuleFor(x => x.End.Y)
+                    .InclusiveBetween(-90, 90)
+                    .WithMessage("End Latitude must be between -90 and 90.");
+            });
 
             RuleFor(x => x.SafetyWeight)
                 .InclusiveBetween(0, 1)

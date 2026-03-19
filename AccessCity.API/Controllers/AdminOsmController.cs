@@ -1,5 +1,6 @@
 using AccessCity.API.Models;
 using AccessCity.API.Services;
+using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,7 +8,8 @@ namespace AccessCity.API.Controllers;
 
 [Authorize]
 [ApiController]
-[Route("api/admin/osm")]
+[ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/admin/osm")]
 public class AdminOsmController : ControllerBase
 {
     private readonly IOsmImportService _osmImportService;

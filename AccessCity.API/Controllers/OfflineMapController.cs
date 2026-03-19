@@ -1,9 +1,10 @@
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 using AccessCity.API.Data;
 using AccessCity.API.Services;
-using NetTopologySuite.Geometries;
+using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using NetTopologySuite.Geometries;
 
 namespace AccessCity.API.Controllers
 {
@@ -13,7 +14,8 @@ namespace AccessCity.API.Controllers
     /// </summary>
     [Authorize]
     [ApiController]
-    [Route("api/[controller]")]
+    [ApiVersion("1.0")]
+    [Route("api/v{version:apiVersion}/[controller]")]
     public class OfflineMapController : ControllerBase
     {
         private readonly ISpatialCacheService _spatialCache;

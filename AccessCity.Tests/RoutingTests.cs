@@ -43,7 +43,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             SafetyWeight = 0.4
         };
 
-        var response = await client.PostAsJsonAsync("/api/routing/safe-path", request, JsonOptions);
+        var response = await client.PostAsJsonAsync("/api/v1/routing/safe-path", request, JsonOptions);
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<RouteResponse>(JsonOptions);
@@ -77,7 +77,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             await dbContext.SaveChangesAsync();
         }
 
-        var response = await client.GetAsync("/api/routing/risk-score?lat=52.4862&lng=-1.8904&radius=500");
+        var response = await client.GetAsync("/api/v1/routing/risk-score?lat=52.4862&lng=-1.8904&radius=500");
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<RiskScoreResponse>(JsonOptions);
@@ -99,7 +99,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             SafetyWeight = 0.5
         };
 
-        var response = await client.PostAsJsonAsync("/api/routing/safe-path", request, JsonOptions);
+        var response = await client.PostAsJsonAsync("/api/v1/routing/safe-path", request, JsonOptions);
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<RouteResponse>(JsonOptions);
@@ -126,7 +126,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             SafetyWeight = 1.0  // Maximum safety preference
         };
 
-        var response = await client.PostAsJsonAsync("/api/routing/safe-path", request, JsonOptions);
+        var response = await client.PostAsJsonAsync("/api/v1/routing/safe-path", request, JsonOptions);
         if (response.StatusCode == HttpStatusCode.ServiceUnavailable) return;
         response.EnsureSuccessStatusCode();
 
@@ -145,7 +145,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         double lat = 52.4514;
         double lng = -1.9305;
 
-        var response = await client.GetAsync($"/api/routing/ai-risk-score?lat={lat}&lng={lng}&radius=200");
+        var response = await client.GetAsync($"/api/v1/routing/ai-risk-score?lat={lat}&lng={lng}&radius=200");
         response.EnsureSuccessStatusCode();
 
         var content = await response.Content.ReadAsStringAsync();
@@ -173,7 +173,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
     public async Task AiRiskScore_InvalidCoordinates_Returns_BadRequest()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
-        var response = await client.GetAsync("/api/routing/ai-risk-score?lat=999&lng=999");
+        var response = await client.GetAsync("/api/v1/routing/ai-risk-score?lat=999&lng=999");
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
@@ -187,11 +187,11 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         {
             Start = new { X = -1.8904, Y = 52.4862 }, // Node 1001
             End   = new { X = -1.8894, Y = 52.4862 }, // Node 1003
-            Profile = "wheelchair",
+            Profile = "manual-wheelchair",
             Preferences = new List<string> { "avoid-stairs" }
         };
 
-        var response = await client.PostAsJsonAsync("/api/routing/safe-path", request, JsonOptions);
+        var response = await client.PostAsJsonAsync("/api/v1/routing/safe-path", request, JsonOptions);
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<RouteResponse>(JsonOptions);

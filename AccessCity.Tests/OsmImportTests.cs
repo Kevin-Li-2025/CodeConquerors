@@ -19,7 +19,7 @@ public class OsmImportTests : IClassFixture<AccessCityApiFactory>
     public async Task ImportEndpoint_Persists_RouteGraph_Infrastructure_And_Run_Audit()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
-        var response = await client.PostAsync("/api/admin/osm/import", content: null);
+        var response = await client.PostAsync("/api/v1/admin/osm/import", content: null);
         response.EnsureSuccessStatusCode();
 
         var result = await response.Content.ReadFromJsonAsync<OsmImportResult>();
@@ -49,12 +49,12 @@ public class OsmImportTests : IClassFixture<AccessCityApiFactory>
         var client = await _factory.CreateAuthenticatedClientAsync();
         await _factory.ImportOsmAsync(client);
 
-        var poiResponse = await client.GetAsync("/api/spatial/poi?lat=52.48625&lng=-1.8899&radius=250");
+        var poiResponse = await client.GetAsync("/api/v1/spatial/poi?lat=52.48625&lng=-1.8899&radius=250");
         poiResponse.EnsureSuccessStatusCode();
         var poiContent = await poiResponse.Content.ReadAsStringAsync();
         Assert.Contains("amenity", poiContent);
 
-        var overlayResponse = await client.GetAsync("/api/spatial/map-overlay?layerName=infrastructure");
+        var overlayResponse = await client.GetAsync("/api/v1/spatial/map-overlay?layerName=infrastructure");
         overlayResponse.EnsureSuccessStatusCode();
         var overlayContent = await overlayResponse.Content.ReadAsStringAsync();
         Assert.Contains("FeatureCollection", overlayContent);

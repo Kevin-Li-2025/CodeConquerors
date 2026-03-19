@@ -42,7 +42,7 @@ public class MapTileTests : IClassFixture<AccessCityApiFactory>
             await spatialCache.UpdateHazardCacheAsync(hazard);
         }
 
-        var response = await client.GetAsync("/api/tiles/13/4052/2743.pbf");
+        var response = await client.GetAsync("/api/v1/tiles/13/4052/2743.pbf");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("application/x-protobuf", response.Content.Headers.ContentType?.MediaType);

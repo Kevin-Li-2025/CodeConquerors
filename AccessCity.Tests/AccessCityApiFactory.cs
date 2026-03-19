@@ -67,7 +67,7 @@ public class AccessCityApiFactory : WebApplicationFactory<Program>
             "P@ssword123!",
             "Integration Test User");
 
-        var response = await client.PostAsJsonAsync("/api/auth/register", registerRequest, JsonOptions);
+        var response = await client.PostAsJsonAsync("/api/v1/auth/register", registerRequest, JsonOptions);
         response.EnsureSuccessStatusCode();
 
         var auth = await response.Content.ReadFromJsonAsync<AuthResponse>(JsonOptions)
@@ -89,7 +89,7 @@ public class AccessCityApiFactory : WebApplicationFactory<Program>
                 return;
             }
 
-            var response = await client.PostAsync("/api/admin/osm/import", content: null);
+            var response = await client.PostAsync("/api/v1/admin/osm/import", content: null);
             response.EnsureSuccessStatusCode();
             _osmImported = true;
         }

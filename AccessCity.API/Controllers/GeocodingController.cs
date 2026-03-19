@@ -1,10 +1,12 @@
+using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
 using System.Net.Http.Json;
 
 namespace AccessCity.API.Controllers
 {
     [ApiController]
-    [Route("api/geocoding")]
+    [ApiVersion("1.0")]
+    [Route("api/v{version:apiVersion}/geocoding")]
     public class GeocodingController : ControllerBase
     {
         private readonly IHttpClientFactory _httpClientFactory;

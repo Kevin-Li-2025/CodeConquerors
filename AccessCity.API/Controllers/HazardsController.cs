@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
+using Asp.Versioning;
 using AccessCity.API.Data;
 using AccessCity.API.Models;
 using AccessCity.API.Models.DTOs;
@@ -9,7 +10,8 @@ using AccessCity.API.Services;
 namespace AccessCity.API.Controllers;
 
 [ApiController]
-[Route("api/[controller]")]
+[ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/[controller]")]
 public class HazardsController : ControllerBase
 {
     private readonly AppDbContext _dbContext;

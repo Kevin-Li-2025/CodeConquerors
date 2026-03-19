@@ -1,3 +1,4 @@
+using Asp.Versioning;
 using AccessCity.API.Data;
 using AccessCity.API.Models;
 using AccessCity.API.Models.DTOs;
@@ -10,7 +11,8 @@ namespace AccessCity.API.Controllers;
 
 [AllowAnonymous]
 [ApiController]
-[Route("api/[controller]")]
+[ApiVersion("1.0")]
+[Route("api/v{version:apiVersion}/[controller]")]
 public class RoutingController : ControllerBase
 {
     private readonly RoutingService _routing;

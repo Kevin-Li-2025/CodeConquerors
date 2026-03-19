@@ -26,7 +26,7 @@ namespace AccessCity.Tests
         {
             // 1. Register
             var registerRequest = new RegisterRequest("test" + Guid.NewGuid() + "@example.com", "P@ssword123!", "Test User");
-            var regResponse = await _client.PostAsJsonAsync("/api/auth/register", registerRequest, _jsonOptions);
+            var regResponse = await _client.PostAsJsonAsync("/api/v1/auth/register", registerRequest, _jsonOptions);
             
             if (!regResponse.IsSuccessStatusCode)
             {
@@ -39,7 +39,7 @@ namespace AccessCity.Tests
 
             // 2. Login
             var loginRequest = new LoginRequest(registerRequest.Email, "P@ssword123!");
-            var loginResponse = await _client.PostAsJsonAsync("/api/auth/login", loginRequest, _jsonOptions);
+            var loginResponse = await _client.PostAsJsonAsync("/api/v1/auth/login", loginRequest, _jsonOptions);
             
             loginResponse.EnsureSuccessStatusCode();
             var loginResult = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>(_jsonOptions);
@@ -53,15 +53,15 @@ namespace AccessCity.Tests
         {
             var email = "forgot" + Guid.NewGuid() + "@example.com";
             var registerRequest = new RegisterRequest(email, "P@ssword123!", "Forgot User");
-            await _client.PostAsJsonAsync("/api/auth/register", registerRequest, _jsonOptions);
+            await _client.PostAsJsonAsync("/api/v1/auth/register", registerRequest, _jsonOptions);
 
             var forgotRequest = new ForgotPasswordRequest(email);
-            var forgotResponse = await _client.PostAsJsonAsync("/api/auth/forgot-password", forgotRequest, _jsonOptions);
+            var forgotResponse = await _client.PostAsJsonAsync("/api/v1/auth/forgot-password", forgotRequest, _jsonOptions);
             if (!forgotResponse.IsSuccessStatusCode && forgotResponse.StatusCode != System.Net.HttpStatusCode.ServiceUnavailable)
                 forgotResponse.EnsureSuccessStatusCode();
 
             var resetWithBadToken = new ResetPasswordRequest(email, "invalid-token", "NewP@ssword456!");
-            var resetResponse = await _client.PostAsJsonAsync("/api/auth/reset-password", resetWithBadToken, _jsonOptions);
+            var resetResponse = await _client.PostAsJsonAsync("/api/v1/auth/reset-password", resetWithBadToken, _jsonOptions);
             Assert.True(resetResponse.StatusCode == System.Net.HttpStatusCode.BadRequest
                 || resetResponse.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable
                 || resetResponse.StatusCode == System.Net.HttpStatusCode.OK,

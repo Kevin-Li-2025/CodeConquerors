@@ -9,7 +9,7 @@ const PORT = process.env.EXPO_PUBLIC_API_PORT || '8080';
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL
   ? process.env.EXPO_PUBLIC_API_URL.replace(/\/api\/?$/, '')
   : `http://${HOST}:${PORT}`;
-export const API_URL = BASE_URL + '/api';
+export const API_URL = BASE_URL + '/api/v1';
 export const API_BASE_URL = BASE_URL;
 
 const TOKEN_KEY = 'ac_access_token';
