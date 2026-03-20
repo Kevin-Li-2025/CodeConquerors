@@ -19,6 +19,7 @@ import {
   type VoiceStep,
 } from './voiceGuidance';
 import { api } from '../../services/api';
+import { hazardsService } from '../../services/hazards.service';
 
 import {
   Coordinate,
@@ -635,13 +636,20 @@ export default function MapScreen() {
     setHazardDetailsVisible(false);
   }
 
-  function openHazardDetails() {
+  async function openHazardDetails() {
     if (!selectedHazard) return;
 
-    // TODO: If the backend later provides a hazard details endpoint,
-    // fetch the full hazard details here before opening the modal.
-    // Example:
-    // GET /hazards/{id}
+    try {
+      const fullDetails = await hazardsService.getHazardById(selectedHazard.id);
+      if (fullDetails) {
+        setSelectedHazard({
+          ...fullDetails,
+          id: String(fullDetails.id)
+        } as Hazard);
+      }
+    } catch (err) {
+      console.error('Failed to fetch full hazard details:', err);
+    }
     setHazardDetailsVisible(true);
   }
 
