@@ -121,14 +121,24 @@ function formatDateTime(dateString: string) {
  */
 
 function mapPendingReport(item: any): PendingHazardItem {
+  const rawStatus = String(item.status ?? '').toLowerCase();
+
   return {
     id: String(item.id),
-    category: item.category ?? item.type ?? 'Unknown',
-    locationName: item.locationName ?? item.location ?? 'Unknown location',
-    createdAt: item.createdAt ?? item.submittedAt ?? new Date().toISOString(),
+    category: item.type ?? item.category ?? 'Unknown',
+    locationName:
+      item.locationName ??
+      item.location ??
+      (item.location?.x != null && item.location?.y != null
+        ? `${item.location.y}, ${item.location.x}`
+        : 'Unknown location'),
+    createdAt:
+      item.reportedAt ?? item.createdAt ?? item.submittedAt ?? new Date().toISOString(),
     title:
       item.title ??
-      (item.category ? `${item.category} Report` : 'Hazard Report'),
+      (item.type ?? item.category
+        ? `${item.type ?? item.category} Report`
+        : 'Hazard Report'),
     severity: item.severity ?? item.priority ?? 'Normal',
     reporterName:
       item.reporterName ??
@@ -230,17 +240,16 @@ export default function AdminHazardReport({ onClose }: AdminHazardReportProps) {
         setLoadingList(true);
       }
 
-      /**
-       * TODO:
-       * If your API helper has already automatically appended /api，
-       * write '/hazards/pending'
-       * if not, change it '/api/hazards/pending'
-       */
-      const response = await api.get<any[]>('/hazards/pending');
+      const response = await api.get<any[]>('/hazards');
 
-      const mapped = Array.isArray(response)
-        ? response.map(mapPendingReport)
-        : [];
+      const allItems = Array.isArray(response) ? response : [];
+
+      const pendingItems = allItems.filter((item) => {
+        const status = String(item.status ?? '').toLowerCase();
+        return status === 'reported' || status === 'underreview';
+      });
+
+      const mapped = pendingItems.map(mapPendingReport);
 
       setPendingReports(mapped);
 
@@ -351,25 +360,16 @@ export default function AdminHazardReport({ onClose }: AdminHazardReportProps) {
    */
   async function fetchReviewStats() {
     try {
-      /**
-       * TODO:
-       * If your backend API requires an admin ID or token,
-       * Add according to backend requirements at that time
-       */
-      const response = await api.get<any>('/admin/stats/daily');
+      const response = await api.get<any>('/dashboard/summary');
 
       setReviewStats((prev) => ({
-        reviewedToday: Number(response?.reviewedToday ?? prev.reviewedToday ?? 0),
+        reviewedToday: prev.reviewedToday, 
         waitingForReview: Number(
-          response?.waitingForReview ?? prev.waitingForReview ?? 0
+          response?.pendingAlerts ?? response?.PendingAlerts ?? prev.waitingForReview ?? 0
         ),
       }));
     } catch (error) {
       console.error('Failed to fetch review stats:', error);
-      /**
-       * I deliberately didn't show the pop-up here.
-       * Because statistical failures should not affect the main process.
-       */
     }
   }
 
