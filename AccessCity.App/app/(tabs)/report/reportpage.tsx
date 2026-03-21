@@ -4,17 +4,11 @@ import { router } from 'expo-router';
 import * as Location from 'expo-location';
 
 import ReportHazardModal from '../../../components/MapView/ReportHazardModal';
-import AdminHazardReport from '../../../components/MapView/AdminHazardReport';
 import { ReportHazardType } from '../../../components/MapView/MapTypes';
 import { api } from '../../../services/api';
 
-// ======================
-//TODO: The role was temporarily hardcoded (to be changed to a real logged-in user later).
-// ======================
-const MOCK_USER_ROLE: 'user' | 'admin' = 'user'; // Changing it to 'admin' allows you to test the admin redirect.
-
 export default function ReportPage() {
-  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(true);
 
   const [reportStep, setReportStep] = useState<1 | 2 | 3>(1);
   const [selectedReportType, setSelectedReportType] =
@@ -26,23 +20,11 @@ export default function ReportPage() {
     longitude: number;
   } | null>(null);
 
-  const isAdmin = MOCK_USER_ROLE === 'admin'; // TODO: Change to a real user.role
-
-  // ======================
-  // Determine the role when entering the page
-  // ======================
   useEffect(() => {
-    if (isAdmin) {
-      return;
-    }
-
     setReportModalVisible(true);
     getCurrentLocation();
-  }, [isAdmin]);
+  }, []);
 
-  // ======================
-  // Get location (independent of MapScreen)
-  // ======================
   async function getCurrentLocation() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -63,9 +45,6 @@ export default function ReportPage() {
     }
   }
 
-  // ======================
-  // Close modal → Return to map
-  // ======================
   function handleClose() {
     setReportModalVisible(false);
     router.back();
@@ -83,9 +62,6 @@ export default function ReportPage() {
     setReportStep(1);
   }
 
-  // ======================
-  // Submit report
-  // ======================
   async function handleSubmit() {
     if (!selectedReportType) {
       Alert.alert('Missing type', 'Please select a hazard type.');
@@ -109,12 +85,12 @@ export default function ReportPage() {
             y: currentLocation.latitude,
           },
         },
-        { skipAuth: true } // TODO: If you need to add auth later, you need to modify this section.
+        { skipAuth: true }
       );
 
       setReportStep(3);
     } catch (error) {
-      console.error(error);
+      console.error('Submit error:', error);
       Alert.alert('Submit error', 'Could not submit report.');
     }
   }
@@ -124,13 +100,6 @@ export default function ReportPage() {
     router.back();
   }
 
-  if (isAdmin) {
-    return <AdminHazardReport />;
-  }
-
-  // ======================
-  // UI
-  // ======================
   return (
     <View style={{ flex: 1 }}>
       <ReportHazardModal

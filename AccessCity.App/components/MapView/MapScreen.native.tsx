@@ -3,7 +3,7 @@ import MapView from 'react-native-maps';
 import { StyleSheet, View, Text, TouchableOpacity, Alert } from 'react-native';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, useGlobalSearchParams } from 'expo-router';
 
 import SearchBar from './SearchBar';
 import RouteInfoCard from './RouteInfoCard';
@@ -48,6 +48,9 @@ export default function MapScreen() {
   const navigationModeRef = useRef(false);
   const routeStepsRef = useRef<VoiceStep[]>([]);
   const lastSpokenStepRef = useRef(-1);
+  const routeCoordinatesRef = useRef<Coordinate[]>([]);
+  const isReroutingRef = useRef(false);
+  const { openReportModal } = useGlobalSearchParams<{ openReportModal?: string }>();
 
   const [currentLocation, setCurrentLocation] = useState<Coordinate | null>(null);
   const [destinationText, setDestinationText] = useState('');
@@ -87,23 +90,69 @@ export default function MapScreen() {
     routeStepsRef.current = routeSteps;
   }, [routeSteps]);
 
+  useEffect(() => {
+    routeCoordinatesRef.current = routeCoordinates;
+  }, [routeCoordinates]);
+
+  useEffect(() => {
+    if (!openReportModal) return;
+    router.push('/report/reportpage');
+  }, [openReportModal]);
+
   function mapBackendHazardToFrontend(item: any): Hazard {
-    const rawType = String(item.type ?? item.hazardType ?? '').toLowerCase();
+    const rawType = String(item.type ?? item.hazardType ?? item.category ?? '').toLowerCase();
     const rawStatus = String(item.status ?? '').toLowerCase();
 
+    const longitude = Number(
+      item.longitude ??
+      item.lng ??
+      item.lon ??
+      item.x ??
+      item.location?.x ??
+      item.coordinates?.[0] ??
+      0
+    );
+
+    const latitude = Number(
+      item.latitude ??
+      item.lat ??
+      item.y ??
+      item.location?.y ??
+      item.coordinates?.[1] ??
+      0
+    );
+
     return {
-      // TODO: Replace fallback values once the backend response contract is finalized.
-      // Right now this mapping is intentionally defensive because the backend field
-      // names may still change during integration.
-      id: item.id ?? Date.now().toString(),
-      title: item.title ?? item.name ?? 'Hazard',
-      type: rawType === 'lighting' ? 'lighting' : 'wheelchair',
-      latitude: Number(item.latitude ?? item.lat ?? 0),
-      longitude: Number(item.longitude ?? item.lng ?? 0),
+      id: String(item.id ?? `${latitude}-${longitude}-${Date.now()}`),
+      title: item.title ?? item.name ?? item.type ?? item.hazardType ?? 'Hazard',
+
+      type:
+        rawType.includes('light')
+          ? 'lighting'
+          : 'wheelchair',
+
+      latitude,
+      longitude,
+
       description: item.description ?? 'No description available.',
-      status: rawStatus === 'acknowledged' ? 'Acknowledged' : 'Pending',
-      locationText: item.locationText ?? item.location ?? 'Unknown location',
-      reportedTime: item.reportedTime ?? item.reportedAt ?? 'Recently reported',
+
+      status:
+        rawStatus === 'resolved' || rawStatus === 'acknowledged'
+          ? 'Acknowledged'
+          : 'Pending',
+
+      locationText:
+        item.locationText ??
+        item.locationName ??
+        item.address ??
+        item.location ??
+        (latitude && longitude ? `${latitude}, ${longitude}` : 'Unknown location'),
+
+      reportedTime:
+        item.reportedTime ??
+        item.reportedAt ??
+        item.createdAt ??
+        'Recently reported',
     };
   }
 
@@ -111,12 +160,63 @@ export default function MapScreen() {
     try {
       const data = await fetchHazardsApi();
       const rawHazards = Array.isArray(data) ? data : [];
-      const mappedHazards = rawHazards.map(mapBackendHazardToFrontend);
+
+      const mappedHazards = rawHazards
+        .map(mapBackendHazardToFrontend)
+        .filter(
+          (item) =>
+            !Number.isNaN(item.latitude) &&
+            !Number.isNaN(item.longitude) &&
+            item.latitude !== 0 &&
+            item.longitude !== 0
+        );
+
       setHazards(mappedHazards);
     } catch (error) {
       console.error('Error fetching hazards:', error);
       Alert.alert('Hazard error', 'Could not load hazards from backend.');
     }
+  }
+
+  function formatDistance(distanceInMeters: number) {
+    if (!Number.isFinite(distanceInMeters)) return '--';
+
+    if (distanceInMeters >= 1000) {
+      return `${(distanceInMeters / 1000).toFixed(1)} km`;
+    }
+
+    return `${Math.round(distanceInMeters)} m`;
+  }
+
+  function formatTravelTimeFromBackend(data: any) {
+    const rawSeconds =
+      Number(data?.estimatedTime) ||
+      Number(data?.durationSeconds) ||
+      Number(data?.duration) ||
+      0;
+
+    if (!Number.isFinite(rawSeconds) || rawSeconds <= 0) {
+      return 'Route ready';
+    }
+
+    return `${Math.max(1, Math.round(rawSeconds / 60))} min`;
+  }
+
+  function formatSafetyScoreFromBackend(data: any) {
+    const rawScore =
+      data?.safetyScore ??
+      data?.score ??
+      data?.safety_rating;
+
+    const numericScore = Number(rawScore);
+
+    if (!Number.isFinite(numericScore)) return '--';
+
+    if (numericScore <= 1) {
+      return `${(numericScore * 100).toFixed(0)}%`;
+    }
+
+    return `${Math.round(numericScore)}%`;
   }
 
   function getBearing(start: Coordinate, end: Coordinate) {
@@ -134,6 +234,40 @@ export default function MapScreen() {
 
     const bearing = (Math.atan2(y, x) * 180) / Math.PI;
     return (bearing + 360) % 360;
+  }
+
+  function getDistanceInMeters(a: Coordinate, b: Coordinate) {
+    const toRad = (value: number) => (value * Math.PI) / 180;
+
+    const earthRadius = 6371000;
+    const dLat = toRad(b.latitude - a.latitude);
+    const dLng = toRad(b.longitude - a.longitude);
+
+    const lat1 = toRad(a.latitude);
+    const lat2 = toRad(b.latitude);
+
+    const haversine =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1) * Math.cos(lat2) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+
+    const c = 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+    return earthRadius * c;
+  }
+
+  function getMinDistanceToRoute(current: Coordinate, coords: Coordinate[]) {
+    if (coords.length === 0) return Number.MAX_VALUE;
+
+    let minDistance = Number.MAX_VALUE;
+
+    coords.forEach((point) => {
+      const distanceValue = getDistanceInMeters(current, point);
+      if (distanceValue < minDistance) {
+        minDistance = distanceValue;
+      }
+    });
+
+    return minDistance;
   }
 
   function getNavigationHeading(current: Coordinate) {
@@ -277,6 +411,13 @@ export default function MapScreen() {
               longitude: updatedLocation.coords.longitude,
             };
 
+            console.log(
+              'LIVE LOCATION:',
+              newCoordinate,
+              'accuracy:',
+              updatedLocation.coords.accuracy
+            );
+
             setCurrentLocation(newCoordinate);
 
             if (
@@ -306,6 +447,8 @@ export default function MapScreen() {
                 routeStepsRef.current,
                 lastSpokenStepRef
               );
+
+              void maybeReroute(newCoordinate);
             }
           }
         );
@@ -329,7 +472,7 @@ export default function MapScreen() {
 
   async function searchLocation(query: string) {
     try {
-      const results = await api.get<any[]>(
+      const results = await api.get<any[] | { data?: any[]; results?: any[] }>(
         `/geocoding/search?query=${encodeURIComponent(query)}`,
         {
           // TODO: Change skipAuth to false if geocoding later becomes a protected endpoint.
@@ -337,10 +480,13 @@ export default function MapScreen() {
         }
       );
 
-      // TODO: Update this parsing logic if the backend later wraps the response,
-      // for example: { data: [...] } or { results: [...] }.
       console.log('Geocoding results:', results);
-      return Array.isArray(results) ? results : [];
+
+      if (Array.isArray(results)) return results;
+      if (Array.isArray(results?.data)) return results.data;
+      if (Array.isArray(results?.results)) return results.results;
+
+      return [];
     } catch (error) {
       console.error('Geocoding error:', error);
       Alert.alert('Search error', 'Could not search for this location.');
@@ -366,9 +512,19 @@ export default function MapScreen() {
     const firstResult = results[0];
 
     // TODO: Confirm the exact field names returned by the geocoding API.
-    // Some backends may return latitude/longitude instead of lat/lon.
-    const lat = parseFloat(String(firstResult.lat));
-    const lon = parseFloat(String(firstResult.lon));
+    // This fallback supports multiple possible backend formats.
+    const lat = Number(
+      firstResult?.lat ??
+      firstResult?.latitude ??
+      firstResult?.y
+    );
+
+    const lon = Number(
+      firstResult?.lon ??
+      firstResult?.lng ??
+      firstResult?.longitude ??
+      firstResult?.x
+    );
 
     if (Number.isNaN(lat) || Number.isNaN(lon)) {
       Alert.alert('Search error', 'Invalid coordinates returned from geocoding.');
@@ -400,8 +556,10 @@ export default function MapScreen() {
     );
   }
 
-  async function fetchRouteFromBackend() {
-    if (!currentLocation || !destination) {
+  async function fetchRouteFromBackend(startCoordinate?: Coordinate) {
+    const routeStart = startCoordinate ?? currentLocation;
+
+    if (!routeStart || !destination) {
       Alert.alert('Missing data', 'Current location or destination is missing.');
       return false;
     }
@@ -411,8 +569,8 @@ export default function MapScreen() {
         '/routing/safe-path',
         {
           start: {
-            x: currentLocation.longitude,
-            y: currentLocation.latitude,
+            x: routeStart.longitude,
+            y: routeStart.latitude,
           },
           end: {
             x: destination.longitude,
@@ -423,7 +581,9 @@ export default function MapScreen() {
           // mapping is agreed with the backend team.
           safetyWeight: 0.5,
 
-          // TODO: Send routeFilters to the backend when the route API supports them.
+          // BACKEND API NOT AVAILABLE YET:
+          // Route filter parameters are currently not supported by the routing endpoint.
+          // When the backend adds support, send routeFilters here.
           // Example future payload:
           // filters: {
           //   avoidSteepHills: routeFilters.avoidSteepHills,
@@ -442,20 +602,19 @@ export default function MapScreen() {
 
       console.log('Route API data:', data);
 
-      // TODO: Simplify this once the backend response structure is finalized.
-      // Right now multiple fallback paths are used to prevent integration breakage.
       const rawCoordinates =
         data?.path?.coordinates ||
         data?.route?.coordinates ||
         data?.geometry?.coordinates ||
         data?.coordinates ||
+        data?.path ||
         [];
 
       const coords = Array.isArray(rawCoordinates)
         ? rawCoordinates
-            .map((item: [number, number]) => ({
-              latitude: Number(item?.[1]),
-              longitude: Number(item?.[0]),
+            .map((item: any) => ({
+              latitude: Number(item?.[1] ?? item?.latitude),
+              longitude: Number(item?.[0] ?? item?.longitude),
             }))
             .filter(
               (item) =>
@@ -470,26 +629,20 @@ export default function MapScreen() {
         return false;
       }
 
-      // TODO: Confirm whether the backend will always return structured step data.
-      // If yes, stepsFromCoordinates may be kept only as a fallback.
       const apiSteps = stepsFromApi(data?.steps);
       setRouteSteps(apiSteps.length > 0 ? apiSteps : stepsFromCoordinates(coords));
       setRouteCoordinates(coords);
 
-      // TODO: Align these field names with the final backend contract.
-      // Example possibilities:
-      // durationSeconds / distanceMeters / score / safety_rating
-      setTravelTime(
-        data?.estimatedTime
-          ? `${Math.round(data.estimatedTime / 60)} min`
-          : 'Route ready'
+      const distanceValue = Number(
+        data?.distance ??
+        data?.distanceMeters ??
+        data?.totalDistance ??
+        0
       );
-      setDistance(data?.distance ? `${Number(data.distance).toFixed(1)} m` : '--');
-      setSafetyScore(
-        typeof data?.safetyScore === 'number'
-          ? `${(data.safetyScore * 100).toFixed(0)}%`
-          : '--'
-      );
+
+      setTravelTime(formatTravelTimeFromBackend(data));
+      setDistance(Number.isFinite(distanceValue) && distanceValue > 0 ? formatDistance(distanceValue) : '--');
+      setSafetyScore(formatSafetyScoreFromBackend(data));
 
       return true;
     } catch (error) {
@@ -510,7 +663,7 @@ export default function MapScreen() {
       return;
     }
 
-    const success = await fetchRouteFromBackend();
+    const success = await fetchRouteFromBackend(currentLocation);
 
     if (!success) return;
 
@@ -528,11 +681,45 @@ export default function MapScreen() {
     );
   }
 
-  function handleStartNavigation() {
+  async function maybeReroute(current: Coordinate) {
+    if (!navigationModeRef.current) return;
+    if (!destination) return;
+    if (isReroutingRef.current) return;
+
+    const coords = routeCoordinatesRef.current;
+    if (coords.length < 2) return;
+
+    const minDistance = getMinDistanceToRoute(current, coords);
+
+    if (minDistance < 20) return;
+
+    try {
+      isReroutingRef.current = true;
+      console.log('Rerouting... current distance from route:', minDistance);
+
+      const success = await fetchRouteFromBackend(current);
+
+      if (!success) {
+        console.warn('Reroute failed');
+      }
+    } finally {
+      isReroutingRef.current = false;
+    }
+  }
+
+  async function handleStartNavigation() {
     if (!currentLocation) {
       Alert.alert('Location unavailable', 'Current location is not ready yet.');
       return;
     }
+
+    if (!destination) {
+      Alert.alert('No destination', 'Please set a destination first.');
+      return;
+    }
+
+    const success = await fetchRouteFromBackend(currentLocation);
+    if (!success) return;
 
     setRouteInfoVisible(false);
     setNavigationMode(true);
@@ -626,12 +813,9 @@ export default function MapScreen() {
   function handleApplyFilters() {
     setFilterModalVisible(false);
 
-    // TODO: After the backend supports route filters,
-    // re-fetch the route here if a destination already exists.
-    // Example:
-    // if (destination) {
-    //   handleStartRoute();
-    // }
+    // BACKEND API NOT AVAILABLE YET:
+    // The route API does not currently accept filter parameters.
+    // Re-fetch the route here after the backend adds filter support.
 
     Alert.alert('Filters applied', 'Your route preferences have been updated.');
   }
@@ -709,13 +893,6 @@ export default function MapScreen() {
             onPress={() => setFilterModalVisible(true)}
           >
             <Ionicons name="options-outline" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.reportButton}
-            onPress={handleOpenReportPage}
-          >
-            <Ionicons name="warning-outline" size={22} color="#FFFFFF" />
           </TouchableOpacity>
         </>
       )}
@@ -863,24 +1040,6 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
     backgroundColor: '#0F3D91',
-    justifyContent: 'center',
-    alignItems: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    zIndex: 20,
-  },
-
-  reportButton: {
-    position: 'absolute',
-    top: 122,
-    right: 16,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#EF4444',
     justifyContent: 'center',
     alignItems: 'center',
     elevation: 4,
