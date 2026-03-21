@@ -1,8 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 using Asp.Versioning;
 using AccessCity.API.Data;
+using AccessCity.API.Hubs;
 using AccessCity.API.Models;
 using AccessCity.API.Models.DTOs;
 using AccessCity.API.Services;
@@ -17,12 +19,18 @@ public class HazardsController : ControllerBase
     private readonly AppDbContext _dbContext;
     private readonly ISpatialCacheService _spatialCache;
     private readonly IRealHazardDataService _realHazardData;
+    private readonly IHubContext<HazardAlertHub> _alertHub;
 
-    public HazardsController(AppDbContext dbContext, ISpatialCacheService spatialCache, IRealHazardDataService realHazardData)
+    public HazardsController(
+        AppDbContext dbContext,
+        ISpatialCacheService spatialCache,
+        IRealHazardDataService realHazardData,
+        IHubContext<HazardAlertHub> alertHub)
     {
         _dbContext = dbContext;
         _spatialCache = spatialCache;
         _realHazardData = realHazardData;
+        _alertHub = alertHub;
     }
 
     [HttpGet]
@@ -61,6 +69,11 @@ public class HazardsController : ControllerBase
         _dbContext.Hazards.Add(report);
         await _dbContext.SaveChangesAsync();
         await _spatialCache.UpdateHazardCacheAsync(report);
+
+        // Broadcast real-time alert to connected clients
+        await _alertHub.Clients.All.SendAsync("HazardReported", new RouteAlert(
+            report.Type, report.Description,
+            report.Location.Y, report.Location.X, report.ReportedAt));
 
         return CreatedAtAction(nameof(GetHazardById), new { id = report.Id }, report);
     }

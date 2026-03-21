@@ -69,4 +69,49 @@ public class SpecificRouteTests : IClassFixture<AccessCityApiFactory>
         _output.WriteLine($"- **Estimated Time**: {result.EstimatedTime:F1} mins");
         _output.WriteLine($"- **Safety Score**: {result.SafetyScore:P1}");
     }
+
+    [Fact]
+    public async Task GetLondonRoute_Hurlock_To_Lcc()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        
+        // Hurlock Heights: 51.4925, -0.0979
+        // LCC UAL: 51.4947, -0.1019
+        var request = new { 
+            Start = new { X = -0.0979, Y = 51.4925 }, 
+            End = new { X = -0.1019, Y = 51.4947 }, 
+            SafetyWeight = 0.5,
+            Profile = "standard"
+        };
+
+        var response = await client.PostAsJsonAsync("/api/v1/routing/safe-path", request, JsonOptions);
+        var result = await response.Content.ReadFromJsonAsync<RouteResponse>(JsonOptions);
+        
+        _output.WriteLine($"### Route Test: Hurlock Heights -> LCC UAL");
+        _output.WriteLine($"- **Distance**: {result!.Distance:F1}m");
+        _output.WriteLine($"- **Estimated Time**: {result.EstimatedTime:F1} mins");
+        _output.WriteLine($"- **Safety Score**: {result.SafetyScore:P1}");
+    }
+
+    [Fact]
+    public async Task GetLondonRoute_Hurlock_To_Waterloo()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        
+        // Waterloo Station: 51.5035, -0.1142
+        var request = new { 
+            Start = new { X = -0.0979, Y = 51.4925 }, 
+            End = new { X = -0.1142, Y = 51.5035 }, 
+            SafetyWeight = 0.5,
+            Profile = "standard"
+        };
+
+        var response = await client.PostAsJsonAsync("/api/v1/routing/safe-path", request, JsonOptions);
+        var result = await response.Content.ReadFromJsonAsync<RouteResponse>(JsonOptions);
+        
+        _output.WriteLine($"### Route Test: Hurlock Heights -> Waterloo Station");
+        _output.WriteLine($"- **Distance**: {result!.Distance:F1}m");
+        _output.WriteLine($"- **Estimated Time**: {result.EstimatedTime:F1} mins");
+        _output.WriteLine($"- **Safety Score**: {result.SafetyScore:P1}");
+    }
 }

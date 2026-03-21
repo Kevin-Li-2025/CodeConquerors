@@ -21,6 +21,8 @@ public class RoutingService
     private readonly PredictiveRiskModel _aiRisk;
     private readonly IOsrmClient _osrmClient;
     private readonly IRouteGraphRepository _graphRepo;
+    private readonly IRiskTileCacheService _tileCache;
+    private readonly IRouteCacheService _routeCache;
 
     private const double WalkingSpeed = 1.3;
     private const double HazardAvoidanceRadiusMetres = 50.0;
@@ -43,12 +45,16 @@ public class RoutingService
         RiskScoringService riskService,
         PredictiveRiskModel aiRisk,
         IOsrmClient osrmClient,
-        IRouteGraphRepository graphRepo)
+        IRouteGraphRepository graphRepo,
+        IRiskTileCacheService tileCache,
+        IRouteCacheService routeCache)
     {
         _riskService = riskService;
         _aiRisk = aiRisk;
         _osrmClient = osrmClient;
         _graphRepo = graphRepo;
+        _tileCache = tileCache;
+        _routeCache = routeCache;
     }
 
     /// <summary>
@@ -61,6 +67,13 @@ public class RoutingService
         RouteRequest request,
         IEnumerable<HazardReport> allHazards)
     {
+        // Route-level cache: return instantly for identical requests
+        var cacheKey = _routeCache.BuildKey(
+            request.Start.Y, request.Start.X, request.End.Y, request.End.X,
+            request.Profile ?? "standard", request.SafetyWeight);
+        var cached = await _routeCache.TryGetAsync(cacheKey);
+        if (cached != null) return cached;
+
         var hazardList = allHazards
             .Where(h => h.Status == HazardStatus.Reported || h.Status == HazardStatus.UnderReview)
             .ToList();

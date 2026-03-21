@@ -166,6 +166,11 @@ public static class DependencyInjection
 
         // Background workers
         services.AddHostedService<Services.Background.OsmImportBackgroundService>();
+        services.AddHostedService<Services.Background.TileWarmingBackgroundService>();
+
+        // Caching services
+        services.AddScoped<IRiskTileCacheService, RiskTileCacheService>();
+        services.AddScoped<IRouteCacheService, RouteCacheService>();
 
         // API Versioning
         services.AddApiVersioning(options =>
@@ -304,6 +309,8 @@ public static class DependencyInjection
                     .AllowAnyHeader();
             });
         });
+
+        services.AddSignalR();
 
         return services;
     }
