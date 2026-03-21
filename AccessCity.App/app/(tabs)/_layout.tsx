@@ -8,6 +8,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const MOCK_USER_ROLE: 'user' | 'admin' = 'admin';
 
   return (
     <Tabs
@@ -16,44 +17,71 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         headerShown: false,
         tabBarButton: HapticTab,
-      }}>
+      }}
+    >
       <Tabs.Screen
         name="index"
         options={{
           href: null,
         }}
       />
+
       <Tabs.Screen
         name="map"
         options={{
           title: 'Map',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="paperplane.fill" color={color} />
+          ),
         }}
       />
+
       <Tabs.Screen
         name="report/reportpage"
         listeners={{
           tabPress: (e) => {
             e.preventDefault();
-            router.push({
-              pathname: '/map',
-              params: { openReportModal: String(Date.now())},
-            });
-          }
+            //After setting up the account, modify this condition.
+            if (MOCK_USER_ROLE === 'admin') {
+              router.push('/report/adminHazard-report');
+            } else {
+              router.push('/report/reportpage');
+            }
+          },
         }}
         options={{
-          title:'Report',
+          title: 'Report',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol
+              size={28}
+              name="exclamationmark.triangle.fill"
+              color={color}
+            />
+          ),
         }}
       />
+
+      <Tabs.Screen
+        name="report/adminHazard-report"
+        options={{
+          href: null,
+        }}
+      />
+
       <Tabs.Screen
         name="hazard"
         options={{
           title: 'Hazard',
           tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="exclamationmark.triangle.fill" color={color}/>
-          )  
+            <IconSymbol
+              size={28}
+              name="exclamationmark.triangle.fill"
+              color={color}
+            />
+          ),
         }}
       />
+
       <Tabs.Screen
         name="profile"
         options={{

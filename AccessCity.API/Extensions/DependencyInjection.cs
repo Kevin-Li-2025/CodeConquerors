@@ -160,8 +160,17 @@ public static class DependencyInjection
         services.AddHttpClient<Services.External.ILiveHazardClient, Services.External.OpenWeatherClient>()
             .AddStandardResilienceHandler();
 
+        services.AddHttpClient<Services.External.IEnvironmentalDataClient, Services.External.EnvironmentalDataClient>()
+            .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(15))
+            .AddStandardResilienceHandler();
+
         // Background workers
         services.AddHostedService<Services.Background.OsmImportBackgroundService>();
+        services.AddHostedService<Services.Background.TileWarmingBackgroundService>();
+
+        // Caching services
+        services.AddScoped<IRiskTileCacheService, RiskTileCacheService>();
+        services.AddScoped<IRouteCacheService, RouteCacheService>();
 
         // API Versioning
         services.AddApiVersioning(options =>
@@ -300,6 +309,8 @@ public static class DependencyInjection
                     .AllowAnyHeader();
             });
         });
+
+        services.AddSignalR();
 
         return services;
     }

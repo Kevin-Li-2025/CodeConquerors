@@ -1,5 +1,6 @@
 using AccessCity.API.Configuration;
 using AccessCity.API.Data;
+using AccessCity.API.Hubs;
 using AccessCity.API.Models;
 using AccessCity.API.Services;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -31,6 +32,7 @@ public static class WebApplicationExtensions
         app.UseRateLimiter();
         app.UseSerilogRequestLogging();
         app.MapControllers();
+        app.MapHub<HazardAlertHub>("/hubs/hazard-alerts");
         
         app.MapHealthChecks("/health");
         app.MapHealthChecks("/health/ready", new HealthCheckOptions 
