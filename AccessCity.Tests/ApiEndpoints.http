@@ -7,7 +7,7 @@ Accept: application/json
 ### AUTHENTICATION (AuthController)
 
 ### register user
-POST {{AccessCity.API_HostAddress}}/api/auth/register
+POST {{AccessCity.API_HostAddress}}/api/v1/auth/register
 Content-Type: application/json
 
 {
@@ -18,7 +18,7 @@ Content-Type: application/json
 
 ### login user
 # @name login
-POST {{AccessCity.API_HostAddress}}/api/auth/login
+POST {{AccessCity.API_HostAddress}}/api/v1/auth/login
 Content-Type: application/json
 
 {
@@ -30,7 +30,7 @@ Content-Type: application/json
 @token = {{login.response.body.token}}
 
 ### refresh token
-POST {{AccessCity.API_HostAddress}}/api/auth/refresh-token
+POST {{AccessCity.API_HostAddress}}/api/v1/auth/refresh-token
 Content-Type: application/json
 
 {
@@ -39,7 +39,7 @@ Content-Type: application/json
 }
 
 ### revoke token
-POST {{AccessCity.API_HostAddress}}/api/auth/revoke-token
+POST {{AccessCity.API_HostAddress}}/api/v1/auth/revoke-token
 Content-Type: application/json
 
 {
@@ -47,7 +47,7 @@ Content-Type: application/json
 }
 
 ### forgot password
-POST {{AccessCity.API_HostAddress}}/api/auth/forgot-password
+POST {{AccessCity.API_HostAddress}}/api/v1/auth/forgot-password
 Content-Type: application/json
 
 {
@@ -55,7 +55,7 @@ Content-Type: application/json
 }
 
 ### reset password
-POST {{AccessCity.API_HostAddress}}/api/auth/reset-password
+POST {{AccessCity.API_HostAddress}}/api/v1/auth/reset-password
 Content-Type: application/json
 
 {
@@ -67,27 +67,27 @@ Content-Type: application/json
 ### MAP TILES (MapTileController)
 
 ### GET Map Tile (Requires Auth)
-GET {{AccessCity.API_HostAddress}}/api/tiles/1/1/1.pbf
+GET {{AccessCity.API_HostAddress}}/api/v1/tiles/1/1/1.pbf
 Authorization: Bearer {{token}}
 
 ### SPATIAL (SpatialController)
 
 ### GET Points of Interest
-GET {{AccessCity.API_HostAddress}}/api/spatial/poi?lat=52.4862&lng=-1.8904&radius=1000
+GET {{AccessCity.API_HostAddress}}/api/v1/spatial/poi?lat=52.4862&lng=-1.8904&radius=1000
 Accept: application/json
 
 ### GET Map Overlay (Hazards)
-GET {{AccessCity.API_HostAddress}}/api/spatial/map-overlay?layerName=hazards
+GET {{AccessCity.API_HostAddress}}/api/v1/spatial/map-overlay?layerName=hazards
 Accept: application/json
 
 ### GET Map Overlay (Infrastructure)
-GET {{AccessCity.API_HostAddress}}/api/spatial/map-overlay?layerName=infrastructure
+GET {{AccessCity.API_HostAddress}}/api/v1/spatial/map-overlay?layerName=infrastructure
 Accept: application/json
 
 ### ROUTING (RoutingController)
 
 ### POST Safe Path
-POST {{AccessCity.API_HostAddress}}/api/routing/safe-path
+POST {{AccessCity.API_HostAddress}}/api/v1/routing/safe-path
 Content-Type: application/json
 
 {
@@ -98,21 +98,36 @@ Content-Type: application/json
 }
 
 ### GET Risk Score
-GET {{AccessCity.API_HostAddress}}/api/routing/risk-score?lat=52.4862&lng=-1.8904&radius=500
+GET {{AccessCity.API_HostAddress}}/api/v1/routing/risk-score?lat=52.4862&lng=-1.8904&radius=500
 Accept: application/json
 
 ### GET AI Risk Score
-GET {{AccessCity.API_HostAddress}}/api/routing/ai-risk-score?lat=52.4862&lng=-1.8904&radius=200
+GET {{AccessCity.API_HostAddress}}/api/v1/routing/ai-risk-score?lat=52.4862&lng=-1.8904&radius=200
+Accept: application/json
+
+### POST Safe Path Options
+POST {{AccessCity.API_HostAddress}}/api/v1/routing/safe-path/options
+Content-Type: application/json
+
+{
+  "start": { "x": -1.8904, "y": 52.4862 },
+  "end": { "x": -1.8894, "y": 52.4862 },
+  "profile": "wheelchair",
+  "safetyWeight": 0.8
+}
+
+### GET Hazard Blend Risk
+GET {{AccessCity.API_HostAddress}}/api/v1/routing/hazard-blend-risk?lat=52.4862&lng=-1.8904&radius=500
 Accept: application/json
 
 ### HAZARDS (HazardsController)
 
 ### GET Hazards
-GET {{AccessCity.API_HostAddress}}/api/hazards?minLat=52.4&minLng=-2.0&maxLat=52.6&maxLng=-1.8
+GET {{AccessCity.API_HostAddress}}/api/v1/hazards?minLat=52.4&minLng=-2.0&maxLat=52.6&maxLng=-1.8
 Accept: application/json
 
 ### POST Report Hazard
-POST {{AccessCity.API_HostAddress}}/api/hazards
+POST {{AccessCity.API_HostAddress}}/api/v1/hazards
 Content-Type: application/json
 
 {
@@ -126,48 +141,60 @@ Content-Type: application/json
 }
 
 ### GET Hazard by ID
-GET {{AccessCity.API_HostAddress}}/api/hazards/YOUR_HAZARD_GUID_HERE
+GET {{AccessCity.API_HostAddress}}/api/v1/hazards/YOUR_HAZARD_GUID_HERE
 Accept: application/json
 
 ### PATCH Update Hazard Status
-PATCH {{AccessCity.API_HostAddress}}/api/hazards/YOUR_HAZARD_GUID_HERE
+PATCH {{AccessCity.API_HostAddress}}/api/v1/hazards/YOUR_HAZARD_GUID_HERE
 Content-Type: application/json
 
 ### GEOCODING (GeocodingController)
 
 ### GET Search
-GET {{AccessCity.API_HostAddress}}/api/geocoding/search?query=Birmingham%20New%20Street
+GET {{AccessCity.API_HostAddress}}/api/v1/geocoding/search?query=Birmingham%20New%20Street
 Accept: application/json
 
 ### GET Reverse Geocoding
-GET {{AccessCity.API_HostAddress}}/api/geocoding/reverse?lat=52.4778&lon=-1.8983
+GET {{AccessCity.API_HostAddress}}/api/v1/geocoding/reverse?lat=52.4778&lon=-1.8983
 Accept: application/json
 
 ### OFFLINE MAP (OfflineMapController)
 
 ### GET Offline Map Bundle (Requires Auth)
-GET {{AccessCity.API_HostAddress}}/api/offlinemap/bundle?minLat=52.4&minLng=-2.0&maxLat=52.6&maxLng=-1.8
+GET {{AccessCity.API_HostAddress}}/api/v1/offlinemap/bundle?minLat=52.4&minLng=-2.0&maxLat=52.6&maxLng=-1.8
 Authorization: Bearer {{token}}
 Accept: application/json
 
 ### DASHBOARD (DashboardController)
 
 ### GET Dashboard Summary
-GET {{AccessCity.API_HostAddress}}/api/dashboard/summary
+GET {{AccessCity.API_HostAddress}}/api/v1/dashboard/summary
 Accept: application/json
 
 ### GET Dashboard Heat Map
-GET {{AccessCity.API_HostAddress}}/api/dashboard/heat-map
+GET {{AccessCity.API_HostAddress}}/api/v1/dashboard/heat-map
 Accept: application/json
 
 ### GET Dashboard Infrastructure Feed
-GET {{AccessCity.API_HostAddress}}/api/dashboard/infrastructure-feed?page=1&pageSize=10
+GET {{AccessCity.API_HostAddress}}/api/v1/dashboard/infrastructure-feed?page=1&pageSize=10
 Accept: application/json
 
 ### ADMIN OSM (AdminOsmController)
 
 ### POST Import OSM
-POST {{AccessCity.API_HostAddress}}/api/admin/osm/import
+POST {{AccessCity.API_HostAddress}}/api/v1/admin/osm/import
 Authorization: Bearer {{token}}
+Accept: application/json
+
+### INTEGRATIONS (IntegrationsController)
+
+### GET Integrations Status
+GET {{AccessCity.API_HostAddress}}/api/v1/integrations/status
+Accept: application/json
+
+### SAFE HAVEN (SafeHavenController)
+
+### GET Nearby Safe Havens
+GET {{AccessCity.API_HostAddress}}/api/v1/safe-haven/nearby?lat=52.4862&lng=-1.8904&radius=500
 Accept: application/json
 
