@@ -19,6 +19,7 @@ import {
   type VoiceStep,
 } from './voiceGuidance';
 import { api } from '../../services/api';
+import { hazardsService } from '../../services/hazards.service';
 
 import {
   Coordinate,
@@ -27,11 +28,18 @@ import {
 } from './MapTypes';
 
 async function fetchHazardsApi() {
-  // TODO: Update this endpoint if the backend later separates
-  // public map hazards from user-submitted hazard reports.
-  // Example future change:
-  // /hazards/approved or /hazards/map-visible
-  return api.get<any[]>('/hazards', { skipAuth: true });
+  try {
+    const [reported, acknowledged] = await Promise.all([
+      api.get<any[]>('/hazards?status=Reported', { skipAuth: true }),
+      api.get<any[]>('/hazards?status=Acknowledged', { skipAuth: true })
+    ]);
+    const arr1 = Array.isArray(reported) ? reported : [];
+    const arr2 = Array.isArray(acknowledged) ? acknowledged : [];
+    return [...arr1, ...arr2];
+  } catch (error) {
+    console.error('Failed to fetch map hazards:', error);
+    return [];
+  }
 }
 
 export default function MapScreen() {
@@ -819,15 +827,20 @@ export default function MapScreen() {
     setHazardDetailsVisible(false);
   }
 
-  function openHazardDetails() {
+  async function openHazardDetails() {
     if (!selectedHazard) return;
 
-    // BACKEND API NOT AVAILABLE YET:
-    // There is currently no confirmed hazard details endpoint connected here.
-    // If the backend later provides one, fetch the full hazard by ID first.
-    // Example future endpoint:
-    // GET /hazards/{id}
-
+    try {
+      const fullDetails = await hazardsService.getHazardById(selectedHazard.id);
+      if (fullDetails) {
+        setSelectedHazard({
+          ...fullDetails,
+          id: String(fullDetails.id)
+        } as Hazard);
+      }
+    } catch (err) {
+      console.error('Failed to fetch full hazard details:', err);
+    }
     setHazardDetailsVisible(true);
   }
 

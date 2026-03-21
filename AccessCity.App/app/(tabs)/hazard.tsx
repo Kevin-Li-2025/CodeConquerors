@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -11,6 +12,8 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { hazardsService } from '@/services/hazards.service';
+import HazardDetailsModal from '@/components/MapView/HazardDetailsModal';
+import { Hazard as HazardType } from '@/components/MapView/MapTypes';
 
 type HazardStatus = 'Reported' | 'Acknowledged' | 'Resolved';
 
@@ -61,10 +64,31 @@ export default function Hazard() {
   const [isLoading, setIsLoading] = useState(true);
   const [selectedFilter, setSelectedFilter] = useState<HazardStatus>('Reported');
 
+  const [selectedHazardDetail, setSelectedHazardDetail] = useState<HazardType | null>(null);
+  const [hazardDetailsVisible, setHazardDetailsVisible] = useState(false);
+
+  async function handleOpenDetails(hazardId: string | number) {
+    try {
+      const fullDetails = await hazardsService.getHazardById(hazardId);
+      if (fullDetails) {
+        setSelectedHazardDetail({
+          ...fullDetails,
+          id: String(fullDetails.id)
+        } as HazardType);
+        setHazardDetailsVisible(true);
+      } else {
+        Alert.alert("Error", "Could not load hazard details.");
+      }
+    } catch (error) {
+      console.error('Failed to load full details:', error);
+      Alert.alert("Error", "Failed to load hazard details.");
+    }
+  }
+
   async function loadHazards() {
     try {
       setIsLoading(true);
-      const data = await hazardsService.getHazards();
+      const data = await hazardsService.getHazards(selectedFilter);
       const mapped = data
         .map<HazardItem | null>((hazard) => {
           const status = hazard.status === 'UnderReview'
@@ -105,12 +129,7 @@ export default function Hazard() {
   useFocusEffect(
     React.useCallback(() => {
       void loadHazards();
-    }, [])
-  );
-
-  const filteredHazards = useMemo(
-    () => hazards.filter((hazard) => hazard.status === selectedFilter),
-    [hazards, selectedFilter]
+    }, [selectedFilter])
   );
 
   return (
@@ -154,13 +173,13 @@ export default function Hazard() {
           </View>
         ) : null}
 
-        {!isLoading && !filteredHazards.length ? (
+        {!isLoading && !hazards.length ? (
           <View style={styles.stateCard}>
             <Text style={styles.stateText}>No hazards found for this status.</Text>
           </View>
         ) : null}
 
-        {filteredHazards.map((hazard) => (
+        {hazards.map((hazard) => (
           <View key={hazard.id} style={styles.card}>
             <View style={styles.cardHeader}>
               <View style={styles.iconWrap}>
@@ -217,7 +236,11 @@ export default function Hazard() {
                 <Text style={styles.primaryButtonText}>Avoid in Route</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity activeOpacity={0.9} style={styles.secondaryButton}>
+              <TouchableOpacity 
+                activeOpacity={0.9} 
+                style={styles.secondaryButton}
+                onPress={() => handleOpenDetails(hazard.id)}
+              >
                 <Ionicons name="chevron-forward" size={18} color="#1F2937" />
                 <Text style={styles.secondaryButtonText}>Details</Text>
               </TouchableOpacity>
@@ -225,6 +248,12 @@ export default function Hazard() {
           </View>
         ))}
       </ScrollView>
+
+      <HazardDetailsModal
+        visible={hazardDetailsVisible}
+        hazard={selectedHazardDetail}
+        onClose={() => setHazardDetailsVisible(false)}
+      />
     </SafeAreaView>
   );
 }

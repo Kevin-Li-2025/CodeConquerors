@@ -94,4 +94,15 @@ export const hazardsService = {
       },
     });
   },
+
+  async getHazardById(id: string | number): Promise<AppHazard | null> {
+    try {
+      // The individual get endpoint may not require auth, similar to the list endpoint
+      const data = await api.get<BackendHazard>(`/hazards/${id}`, { skipAuth: true });
+      return data ? mapHazard(data) : null;
+    } catch (error) {
+      console.error(`Failed to fetch hazard ${id}:`, error);
+      return null;
+    }
+  },
 };
