@@ -81,24 +81,17 @@ function MapCanvasComponent({
       style={styles.map}
       initialRegion={initialRegion}
       mapType="mutedStandard"
-      showsUserLocation
+      showsUserLocation={true}
       showsMyLocationButton={false}
-      followsUserLocation={false}
-      rotateEnabled
-      pitchEnabled
-      scrollEnabled
-      zoomEnabled
+      followsUserLocation={navigationMode}
+      rotateEnabled={true}
+      pitchEnabled={true}
+      scrollEnabled={true}
+      zoomEnabled={true}
       showsCompass={navigationMode}
       toolbarEnabled={false}
       moveOnMarkerPress={false}
     >
-      {!navigationMode && currentLocation && (
-        <Marker
-          coordinate={currentLocation}
-          title="Current Location"
-          pinColor="blue"
-        />
-      )}
 
       {!navigationMode && destination && (
         <Marker coordinate={destination} title="Destination">
