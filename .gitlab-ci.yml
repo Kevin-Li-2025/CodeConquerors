@@ -1,23 +1,102 @@
-# AccessCity — automated tests on GitLab CI
-# Backend: dotnet test (integration tests need PostgreSQL/PostGIS + Redis).
-# Frontend: Jest (Expo app). Playwright E2E is intentionally not run here (needs long-lived Expo web).
+# AccessCity — pre-release style checks + automated tests (GitLab CI)
+#
+# quality (gates before heavier jobs):
+#   - Frontend static analysis: ESLint (expo lint)
+#   - Supply chain: npm audit (high+), NuGet vulnerable packages
+#   - TypeScript: tsc --noEmit (allow_failure until app types are clean)
+# test:
+#   - Backend: xUnit + WebApplicationFactory, PostGIS + Redis
+#   - Frontend: Jest (jest-expo)
+#   - E2E: Playwright + Expo web (Chromium; image matches package-lock @playwright/test)
+#
+# Not in CI (run locally or add templates): formal pen-test, accessibility audit tools,
+# dedicated load harness outside xUnit, secret scanning (often GitLab project feature).
 
 stages:
+  - quality
   - test
 
 variables:
   DOTNET_CLI_TELEMETRY_OPTOUT: "1"
   DOTNET_NOLOGO: "1"
   NUGET_XMLDOC_MODE: skip
-  # Matches docker-compose credentials; used by PostGIS service container.
   POSTGRES_DB: accesscitydb
   POSTGRES_USER: accesscity
   POSTGRES_PASSWORD: accesscity123
   DATABASE_URL: "postgresql://accesscity:accesscity123@postgres:5432/accesscitydb?sslmode=disable"
   ConnectionStrings__Redis: "redis:6379"
+  # npm audit needs the official advisories API (many mirrors do not implement it).
+  NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/"
 
 default:
   interruptible: true
+
+# ─── Quality: static analysis & dependency risk ─────────────────────────────
+quality:frontend-lint:
+  stage: quality
+  image: node:20-bookworm
+  timeout: 15m
+  cache:
+    key:
+      files:
+        - AccessCity.App/package-lock.json
+    paths:
+      - AccessCity.App/node_modules/
+  script:
+    - cd AccessCity.App
+    - npm ci
+    - npm run lint
+  rules:
+    - exists:
+        - AccessCity.App/package.json
+
+quality:frontend-typecheck:
+  stage: quality
+  image: node:20-bookworm
+  timeout: 15m
+  allow_failure: true
+  cache:
+    key:
+      files:
+        - AccessCity.App/package-lock.json
+    paths:
+      - AccessCity.App/node_modules/
+  script:
+    - cd AccessCity.App
+    - npm ci
+    - npx tsc -p tsconfig.json --noEmit
+  rules:
+    - exists:
+        - AccessCity.App/package.json
+
+quality:security-npm:
+  stage: quality
+  image: node:20-bookworm
+  timeout: 15m
+  cache:
+    key:
+      files:
+        - AccessCity.App/package-lock.json
+    paths:
+        - AccessCity.App/node_modules/
+  script:
+    - cd AccessCity.App
+    - npm ci
+    - npm audit --audit-level=high
+  rules:
+    - exists:
+        - AccessCity.App/package.json
+
+quality:security-dotnet:
+  stage: quality
+  image: mcr.microsoft.com/dotnet/sdk:9.0
+  timeout: 15m
+  script:
+    - dotnet restore CodeConquerors.sln
+    - dotnet list CodeConquerors.sln package --vulnerable --include-transitive
+  rules:
+    - exists:
+        - CodeConquerors.sln
 
 # ─── Backend (xUnit + WebApplicationFactory; real Postgres + Redis) ─────────
 backend:test:
@@ -51,7 +130,11 @@ backend:test:
     - dotnet restore CodeConquerors.sln
     - dotnet build CodeConquerors.sln --configuration Release --no-restore
     - dotnet test AccessCity.Tests/AccessCity.Tests.csproj --configuration Release --no-build --verbosity normal
-# ─── Frontend (Jest + jest-expo) ────────────────────────────────────────────
+  rules:
+    - exists:
+        - CodeConquerors.sln
+
+# ─── Frontend (Jest + jest-expo) ─────────────────────────────────────────────
 frontend:test:
   stage: test
   image: node:20-bookworm
@@ -67,6 +150,26 @@ frontend:test:
     - npm ci
     - npm test -- --ci --watchAll=false
   rules:
-    # Skip if the app folder is missing (e.g. sparse checkout).
+    - exists:
+        - AccessCity.App/package.json
+
+# ─── E2E (Playwright web; browsers match @playwright/test in package-lock) ───
+e2e:playwright:
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.58.2-noble
+  timeout: 45m
+  variables:
+    CI: "true"
+  cache:
+    key:
+      files:
+        - AccessCity.App/package-lock.json
+    paths:
+      - AccessCity.App/node_modules/
+  script:
+    - cd AccessCity.App
+    - npm ci
+    - npx playwright test
+  rules:
     - exists:
         - AccessCity.App/package.json

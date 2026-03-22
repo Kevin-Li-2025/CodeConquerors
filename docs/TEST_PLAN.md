@@ -10,7 +10,7 @@ Test plan for the first prototype. Unit tests target single features; integratio
 |-------|----------------|-----|
 | API (backend) | Every HTTP endpoint: status, body shape, validation, auth | Integration tests via `WebApplicationFactory` |
 | Services | Caching, hazard fetch, risk scoring, routing logic | Unit tests + integration (through API) |
-| Frontend | Screens and flows (login, map, report, profile) | **Jest + React Native Testing Library**: `login`, `signup`, landing `index`, `profile`, `hazard`, `map.web`, `reportpage`, plus `ErrorMessage` / `ThemedText`. **Playwright** (Chromium, Expo web): landing, tab switch, validation, map stub (`npm run test:e2e` in `AccessCity.App`). Native map (`MapScreen.native`) remains manual / device. |
+| Frontend | App UI, services, web E2E | **Jest + RNTL** — see §3.10. **Playwright**: `AccessCity.App/e2e/app.spec.ts`. Native MapLibre / full native nav: manual or future Detox/Maestro. |
 
 External services (Overpass, OSRM, Nominatim, UK Police) can fail or rate-limit; tests that depend on them allow 503 or skip so the suite stays green.
 
@@ -35,8 +35,8 @@ No auth. No query/body.
 |----------|--------|--------------|------------------------|
 | `register` | POST | Valid email + password + fullName → 200, body has token, refreshToken, email, fullName | Duplicate email → 400. Invalid email format → 400 (model validation). Password &lt; 8 chars → 400. Missing body/fields → 400. |
 | `login` | POST | Valid email + password → 200, token + refreshToken in body | Wrong password → 401. Unknown email → 401. Empty password → 400. |
-| `refresh-token` | POST | Valid refresh token in query → 200, new token pair | Invalid/expired token → 401. Missing query param → 400. |
-| `revoke-token` | POST | Valid token in query → 200 | Invalid token → 404. Already revoked → 400. |
+| `refresh-token` | POST | Valid refresh token in query → 200, new token pair (access + refresh both rotate) | Invalid/expired token → 401. Missing query param → 400. |
+| `revoke-token` | POST | Valid token in query → 200 | Unknown token → 404. Second revoke of same token → 400. |
 | `forgot-password` | POST | Any email → 200 (same message for known/unknown to avoid enumeration) | Invalid email format → 400. |
 | `reset-password` | POST | Valid email + valid token + new password → 200 | Wrong/expired token → 400. Unknown email → 400. New password &lt; 8 chars → 400. |
 
@@ -48,8 +48,8 @@ All request/response bodies JSON. Auth endpoints are rate-limited (fixed window)
 
 | Endpoint | Method | Success case | Failure / edge cases |
 |----------|--------|--------------|------------------------|
-| (list) | GET | No query → 200, JSON array (default bbox Birmingham). With minLat, minLng, maxLat, maxLng → 200, array | minLat &gt; maxLat or minLng &gt; maxLng → 400. Lat outside [-90,90] or lng outside [-180,180] → 400. |
-| (by id) | GET | Existing hazard id → 200, body has id, location, type, description, status, reportedAt | Non-existent guid → 404. Invalid guid format → 400. |
+| (list) | GET | No query → 200, JSON array (default bbox Birmingham). With minLat, minLng, maxLat, maxLng → 200, array. Optional `status` query (e.g. `Reported`) → 200 or 503. | minLat &gt; maxLat or minLng &gt; maxLng → 400. Lat outside [-90,90] or lng outside [-180,180] → 400. |
+| (by id) | GET | Existing hazard id → 200, body has id, location, type, description, status, reportedAt | Unknown id → 404. Non-`guid` path segment → 404 (route constraint). |
 | (report) | POST | Body: location (GeoJSON Point), type, description (photoUrl optional) → 201, Location header, body has id and status 0 (Reported) | Missing location → 400. Missing type or empty string → 400. Missing description or empty → 400. Coordinates outside WGS84 → 400. Type/description trimmed and length-capped server-side. |
 | (update status) | PATCH | Existing id + body = status enum value (0–3) → 204 | Non-existent id → 404. Invalid status value → 400. |
 
@@ -62,8 +62,10 @@ Location: GeoJSON `{ "type": "Point", "coordinates": [ lon, lat ] }`. Status: 0 
 | Endpoint | Method | Success case | Failure / edge cases |
 |----------|--------|--------------|------------------------|
 | `safe-path` | POST | Body: start/end coordinates (x=lng, y=lat), safetyWeight 0–1 → 200, body has path (or fallback), distance, estimatedTime, safetyScore, steps, warnings | Missing start or end → 400. Invalid coords (outside WGS84) → 400. safetyWeight &lt; 0 or &gt; 1 → 400. |
+| `safe-path/options` | POST | Same body shape as `safe-path` → 200 with variants envelope | Invalid / incomplete body (e.g. empty JSON) → 400 via FluentValidation. |
 | `risk-score` | GET | Query: lat, lng, optional radius (default 500, max 5000) → 200, overallRisk and breakdown | Lat/lng out of range → 400. radius ≤ 0 or &gt; 5000 → 400. |
 | `ai-risk-score` | GET | Query: lat, lng, optional radius → 200, overall risk + factors | Invalid coords → 400. |
+| `hazard-blend-risk` | GET | Same query shape as risk-score → 200 | Invalid coords → 400. |
 
 Coordinates in degrees; radius in metres.
 
@@ -114,6 +116,41 @@ Stubs; we only check 200 and response shape.
 | Endpoint | Method | Success case | Failure / edge cases |
 |----------|--------|--------------|------------------------|
 | `{z}/{x}/{y}.pbf` | GET | Valid z,x,y and Bearer token → 200 (vector tile bytes) or 204 (no data) | No token or invalid → 401. |
+
+---
+
+### 2.10 Safe haven (`/api/v1/safe-haven`)
+
+| Endpoint | Method | Tests |
+|----------|--------|--------|
+| `nearby` | GET | Valid lat/lng → 200 (`ApiIntegrationTests`). Lat/lng outside WGS84 → 400 (`ApiEdgeCoverageTests`, theory). |
+
+---
+
+### 2.11 Integrations (`/api/v1/integrations`)
+
+| Endpoint | Method | Tests |
+|----------|--------|--------|
+| `status` | GET | 200; response includes integration flags / notes (`ApiIntegrationTests`, shape check in `ApiEdgeCoverageTests`). |
+
+---
+
+### 2.12 Admin OSM (`/api/v1/admin/osm`) – requires auth
+
+| Endpoint | Method | Tests |
+|----------|--------|--------|
+| `import` | POST | With Bearer → 200 and import result (`OsmImportTests`, routing fixtures). Without auth → 401 (`ApiEdgeCoverageTests`). |
+
+---
+
+### 2.13 SignalR (`/hubs/hazard-alerts`)
+
+| Action | Tests |
+|--------|--------|
+| `JoinRouteGroup` / `LeaveRouteGroup` | Client connects via in-memory handler; hub methods complete (`HazardAlertHubTests`). |
+| `HazardReported` | When `POST /api/v1/hazards` returns 201, connected client receives payload with coordinates (`HazardAlertHubTests`; skipped if POST does not create). |
+
+Uses `Microsoft.AspNetCore.SignalR.Client` against `WebApplicationFactory.Server`.
 
 ---
 
@@ -168,10 +205,14 @@ Stubs; we only check 200 and response shape.
 - **`apiConfig.resolveApiUrls`**: env-based base URL / Android host / port overrides — `AccessCity.App/__tests__/apiConfig.test.ts`.
 - **Hazard mapping**: status labels, type labels, GeoJSON → app model — `AccessCity.App/__tests__/hazardMapping.test.ts`.
 
-### 3.10 Client screens & components (Jest + `@testing-library/react-native`)
+### 3.10 Client (Jest + `@testing-library/react-native`)
 
-- **`__tests__/screens/*.screen.test.tsx`**: `login`, `signup`, `index` (landing auth), `profile` (with `AuthContext` test wrapper), `hazard` (mocked `hazardsService` + `useFocusEffect`), `map.web`, `reportpage` (mocked modal).
-- **`__tests__/components/*`**: `ErrorMessage`, `ThemedText`.
+- **Screens** (`__tests__/screens/`): `login`, `signup`, `index`, `forgot-password`, `reset-password`, `profile`, `hazard`, `map.tab` + `map.native` + `map.web`, `reportpage`, `adminHazard-report`, tabs `index` redirect.
+- **App shell** (`__tests__/app/`): `RootLayout`, `TabLayout`, `modal`.
+- **Components** (`__tests__/components/`): `ErrorMessage`, `ThemedText`, `ThemedView`, `Collapsible`, `HelloWave`, `HapticTab`, `ExternalLink`, `ParallaxScrollView`, `SearchBar`, `FilterModal`, `RouteInfoCard`, `HazardPreviewCard`, `AdminHazardReport`, `ReportHazardModal`, `HazardDetailsModal`.
+- **Logic / services** (`__tests__/services/`, `__tests__/components/MapView/`): `apiConfig`, `hazardMapping`, `auth.service`, `hazards.service`, `api.request`, `TileCacheManager` (mocked native deps), `mapData`, `voiceGuidance`.
+- **Context / hooks** (`__tests__/context/`, `__tests__/hooks/`): `AuthContext`, `use-form-animation`, `use-theme-color`.
+- **Shared**: `__tests__/testUtils.tsx` (auth wrapper for RNTL).
 
 ### 3.11 E2E (Playwright, web only)
 
@@ -183,6 +224,12 @@ Stubs; we only check 200 and response shape.
 - **`ApiStressTests`**: parallel and staggered `/health`, parallel spatial POI, parallel hazards list (OK or 503), parallel authenticated dashboard feed (OK or 503). Sized to avoid tripping the global sliding rate limiter in Development.
 - **`SpatialCachePerformanceTests`**: concurrent hazard writes + spatial queries; additional high read fan-out over a hot bounding box.
 
+### 3.13 Backend integration extras (xUnit + `WebApplicationFactory`)
+
+- **`AuthTokenLifecycleTests`**: full refresh-token rotation after register; revoke then second revoke → 400.
+- **`ApiEdgeCoverageTests`**: safe-haven invalid coordinates (theory); unauthenticated `admin/osm/import` → 401; hazards list with `status`; non-GUID hazard id → 404; `safe-path/options` empty body → 400; integrations status JSON shape.
+- **`HazardAlertHubTests`**: SignalR hub connect, `JoinRouteGroup` / `LeaveRouteGroup`, optional `HazardReported` after successful hazard POST.
+
 ---
 
 ## 4. Frontend Components (manual / future E2E)
@@ -191,7 +238,7 @@ Stubs; we only check 200 and response shape.
 |--------------------|------------------------|
 | Login | Valid credentials → token stored, redirect. Invalid → error shown. |
 | Sign up | Valid data → 200, then can log in. Duplicate email → error. |
-| Forgot / reset password | Request token → message. Reset with token → success; then login with new password. |
+| Forgot / reset password | Jest covers main flows; still sanity-check on device if copy or deep links change. |
 | Map | Loads; shows hazards if backend returns them; can select destination. |
 | Report hazard | Open modal, set location/type/description, submit → 201; appears in list or map when refetched. |
 | Hazard list / detail | List loads; tap item → detail; status if we add UI for it. |
@@ -214,8 +261,8 @@ Automated **web E2E** (Playwright) covers the landing and map-web flows; full **
 ## 6. Evidence Checklist
 
 - [x] This TEST_PLAN.md in repo.
-- [x] Backend unit/integration/stress: AuthTests, RoutingTests, MapTileTests, SpatialCacheTests, SpatialCachePerformanceTests, ApiIntegrationTests, DeepApiTests, ValidatorUnitTests, ApiStressTests, BenchmarkTests, OsmImportTests, etc.
-- [x] Client unit + component/screen tests: `AccessCity.App/__tests__/**/*.test.ts(x)`.
+- [x] Backend: AuthTests, AuthTokenLifecycleTests, ApiIntegrationTests, DeepApiTests, ApiEdgeCoverageTests, HazardAlertHubTests, ValidatorUnitTests, RoutingTests, MapTileTests, SpatialCacheTests, SpatialCachePerformanceTests, ApiStressTests, OsmImportTests, London/Birmingham route tests, benchmarks/comparisons, schema alignment, etc.
+- [x] Client: `AccessCity.App/__tests__/**/*.test.ts(x)` (screens, app shell, components, services, hooks, context).
 - [x] `dotnet test AccessCity.Tests/AccessCity.Tests.csproj` passes (or only known flaky 503s from upstream services).
 - [x] `npm test` under `AccessCity.App` passes.
 - [x] Playwright E2E spec present (`e2e/app.spec.ts`); run `npx playwright install chromium` once, then `npm run test:e2e`.
