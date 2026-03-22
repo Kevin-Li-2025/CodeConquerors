@@ -27,6 +27,35 @@ import {
   RouteFilters,
 } from './MapTypes';
 
+/**
+ * Maps UI `RouteFilters` to `RouteRequest` fields on the API
+ * (`preferences`, `profile`, `safetyWeight` — see AccessCity.API.Models.RouteRequest).
+ */
+function buildRouteRequestOptions(routeFilters: RouteFilters): {
+  profile: string;
+  preferences: string[];
+  safetyWeight: number;
+} {
+  const preferences: string[] = [];
+
+  if (routeFilters.avoidSteepHills) {
+    preferences.push('avoid-steep-hills');
+  }
+  if (routeFilters.avoidReportedHazards) {
+    preferences.push('avoid-reported-hazards');
+  }
+  if (routeFilters.preferWellLitStreets) {
+    preferences.push('low-light-penalty');
+  }
+
+  const profile = routeFilters.wheelchairAccessible ? 'manual-wheelchair' : 'standard';
+
+  const mid = (routeFilters.minSafetyScore + routeFilters.maxSafetyScore) / 2;
+  const safetyWeight = Math.min(1, Math.max(0, mid / 100));
+
+  return { profile, preferences, safetyWeight };
+}
+
 async function fetchHazardsApi() {
   try {
     const [reported, acknowledged] = await Promise.all([
@@ -686,6 +715,8 @@ export default function MapScreen() {
     }
 
     try {
+      const { profile, preferences, safetyWeight } = buildRouteRequestOptions(routeFilters);
+
       const data = await api.post<any>(
         '/routing/safe-path',
         {
@@ -697,27 +728,16 @@ export default function MapScreen() {
             x: destination.longitude,
             y: destination.latitude,
           },
-
-          // TODO: Replace the hardcoded safetyWeight once the final filter-to-backend
-          // mapping is agreed with the backend team.
-          safetyWeight: 0.5,
-
-          // BACKEND API NOT AVAILABLE YET:
-          // Route filter parameters are currently not supported by the routing endpoint.
-          // When the backend adds support, send routeFilters here.
-          // Example future payload:
-          // filters: {
-          //   avoidSteepHills: routeFilters.avoidSteepHills,
-          //   wheelchairAccessible: routeFilters.wheelchairAccessible,
-          //   avoidReportedHazards: routeFilters.avoidReportedHazards,
-          //   preferWellLitStreets: routeFilters.preferWellLitStreets,
-          //   minSafetyScore: routeFilters.minSafetyScore,
-          //   maxSafetyScore: routeFilters.maxSafetyScore,
-          // }
+          safetyWeight: routeFilters.minSafetyScore / 100,
+          profile: routeFilters.wheelchairAccessible ? "manual-wheelchair" : "standard",
+          preferences: [
+            ...(routeFilters.avoidSteepHills ? ["avoid-steep-hills"] : []),
+            ...(routeFilters.avoidReportedHazards ? ["avoid-reported-hazards"] : []),
+            ...(routeFilters.preferWellLitStreets ? ["prefer-well-lit-streets"] : []),
+          ],
         },
         {
-          // TODO: Change skipAuth to false if the route API later requires login.
-          skipAuth: true,
+          skipAuth: false,
         }
       );
 
@@ -931,12 +951,13 @@ export default function MapScreen() {
     });
   }
 
-  function handleApplyFilters() {
+  async function handleApplyFilters() {
     setFilterModalVisible(false);
 
-    // BACKEND API NOT AVAILABLE YET:
-    // The route API does not currently accept filter parameters.
-    // Re-fetch the route here after the backend adds filter support.
+    if (destination && currentLocation) {
+      await fetchRouteFromBackend();
+      return;
+    }
 
     Alert.alert('Filters applied', 'Your route preferences have been updated.');
   }
