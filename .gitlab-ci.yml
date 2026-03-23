@@ -128,7 +128,19 @@ backend:test:
     - dotnet --info
     - dotnet restore CodeConquerors.sln
     - dotnet build CodeConquerors.sln --configuration Release --no-restore
-    - dotnet test AccessCity.Tests/AccessCity.Tests.csproj --configuration Release --no-build --verbosity normal
+    - dotnet test AccessCity.Tests/AccessCity.Tests.csproj
+        --configuration Release --no-build --verbosity normal
+        --collect:"XPlat Code Coverage"
+        --results-directory TestResults
+        -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+  artifacts:
+    when: always
+    paths:
+      - TestResults/
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: TestResults/**/coverage.cobertura.xml
   rules:
     - exists:
         - CodeConquerors.sln
