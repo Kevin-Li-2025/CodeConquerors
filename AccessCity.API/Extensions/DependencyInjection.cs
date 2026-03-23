@@ -287,6 +287,7 @@ public static class DependencyInjection
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()
+                .AddMeter("Microsoft.EntityFrameworkCore")
                 .AddOtlpExporter());
 
         services.AddHealthChecks()

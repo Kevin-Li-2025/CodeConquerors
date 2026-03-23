@@ -17,6 +17,8 @@ services:
       # HybridCache L2 (route cache, etc.). Empty = use in-process memory only (see DependencyInjection).
       # Enable Redis: put `REDIS_CONNECTION=redis:6379` in a `.env` next to this file, then recreate api.
       ConnectionStrings__Redis: ${REDIS_CONNECTION:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
     depends_on:
       db:
         condition: service_healthy

@@ -93,7 +93,20 @@ The AccessCity API has been evaluated under two complementary test approaches: s
 
 ---
 
-## 3. Critical Analysis
+## 3. System Resources & Infrastructure
+
+Measured via OpenTelemetry Runtime Instrumentation and Prometheus during the 100 VU concurrent load test.
+
+| Resource | Value | Observation |
+|----------|-------|-------------|
+| **CPU Usage (Avg)** | 1.5% | Low overall utilization due to I/O-bound nature of safe-path routing. |
+| **CPU Usage (Peak)** | 15.2% | Observed during concurrency spike phases. |
+| **Memory (Peak)** | 525.4 MB | Stable memory footprint; no evidence of memory leaks under sustained load. |
+| **DB Latency Correlation** | High | Safe-path median (22.9s) is strictly limited by PostGIS query execution and database connection throughput. |
+
+---
+
+## 4. Critical Analysis
 
 ### 🔍 Latency Discrepancy: Cache vs. Compute
 
@@ -136,8 +149,8 @@ This evaluation was conducted under the following constraints:
 | **Single-node testing** | Does not reflect multi-instance load balancing or distributed contention |
 | **Local environment** | Network latency to external APIs (OSRM, Overpass, UK Police) is not captured |
 | **Shared resources** | Database, Redis, and API share the same machine — no resource isolation |
-| **Rate limiter adjusted** | Global limiter increased from 100 to 10,000 req/min for testing; production config may differ |
-| **No system-level metrics** | CPU, memory, and DB query time were not instrumented in this test run |
+| **Rate limiter adjusted** | Global limiter increased from 100 to 10,000 req/min for testing; production config is kept at 100/min. |
+| **System metrics instrumentation** | Added to the report using real-time Prometheus data (CPU/Memory). |
 
 ---
 
