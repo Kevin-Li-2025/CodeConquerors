@@ -16,6 +16,7 @@ namespace AccessCity.API.Services;
 public interface IOsmImportService
 {
     Task<OsmImportResult> ImportConfiguredAsync(CancellationToken cancellationToken = default);
+    Task<OsmImportResult> ImportAsync(string filePathConfig, CancellationToken cancellationToken = default);
 }
 
 public sealed class OsmImportService : IOsmImportService
@@ -49,6 +50,16 @@ public sealed class OsmImportService : IOsmImportService
     public async Task<OsmImportResult> ImportConfiguredAsync(CancellationToken cancellationToken = default)
     {
         var filePathConfig = _options.Value.FilePath;
+        if (string.IsNullOrWhiteSpace(filePathConfig))
+        {
+            throw new InvalidOperationException("OsmImport:FilePath is not configured.");
+        }
+
+        return await ImportAsync(filePathConfig, cancellationToken);
+    }
+
+    public async Task<OsmImportResult> ImportAsync(string filePathConfig, CancellationToken cancellationToken = default)
+    {
         if (string.IsNullOrWhiteSpace(filePathConfig))
         {
             throw new InvalidOperationException("OsmImport:FilePath is not configured.");

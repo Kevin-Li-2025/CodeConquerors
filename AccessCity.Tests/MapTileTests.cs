@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Json;
 using AccessCity.API.Data;
 using AccessCity.API.Models;
 using AccessCity.API.Services;
@@ -46,9 +47,19 @@ public class MapTileTests : IClassFixture<AccessCityApiFactory>
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("application/x-protobuf", response.Content.Headers.ContentType?.MediaType);
+        Assert.True(response.Headers.Contains("X-Tile-Cache"));
+        Assert.True(response.Headers.Contains("X-Tile-Hazard-Count"));
+        Assert.True(response.Headers.Contains("Server-Timing"));
 
         var data = await response.Content.ReadAsByteArrayAsync();
         Assert.NotEmpty(data);
+
+        var profileResponse = await client.GetAsync("/api/v1/tiles/13/4052/2743/profile");
+        profileResponse.EnsureSuccessStatusCode();
+        var profile = await profileResponse.Content.ReadFromJsonAsync<MapTileProfile>();
+        Assert.NotNull(profile);
+        Assert.True(profile!.ByteLength > 0);
+        Assert.True(profile.HazardCount > 0);
     }
 
     [Fact]

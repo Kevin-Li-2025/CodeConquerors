@@ -11,8 +11,11 @@ namespace AccessCity.API.Services.Security
     public interface ITokenService
     {
         string CreateToken(AccessCityUser user);
-        RefreshToken GenerateRefreshToken(string ipAddress);
+        GeneratedRefreshToken GenerateRefreshToken(string ipAddress);
+        string HashRefreshToken(string token);
     }
+
+    public sealed record GeneratedRefreshToken(RefreshToken Entity, string Token);
 
     public class TokenService : ITokenService
     {
@@ -23,7 +26,6 @@ namespace AccessCity.API.Services.Security
         {
             _config = config;
             var secret = _config["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key not configured.");
-            Console.WriteLine($"[DEBUG] TokenService initializing with key length: {secret.Length}");
             _key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret));
         }
 
@@ -54,14 +56,23 @@ namespace AccessCity.API.Services.Security
             return tokenHandler.WriteToken(token);
         }
 
-        public RefreshToken GenerateRefreshToken(string ipAddress)
+        public GeneratedRefreshToken GenerateRefreshToken(string ipAddress)
         {
-            return new RefreshToken
+            var rawToken = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
+            var entity = new RefreshToken
             {
-                Token = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64)),
+                Token = HashRefreshToken(rawToken),
                 Expires = DateTime.UtcNow.AddDays(int.Parse(_config["Jwt:RefreshTokenExpirationDays"] ?? "7")),
                 CreatedByIp = ipAddress
             };
+
+            return new GeneratedRefreshToken(entity, rawToken);
+        }
+
+        public string HashRefreshToken(string token)
+        {
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
+            return $"sha256:{Convert.ToHexString(hash).ToLowerInvariant()}";
         }
     }
 }

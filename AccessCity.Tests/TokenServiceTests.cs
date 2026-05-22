@@ -145,6 +145,8 @@ public class TokenServiceTests
 
         Assert.False(string.IsNullOrWhiteSpace(rt.Token));
         Assert.True(rt.Token.Length > 20, "Refresh token should be cryptographically long");
+        Assert.StartsWith("sha256:", rt.Entity.Token);
+        Assert.NotEqual(rt.Token, rt.Entity.Token);
     }
 
     [Fact]
@@ -154,7 +156,7 @@ public class TokenServiceTests
         var before = DateTime.UtcNow;
         var rt = svc.GenerateRefreshToken("10.0.0.1");
 
-        Assert.InRange(rt.Expires, before.AddDays(13), before.AddDays(15));
+        Assert.InRange(rt.Entity.Expires, before.AddDays(13), before.AddDays(15));
     }
 
     [Fact]
@@ -162,7 +164,7 @@ public class TokenServiceTests
     {
         var svc = new TokenService(BuildConfig());
         var rt = svc.GenerateRefreshToken("192.168.1.1");
-        Assert.Equal("192.168.1.1", rt.CreatedByIp);
+        Assert.Equal("192.168.1.1", rt.Entity.CreatedByIp);
     }
 
     [Fact]
@@ -172,6 +174,21 @@ public class TokenServiceTests
         var t1 = svc.GenerateRefreshToken("127.0.0.1");
         var t2 = svc.GenerateRefreshToken("127.0.0.1");
         Assert.NotEqual(t1.Token, t2.Token);
+        Assert.NotEqual(t1.Entity.Token, t2.Entity.Token);
+    }
+
+    [Fact]
+    public void HashRefreshToken_IsStable_And_DoesNotExposeRawToken()
+    {
+        var svc = new TokenService(BuildConfig());
+        const string raw = "refresh-token-value";
+
+        var first = svc.HashRefreshToken(raw);
+        var second = svc.HashRefreshToken(raw);
+
+        Assert.Equal(first, second);
+        Assert.StartsWith("sha256:", first);
+        Assert.DoesNotContain(raw, first);
     }
 
     // ─────────── Error handling ───────────

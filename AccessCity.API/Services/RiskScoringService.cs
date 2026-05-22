@@ -390,13 +390,30 @@ namespace AccessCity.API.Services
         private async Task<double> EstimateInfrastructureRiskAsync(double lat, double lng, double radiusMetres)
         {
             var queryPoint = Wgs84.CreatePoint(new Coordinate(lng, lat));
-            var center = _dbContext.RouteNodes.OrderBy(n => n.Location.Distance(queryPoint)).FirstOrDefault()?.Location;
-            if (center == null) return 0.5; // Baseline if no data
-
-            var nearbyEdges = await _dbContext.RouteEdges
-                .Where(e => e.Geometry.Distance(queryPoint) < (radiusMetres / 100000.0)) // Rough degree approx for radius
-                .Take(50)
-                .ToListAsync();
+            List<RouteEdge> nearbyEdges;
+            if (string.Equals(_dbContext.Database.ProviderName, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal))
+            {
+                nearbyEdges = await _dbContext.RouteEdges
+                    .FromSqlInterpolated($"""
+                        SELECT *
+                        FROM route_edges
+                        WHERE ST_DWithin(
+                            "Geometry",
+                            ST_SetSRID(ST_MakePoint({lng}, {lat}), 4326),
+                            {radiusMetres / 111_320.0})
+                        ORDER BY "Geometry" <-> ST_SetSRID(ST_MakePoint({lng}, {lat}), 4326)
+                        LIMIT 50
+                        """)
+                    .AsNoTracking()
+                    .ToListAsync();
+            }
+            else
+            {
+                nearbyEdges = await _dbContext.RouteEdges
+                    .Where(e => e.Geometry.Distance(queryPoint) < (radiusMetres / 100000.0))
+                    .Take(50)
+                    .ToListAsync();
+            }
 
             if (nearbyEdges.Count == 0) return 0.35;
 

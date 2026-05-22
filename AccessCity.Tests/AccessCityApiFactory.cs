@@ -54,7 +54,9 @@ public class AccessCityApiFactory : WebApplicationFactory<Program>
                 ["Postgres:AutoMigrate"] = "true",
                 ["OsmImport:FilePath"] = OsmFixturePath,
                 ["OsmImport:ImportOnStartup"] = "false",
-                ["OsmImport:ReplaceExisting"] = "true"
+                ["OsmImport:ReplaceExisting"] = "true",
+                ["Workers:OsmImport:Enabled"] = "false",
+                ["Workers:TileWarming:Enabled"] = "false"
             });
         });
     }

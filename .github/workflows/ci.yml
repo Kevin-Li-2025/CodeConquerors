@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_DB: accesscitydb
+          POSTGRES_USER: accesscity
+          POSTGRES_PASSWORD: accesscity123
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -d accesscitydb -U accesscity"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      DATABASE_URL: postgresql://accesscity:accesscity123@localhost:5432/accesscitydb?sslmode=disable
+      ConnectionStrings__Redis: localhost:6379
+      Jwt__Key: AccessCity_CI_Test_Jwt_Key_2026_Change_For_Production_At_Deploy_Time_64_Bytes
+      OsmImport__ImportOnStartup: "false"
+      Workers__OsmImport__Enabled: "false"
+      Workers__TileWarming__Enabled: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - run: dotnet restore CodeConquerors.sln
+      - run: dotnet build CodeConquerors.sln --configuration Release --no-restore
+      - name: NuGet vulnerability scan
+        run: |
+          dotnet list CodeConquerors.sln package --vulnerable --include-transitive | tee /tmp/dotnet-vulnerable.txt
+          ! grep -q "has the following vulnerable packages" /tmp/dotnet-vulnerable.txt
+      - run: dotnet test AccessCity.Tests/AccessCity.Tests.csproj --configuration Release --no-build --verbosity normal
+
+  frontend:
+    runs-on: ubuntu-latest
+    env:
+      NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+    defaults:
+      run:
+        working-directory: AccessCity.App
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: AccessCity.App/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc -p tsconfig.json --noEmit
+      - run: npm audit --audit-level=high
+      - run: npm test -- --ci --watchAll=false

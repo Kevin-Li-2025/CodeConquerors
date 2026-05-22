@@ -16,6 +16,19 @@ public class OsmImportTests : IClassFixture<AccessCityApiFactory>
     }
 
     [Fact]
+    public async Task ImportJobsEndpoint_Queues_Background_Osm_Import()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        var response = await client.PostAsync("/api/v1/admin/osm/import-jobs", content: null);
+        response.EnsureSuccessStatusCode();
+
+        var job = await response.Content.ReadFromJsonAsync<AccessCity.API.Models.DTOs.OsmImportJobResponse>();
+        Assert.NotNull(job);
+        Assert.Equal("queued", job!.Status);
+        Assert.NotEqual(Guid.Empty, job.JobId);
+    }
+
+    [Fact]
     public async Task ImportEndpoint_Persists_RouteGraph_Infrastructure_And_Run_Audit()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();

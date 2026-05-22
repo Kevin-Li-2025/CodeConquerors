@@ -27,6 +27,11 @@ public class SchemaAlignmentTests : IClassFixture<AccessCityApiFactory>
 
         Assert.True(await TableExistsAsync(connection, "hazard_report"));
         Assert.True(await ColumnExistsAsync(connection, "hazard_report", "photo_url"));
+        Assert.True(await IndexExistsAsync(connection, "IX_hazard_report_geom_gist"));
+        Assert.True(await IndexExistsAsync(connection, "IX_hazard_report_status_reported_at"));
+        Assert.True(await IndexExistsAsync(connection, "IX_infrastructure_assets_geometry_gist"));
+        Assert.True(await IndexExistsAsync(connection, "IX_route_edges_geometry_gist"));
+        Assert.True(await IndexExistsAsync(connection, "IX_route_nodes_location_gist"));
     }
 
     private static async Task<bool> TableExistsAsync(NpgsqlConnection connection, string tableName)
@@ -59,6 +64,25 @@ public class SchemaAlignmentTests : IClassFixture<AccessCityApiFactory>
             """;
         command.Parameters.AddWithValue("tableName", tableName);
         command.Parameters.AddWithValue("columnName", columnName);
+
+        return (bool)(await command.ExecuteScalarAsync() ?? false);
+    }
+
+    private static async Task<bool> IndexExistsAsync(NpgsqlConnection connection, string indexName)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = """
+            SELECT EXISTS (
+                SELECT 1
+                FROM pg_class index_class
+                JOIN pg_namespace index_namespace
+                  ON index_namespace.oid = index_class.relnamespace
+                WHERE index_namespace.nspname = 'public'
+                  AND index_class.relkind = 'i'
+                  AND index_class.relname = @indexName
+            );
+            """;
+        command.Parameters.AddWithValue("indexName", indexName);
 
         return (bool)(await command.ExecuteScalarAsync() ?? false);
     }

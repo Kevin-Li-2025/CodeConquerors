@@ -50,32 +50,18 @@ export const api = {
 
     if (!options.skipAuth) {
       const token = await getItemAsync(TOKEN_KEY);
-      console.log('REQUEST TOKEN:', token);
 
       if (isNonEmptyString(token)) {
         headers.set('Authorization', `Bearer ${token}`);
       }
-    } else {
-      console.log('REQUEST SKIPS AUTH:', url);
     }
-
-    console.log('REQUEST URL:', url);
-    console.log('REQUEST METHOD:', options.method || 'GET');
 
     const response = await fetch(url, { ...options, headers });
 
-    console.log('RESPONSE STATUS:', response.status, 'URL:', url);
-
     if (response.status === 401 && !options.skipAuth && !options._retry) {
-      console.log('401 DETECTED - TRYING REFRESH TOKEN');
-
       const refreshed = await this.refreshToken();
 
-      console.log('REFRESH STATUS:', refreshed);
-
       if (refreshed) {
-        console.log('RETRYING ORIGINAL REQUEST:', endpoint);
-
         return this.request<T>(endpoint, {
           ...options,
           _retry: true,
@@ -89,8 +75,6 @@ export const api = {
     if (!response.ok) {
       let message = `Error: ${response.status}`;
       const text = await response.text().catch(() => '');
-
-      console.log('ERROR RESPONSE TEXT:', text);
 
       if (text) {
         try {
@@ -159,78 +143,48 @@ export const api = {
     });
   },
   async refreshToken(): Promise<boolean> {
-  try {
-    const storedRefreshToken = await getItemAsync(REFRESH_TOKEN_KEY);
-    console.log('REFRESH TOKEN FROM STORE:', storedRefreshToken);
+    try {
+      const storedRefreshToken = await getItemAsync(REFRESH_TOKEN_KEY);
 
-    if (!storedRefreshToken || storedRefreshToken.trim() === '') {
-      console.log('NO VALID REFRESH TOKEN FOUND');
+      if (!isNonEmptyString(storedRefreshToken)) {
+        await deleteItemAsync(TOKEN_KEY);
+        await deleteItemAsync(REFRESH_TOKEN_KEY);
+        return false;
+      }
+
+      const response = await fetch(
+        `${API_URL}/auth/refresh-token?token=${encodeURIComponent(storedRefreshToken)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.ok) {
+        await deleteItemAsync(TOKEN_KEY);
+        await deleteItemAsync(REFRESH_TOKEN_KEY);
+        return false;
+      }
+
+      const data: RefreshResponse = await response.json();
+
+      if (!data.token || !data.refreshToken) {
+        await deleteItemAsync(TOKEN_KEY);
+        await deleteItemAsync(REFRESH_TOKEN_KEY);
+        return false;
+      }
+
+      await setItemAsync(TOKEN_KEY, data.token);
+      await setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
+
+      return true;
+    } catch (e) {
+      console.error('TOKEN REFRESH FAILED:', e);
       await deleteItemAsync(TOKEN_KEY);
       await deleteItemAsync(REFRESH_TOKEN_KEY);
       return false;
     }
-
-    // 先试 query，而且不要再 encode
-    const refreshUrl = `${API_URL}/auth/refresh-token?token=${storedRefreshToken}`;
-    console.log('REFRESH REQUEST URL:', refreshUrl);
-
-    let response = await fetch(refreshUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-
-    console.log('REFRESH RESPONSE STATUS:', response.status);
-
-    if (!response.ok) {
-      const firstErrorText = await response.text().catch(() => '');
-      console.log('REFRESH ERROR TEXT (QUERY MODE):', firstErrorText);
-
-      console.log('TRYING REFRESH AGAIN WITH JSON BODY');
-
-      response = await fetch(`${API_URL}/auth/refresh-token`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          token: storedRefreshToken,
-        }),
-      });
-
-      console.log('REFRESH RESPONSE STATUS (BODY MODE):', response.status);
-    }
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      console.log('REFRESH ERROR TEXT:', errorText);
-
-      await deleteItemAsync(TOKEN_KEY);
-      await deleteItemAsync(REFRESH_TOKEN_KEY);
-      return false;
-    }
-
-    const data = await response.json();
-    console.log('REFRESH RESPONSE DATA:', data);
-
-    if (!data.token || !data.refreshToken) {
-      console.log('REFRESH RESPONSE MISSING TOKEN FIELDS');
-      await deleteItemAsync(TOKEN_KEY);
-      await deleteItemAsync(REFRESH_TOKEN_KEY);
-      return false;
-    }
-
-    await setItemAsync(TOKEN_KEY, data.token);
-    await setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
-
-    console.log('TOKEN REFRESH SUCCESS');
-    return true;
-  } catch (e) {
-    console.error('TOKEN REFRESH FAILED:', e);
-    await deleteItemAsync(TOKEN_KEY);
-    await deleteItemAsync(REFRESH_TOKEN_KEY);
-    return false;
   }
-}
 };

@@ -1,3 +1,3 @@
 namespace AccessCity.API.Messaging;
 
-public record OsmImportStartedEvent(string FilePath, string CityName) : IntegrationEvent;
+public record OsmImportStartedEvent(Guid JobId, string FilePath, string CityName, DateTime QueuedAtUtc) : IntegrationEvent;

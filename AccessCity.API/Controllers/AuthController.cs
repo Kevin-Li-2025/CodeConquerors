@@ -65,7 +65,7 @@ public class AuthController : ControllerBase
         }
 
         var refreshToken = _tokenService.GenerateRefreshToken(GetIpAddress());
-        user.RefreshTokens.Add(refreshToken);
+        user.RefreshTokens.Add(refreshToken.Entity);
         await _userManager.UpdateAsync(user);
 
         return Ok(new AuthResponse(
@@ -104,7 +104,7 @@ public class AuthController : ControllerBase
             t.ReasonRevoked = "Replaced by new login";
         }
 
-        user.RefreshTokens.Add(refreshToken);
+        user.RefreshTokens.Add(refreshToken.Entity);
         await _userManager.UpdateAsync(user);
 
         return Ok(new AuthResponse(
@@ -125,22 +125,23 @@ public class AuthController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(token)) return BadRequest(new ApiError("Token is required."));
 
+        var tokenHash = _tokenService.HashRefreshToken(token);
         var user = await _userManager.Users
             .Include(u => u.RefreshTokens)
-            .SingleOrDefaultAsync(u => u.RefreshTokens.Any(t => t.Token == token));
+            .SingleOrDefaultAsync(u => u.RefreshTokens.Any(t => t.Token == tokenHash || t.Token == token));
 
         if (user == null) return Unauthorized(new ApiError("Invalid token."));
 
-        var refreshToken = user.RefreshTokens.Single(x => x.Token == token);
+        var refreshToken = user.RefreshTokens.Single(x => x.Token == tokenHash || x.Token == token);
         if (!refreshToken.IsActive) return Unauthorized(new ApiError("Invalid token."));
 
         var newRefreshToken = _tokenService.GenerateRefreshToken(GetIpAddress());
         refreshToken.Revoked = DateTime.UtcNow;
         refreshToken.RevokedByIp = GetIpAddress();
-        refreshToken.ReplacedByToken = newRefreshToken.Token;
+        refreshToken.ReplacedByToken = newRefreshToken.Entity.Token;
         refreshToken.ReasonRevoked = "Token rotated";
 
-        user.RefreshTokens.Add(newRefreshToken);
+        user.RefreshTokens.Add(newRefreshToken.Entity);
         await _userManager.UpdateAsync(user);
 
         return Ok(new AuthResponse(
@@ -162,8 +163,9 @@ public class AuthController : ControllerBase
         if (string.IsNullOrWhiteSpace(token))
             return BadRequest(new ApiError("Token is required."));
 
+        var tokenHash = _tokenService.HashRefreshToken(token);
         var refreshToken = await _context.RefreshTokens
-            .FirstOrDefaultAsync(t => t.Token == token);
+            .FirstOrDefaultAsync(t => t.Token == tokenHash || t.Token == token);
 
         if (refreshToken == null) return NotFound(new ApiError("Token not found."));
         if (!refreshToken.IsActive) return BadRequest(new ApiError("Token is already inactive."));

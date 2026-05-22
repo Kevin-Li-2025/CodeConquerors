@@ -23,7 +23,7 @@ try
         .AddDatabase(builder.Configuration, builder.Environment)
         .AddInfrastructure(builder.Configuration)
         .AddMessaging(builder.Configuration)
-        .AddApplicationServices()
+        .AddApplicationServices(builder.Configuration)
         .AddSecurity(builder.Configuration, builder.Environment)
         .AddObservability(builder.Configuration)
         .AddWebServices();

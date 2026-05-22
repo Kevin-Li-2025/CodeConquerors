@@ -9,12 +9,16 @@ namespace AccessCity.API.Models.Identity
         [JsonIgnore]
         public int Id { get; set; }
 
+        /// <summary>
+        /// SHA-256 hash of the refresh token. The raw token is returned to the client once and is never persisted.
+        /// </summary>
         public string Token { get; set; } = string.Empty;
         public string CreatedByIp { get; set; } = string.Empty;
         public DateTime Expires { get; set; }
         public DateTime Created { get; set; } = DateTime.UtcNow;
         public DateTime? Revoked { get; set; }
         public string? RevokedByIp { get; set; }
+        /// <summary>Hash of the replacement refresh token, when this token was rotated.</summary>
         public string? ReplacedByToken { get; set; }
         public string? ReasonRevoked { get; set; }
 

@@ -25,6 +25,7 @@ variables:
   POSTGRES_PASSWORD: accesscity123
   DATABASE_URL: "postgresql://accesscity:accesscity123@postgres:5432/accesscitydb?sslmode=disable"
   ConnectionStrings__Redis: "redis:6379"
+  Jwt__Key: "AccessCity_CI_Test_Jwt_Key_2026_Change_For_Production_At_Deploy_Time_64_Bytes"
   # npm audit needs the official advisories API (many mirrors do not implement it).
   NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/"
 
@@ -92,7 +93,8 @@ quality:security-dotnet:
   timeout: 15m
   script:
     - dotnet restore CodeConquerors.sln
-    - dotnet list CodeConquerors.sln package --vulnerable --include-transitive
+    - dotnet list CodeConquerors.sln package --vulnerable --include-transitive | tee /tmp/dotnet-vulnerable.txt
+    - '! grep -q "has the following vulnerable packages" /tmp/dotnet-vulnerable.txt'
   rules:
     - exists:
         - CodeConquerors.sln

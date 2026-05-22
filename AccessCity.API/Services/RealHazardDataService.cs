@@ -46,6 +46,7 @@ public class RealHazardDataService : IRealHazardDataService
     private const double DefaultMinLng = -1.95;
     private const double DefaultMaxLat = 52.52;
     private const double DefaultMaxLng = -1.88;
+    private static readonly GeometryFactory Wgs84 = new(new PrecisionModel(), 4326);
 
     public RealHazardDataService(
         IOpenStreetMapClient openStreetMapClient,
@@ -107,21 +108,31 @@ public class RealHazardDataService : IRealHazardDataService
     {
         try
         {
-            var dbQuery = _dbContext.Hazards.AsNoTracking().Where(h =>
-                h.Location.X >= minLngVal && h.Location.X <= maxLngVal &&
-                h.Location.Y >= minLatVal && h.Location.Y <= maxLatVal);
+            var envelope = Wgs84.CreatePolygon(new[]
+            {
+                new Coordinate(minLngVal, minLatVal),
+                new Coordinate(maxLngVal, minLatVal),
+                new Coordinate(maxLngVal, maxLatVal),
+                new Coordinate(minLngVal, maxLatVal),
+                new Coordinate(minLngVal, minLatVal)
+            });
+
+            var dbQuery = _dbContext.Hazards
+                .AsNoTracking()
+                .Where(h => h.Location.Intersects(envelope));
 
             if (status.HasValue)
                 dbQuery = dbQuery.Where(h => h.Status == status.Value);
 
             return await dbQuery
+                .OrderByDescending(h => h.ReportedAt)
                 .Take(MaxDbHazardsPerResponse)
                 .ToListAsync()
                 .ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[DB ERROR] Failed to fetch hazards: {ex.Message}");
+            _logger.LogWarning(ex, "Failed to fetch DB hazards for bbox.");
             return new List<HazardReport>();
         }
     }

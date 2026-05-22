@@ -30,6 +30,10 @@ namespace AccessCity.API.Extensions;
 /// </summary>
 public static class DependencyInjection
 {
+    private const string DevelopmentJwtKey =
+        "AccessCity_Secret_Key_Secure_Long_Enough_For_HS512_2026_Development_Phase_64_Bytes_Long_!!!_STILL_ENFORCING_LENGTH_HE_HE";
+    private const string DockerComposeDevelopmentJwtKey = "AccessCity_Secret_Key_For_Dev_2026_Placeholder";
+
     // ───────────────────────────── Messaging ─────────────────────────────
 
     public static IServiceCollection AddMessaging(this IServiceCollection services, IConfiguration configuration)
@@ -130,7 +134,7 @@ public static class DependencyInjection
 
     // ───────────────────────────── Application Services ──────────────────
 
-    public static IServiceCollection AddApplicationServices(this IServiceCollection services)
+    public static IServiceCollection AddApplicationServices(this IServiceCollection services, IConfiguration configuration)
     {
         // Singletons (thread-safe caches)
         services.AddSingleton<ISpatialCacheService, SpatialCacheService>();
@@ -177,9 +181,17 @@ public static class DependencyInjection
             .ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(15))
             .AddStandardResilienceHandler();
 
-        // Background workers
-        services.AddHostedService<Services.Background.OsmImportBackgroundService>();
-        services.AddHostedService<Services.Background.TileWarmingBackgroundService>();
+        // Background workers. In multi-instance deployments these can be disabled on API replicas
+        // and enabled on a dedicated worker container consuming the same Kafka group.
+        if (configuration.GetValue("Workers:OsmImport:Enabled", true))
+        {
+            services.AddHostedService<Services.Background.OsmImportBackgroundService>();
+        }
+
+        if (configuration.GetValue("Workers:TileWarming:Enabled", true))
+        {
+            services.AddHostedService<Services.Background.TileWarmingBackgroundService>();
+        }
 
         // Caching services
         services.AddScoped<IRiskTileCacheService, RiskTileCacheService>();
@@ -221,8 +233,7 @@ public static class DependencyInjection
         services.AddScoped<IPasswordHasher<AccessCityUser>, Argon2PasswordHasher<AccessCityUser>>();
 
         // JWT
-        var jwtKey = configuration["Jwt:Key"]
-            ?? "AccessCity_Secret_Key_Secure_Long_Enough_For_HS512_2026_Development_Phase_64_Bytes_Long_!!!_STILL_ENFORCING_LENGTH_HE_HE";
+        var jwtKeys = ResolveJwtSigningKeys(configuration, env);
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(options =>
@@ -230,7 +241,8 @@ public static class DependencyInjection
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuerSigningKey = true,
-                    IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+                    IssuerSigningKey = jwtKeys[0],
+                    IssuerSigningKeyResolver = (_, _, _, _) => jwtKeys,
                     ValidateIssuer = true,
                     ValidIssuer = configuration["Jwt:Issuer"] ?? "AccessCity.API",
                     ValidateAudience = true,
@@ -273,6 +285,40 @@ public static class DependencyInjection
         return services;
     }
 
+    private static IReadOnlyList<SecurityKey> ResolveJwtSigningKeys(IConfiguration configuration, IWebHostEnvironment env)
+    {
+        var currentKey = configuration["Jwt:Key"];
+        if (string.IsNullOrWhiteSpace(currentKey))
+        {
+            if (!env.IsDevelopment())
+            {
+                throw new InvalidOperationException("Jwt:Key must be configured outside Development.");
+            }
+
+            currentKey = DevelopmentJwtKey;
+        }
+
+        if (!env.IsDevelopment() &&
+            (string.Equals(currentKey, DevelopmentJwtKey, StringComparison.Ordinal) ||
+             string.Equals(currentKey, DockerComposeDevelopmentJwtKey, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException("The development JWT signing key cannot be used outside Development.");
+        }
+
+        var keys = new List<string> { currentKey };
+        var previousKeys = configuration["Jwt:PreviousKeys"];
+        if (!string.IsNullOrWhiteSpace(previousKeys))
+        {
+            keys.AddRange(previousKeys.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        }
+
+        return keys
+            .Distinct(StringComparer.Ordinal)
+            .Select(key => new SymmetricSecurityKey(Encoding.UTF8.GetBytes(key)))
+            .Cast<SecurityKey>()
+            .ToList();
+    }
+
     // ───────────────────────────── Observability ─────────────────────────
 
     public static IServiceCollection AddObservability(this IServiceCollection services, IConfiguration configuration)
@@ -289,6 +335,7 @@ public static class DependencyInjection
                 .AddAspNetCoreInstrumentation()
                 .AddHttpClientInstrumentation()
                 .AddRuntimeInstrumentation()
+                .AddMeter("AccessCity.API")
                 .AddMeter("Microsoft.EntityFrameworkCore")
                 .AddOtlpExporter());
 

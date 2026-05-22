@@ -44,6 +44,17 @@ namespace AccessCity.API.Data
                 value => ConvertNullableStringToGuid(value),
                 value => ConvertNullableGuidToString(value));
 
+            var jsonDocumentConverter = new ValueConverter<JsonDocument, string>(
+                value => value.RootElement.GetRawText(),
+                value => JsonDocument.Parse(
+                    string.IsNullOrWhiteSpace(value) ? "{}" : value,
+                    new JsonDocumentOptions()));
+
+            var jsonDocumentComparer = new ValueComparer<JsonDocument>(
+                (left, right) => left!.RootElement.GetRawText() == right!.RootElement.GetRawText(),
+                value => StringComparer.Ordinal.GetHashCode(value.RootElement.GetRawText()),
+                value => JsonDocument.Parse(value.RootElement.GetRawText(), new JsonDocumentOptions()));
+
             var isRelational = this.Database.ProviderName != "Microsoft.EntityFrameworkCore.InMemory";
             
             // Note: If Database.ProviderName throws, we might need a different approach.
@@ -127,6 +138,12 @@ namespace AccessCity.API.Data
                     entity.Property(e => e.Geometry).HasColumnType("geometry(Geometry,4326)");
                     entity.Property(e => e.AccessibilityInfo).HasColumnType("jsonb");
                 }
+                else
+                {
+                    entity.Property(e => e.AccessibilityInfo)
+                        .HasConversion(jsonDocumentConverter)
+                        .Metadata.SetValueComparer(jsonDocumentComparer);
+                }
                 
                 entity.HasIndex(e => new { e.SourceSystem, e.SourceRecordId }).IsUnique();
             });
@@ -139,6 +156,12 @@ namespace AccessCity.API.Data
                 entity.Property(e => e.SourceName).HasMaxLength(512);
                 entity.Property(e => e.Status).HasMaxLength(50);
                 if (isRelational) entity.Property(e => e.Metadata).HasColumnType("jsonb");
+                else
+                {
+                    entity.Property(e => e.Metadata)
+                        .HasConversion(jsonDocumentConverter)
+                        .Metadata.SetValueComparer(jsonDocumentComparer);
+                }
             });
 
             builder.Entity<RouteNode>(entity =>
@@ -150,6 +173,12 @@ namespace AccessCity.API.Data
                 {
                     entity.Property(e => e.Location).HasColumnType("geometry(Point,4326)");
                     entity.Property(e => e.Tags).HasColumnType("jsonb");
+                }
+                else
+                {
+                    entity.Property(e => e.Tags)
+                        .HasConversion(jsonDocumentConverter)
+                        .Metadata.SetValueComparer(jsonDocumentComparer);
                 }
             });
 
@@ -167,6 +196,12 @@ namespace AccessCity.API.Data
                 {
                     entity.Property(e => e.Geometry).HasColumnType("geometry(LineString,4326)");
                     entity.Property(e => e.Tags).HasColumnType("jsonb");
+                }
+                else
+                {
+                    entity.Property(e => e.Tags)
+                        .HasConversion(jsonDocumentConverter)
+                        .Metadata.SetValueComparer(jsonDocumentComparer);
                 }
                 
                 entity.HasIndex(e => new { e.FromNodeId, e.ToNodeId });

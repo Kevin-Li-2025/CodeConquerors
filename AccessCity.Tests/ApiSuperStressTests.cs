@@ -54,10 +54,12 @@ public class ApiSuperStressTests : IClassFixture<AccessCityApiFactory>
     {
         var swTotal = Stopwatch.StartNew();
 
-        var authClient = await _factory.CreateAuthenticatedClientAsync(new WebApplicationFactoryClientOptions
-        {
-            AllowAutoRedirect = false,
-        });
+        var authClient = await _factory.CreateAuthenticatedClientAsync(
+            new WebApplicationFactoryClientOptions
+            {
+                AllowAutoRedirect = false,
+            },
+            client => client.Timeout = TimeSpan.FromMinutes(3));
 
         await _factory.ImportOsmAsync(authClient);
 
@@ -100,7 +102,6 @@ public class ApiSuperStressTests : IClassFixture<AccessCityApiFactory>
         _output.WriteLine($"Phase2 (anonymous staggered): {waves} waves, ~14 calls/wave, pause {pauseMs} ms → {p2.ElapsedMilliseconds} ms");
 
         // ── Phase 3: authenticated partition (separate rate-limit bucket) ─────────────────────
-        authClient.Timeout = TimeSpan.FromMinutes(3);
         const int authWaves = 6;
         const int authPauseMs = 5000;
         var p3 = Stopwatch.StartNew();

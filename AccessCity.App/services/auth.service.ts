@@ -29,8 +29,6 @@ export const authService = {
       skipAuth: true,
     });
 
-    console.log('LOGIN RESPONSE:', response);
-
     await this.saveSession(response);
     return response;
   },
@@ -40,15 +38,11 @@ export const authService = {
       skipAuth: true,
     });
 
-    console.log('REGISTER RESPONSE:', response);
-
     await this.saveSession(response);
     return response;
   },
 
   async saveSession(data: AuthResponse) {
-    console.log('SAVE SESSION INPUT:', data);
-
     if (!isNonEmptyString(data?.token)) {
       throw new Error('Missing access token in auth response');
     }
@@ -66,24 +60,12 @@ export const authService = {
     };
 
     await setItemAsync(USER_KEY, JSON.stringify(userData));
-
-    const savedToken = await getItemAsync(TOKEN_KEY);
-    const savedRefreshToken = await getItemAsync(REFRESH_TOKEN_KEY);
-    const savedUser = await getItemAsync(USER_KEY);
-
-    console.log('SAVED TOKEN:', savedToken);
-    console.log('SAVED REFRESH TOKEN:', savedRefreshToken);
-    console.log('SAVED USER:', savedUser);
   },
 
   async getSession() {
     const token = await getItemAsync(TOKEN_KEY);
     const refreshToken = await getItemAsync(REFRESH_TOKEN_KEY);
     const userJson = await getItemAsync(USER_KEY);
-
-    console.log('GET SESSION TOKEN:', token);
-    console.log('GET SESSION REFRESH TOKEN:', refreshToken);
-    console.log('GET SESSION USER:', userJson);
 
     if (!isNonEmptyString(token)) {
       return null;
@@ -111,14 +93,10 @@ export const authService = {
     await deleteItemAsync(TOKEN_KEY);
     await deleteItemAsync(REFRESH_TOKEN_KEY);
     await deleteItemAsync(USER_KEY);
-
-    console.log('SESSION CLEARED');
   },
 
   async logout() {
     const refreshToken = await getItemAsync(REFRESH_TOKEN_KEY);
-
-    console.log('LOGOUT REFRESH TOKEN:', refreshToken);
 
     if (isNonEmptyString(refreshToken)) {
       try {
@@ -126,7 +104,6 @@ export const authService = {
           method: 'POST',
           skipAuth: true,
         });
-        console.log('BACKEND LOGOUT SUCCESS');
       } catch (e) {
         console.warn('BACKEND LOGOUT FAILED:', e);
       }
@@ -136,8 +113,6 @@ export const authService = {
   },
 
   async forgotPassword(email: string): Promise<{ message: string }> {
-    console.log('FORGOT PASSWORD EMAIL:', email);
-
     return api.post<{ message: string }>(
       '/auth/forgot-password',
       { email },
@@ -148,8 +123,6 @@ export const authService = {
   async resetPassword(
     request: ResetPasswordRequest
   ): Promise<{ message: string }> {
-    console.log('RESET PASSWORD REQUEST:', request);
-
     return api.post<{ message: string }>(
       '/auth/reset-password',
       request,

@@ -25,19 +25,23 @@ public class OsmImportBackgroundService : BackgroundService
 
         await _messageBus.SubscribeAsync<OsmImportStartedEvent>(async @event =>
         {
-            _logger.LogInformation("Received OSM Import request for: {CityName} ({FilePath})", @event.CityName, @event.FilePath);
+            _logger.LogInformation(
+                "Received OSM import job {JobId} for {CityName} ({FilePath})",
+                @event.JobId,
+                @event.CityName,
+                @event.FilePath);
 
             using var scope = _serviceProvider.CreateScope();
             var importService = scope.ServiceProvider.GetRequiredService<IOsmImportService>();
 
             try
             {
-                await importService.ImportConfiguredAsync(stoppingToken);
-                _logger.LogInformation("Successfully completed background OSM import for {CityName}", @event.CityName);
+                await importService.ImportAsync(@event.FilePath, stoppingToken);
+                _logger.LogInformation("Successfully completed background OSM import job {JobId}", @event.JobId);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during background OSM import for {CityName}", @event.CityName);
+                _logger.LogError(ex, "Error during background OSM import job {JobId}", @event.JobId);
             }
         }, stoppingToken);
 

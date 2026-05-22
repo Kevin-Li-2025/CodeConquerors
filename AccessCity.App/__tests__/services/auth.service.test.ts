@@ -25,10 +25,6 @@ describe('authService', () => {
       fullName: 'User',
     });
 
-    (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce('access');
-    (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce('refresh');
-    (SecureStore.getItemAsync as jest.Mock).mockResolvedValueOnce(JSON.stringify({ email: 'u@test.com' }));
-
     const result = await authService.login({ email: 'u@test.com', password: 'secret12' });
 
     expect(api.post).toHaveBeenCalledWith(

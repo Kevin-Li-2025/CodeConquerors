@@ -41,4 +41,27 @@ describe('api.request', () => {
     const { api } = require('@/services/api');
     await expect(api.get('/bad')).rejects.toThrow('Invalid request');
   });
+
+  it('URL-encodes refresh tokens sent in the query string', async () => {
+    const secureStore = require('expo-secure-store');
+    secureStore.getItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'ac_refresh_token') return 'abc+/= token';
+      return null;
+    });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ token: 'new-access', refreshToken: 'new-refresh' }),
+      text: async () => '',
+    }) as unknown as typeof fetch;
+
+    const { api } = require('@/services/api');
+    await expect(api.refreshToken()).resolves.toBe(true);
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining('token=abc%2B%2F%3D%20token'),
+      expect.objectContaining({ method: 'POST' }),
+    );
+  });
 });

@@ -9,8 +9,15 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Jwt__Key: ${JWT_SECRET:-AccessCity_Secret_Key_For_Dev_2026_Placeholder}
+      Jwt__PreviousKeys: ${JWT_PREVIOUS_KEYS:-}
       Jwt__Issuer: AccessCity.API
       Jwt__Audience: AccessCity.App
+      Messaging__UseKafka: ${MESSAGING_USE_KAFKA:-false}
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__ConsumerGroupId: accesscity-workers
+      Kafka__TopicPrefix: accesscity_
+      Workers__OsmImport__Enabled: ${API_OSM_WORKER_ENABLED:-true}
+      Workers__TileWarming__Enabled: ${API_TILE_WORKER_ENABLED:-true}
       # Default false (avoids OOM on large extracts). Override when starting compose, e.g.:
       #   OsmImport__ImportOnStartup=true docker compose up -d --force-recreate api
       OsmImport__ImportOnStartup: ${OsmImport__ImportOnStartup:-false}
@@ -24,6 +31,39 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    mem_limit: 4g
+    volumes:
+      - ./AccessCity.API/london.osm:/app/london.osm:ro
+      - ./AccessCity.API/birmingham.osm:/app/birmingham.osm:ro
+
+  worker:
+    profiles: ["worker"]
+    build:
+      context: ./AccessCity.API
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Jwt__Key: ${JWT_SECRET:-AccessCity_Secret_Key_For_Dev_2026_Placeholder}
+      Jwt__PreviousKeys: ${JWT_PREVIOUS_KEYS:-}
+      Jwt__Issuer: AccessCity.API
+      Jwt__Audience: AccessCity.App
+      Messaging__UseKafka: ${MESSAGING_USE_KAFKA:-true}
+      Kafka__BootstrapServers: kafka:9092
+      Kafka__ConsumerGroupId: accesscity-workers
+      Kafka__TopicPrefix: accesscity_
+      OsmImport__ImportOnStartup: "false"
+      ConnectionStrings__Redis: ${REDIS_CONNECTION:-redis:6379}
+      Workers__OsmImport__Enabled: "true"
+      Workers__TileWarming__Enabled: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://host.docker.internal:4317
+      OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
     mem_limit: 4g
     volumes:
       - ./AccessCity.API/london.osm:/app/london.osm:ro
@@ -56,6 +96,22 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  kafka:
+    profiles: ["worker", "kafka"]
+    image: bitnami/kafka:3.7
+    container_name: accesscity_dev_kafka
+    ports:
+      - "9092:9092"
+    environment:
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
 
 volumes:
   postgres_data:

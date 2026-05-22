@@ -1,6 +1,7 @@
 using AccessCity.API.Configuration;
 using AccessCity.API.Data;
 using AccessCity.API.Hubs;
+using AccessCity.API.Messaging;
 using AccessCity.API.Models;
 using AccessCity.API.Services;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -9,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Npgsql;
 using Scalar.AspNetCore;
 using Serilog;
 
@@ -54,9 +56,10 @@ public static class WebApplicationExtensions
     {
         await MigrateDatabaseAsync(app);
 
-        if (!(app.Environment.IsDevelopment() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("USE_POSTGRES"))))
+        if (!UsesInMemoryDatabase(app))
         {
             await NormalizeSchemaAsync(app);
+            await EnsurePerformanceIndexesAsync(app);
             await RunOptionalOsmImportAsync(app);
         }
     }
@@ -64,8 +67,8 @@ public static class WebApplicationExtensions
     private static async Task MigrateDatabaseAsync(WebApplication app)
     {
         using var scope = app.Services.CreateScope();
-        var env = scope.ServiceProvider.GetRequiredService<IWebHostEnvironment>();
-        if (env.IsDevelopment() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("USE_POSTGRES")))
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        if (IsInMemoryDatabase(dbContext))
         {
             return;
         }
@@ -76,9 +79,70 @@ public static class WebApplicationExtensions
             return;
         }
 
-        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await dbContext.Database.MigrateAsync();
+        await MarkObsoleteInitialMigrationAsAppliedForEmptyDatabaseAsync(dbContext);
+
+        try
+        {
+            await dbContext.Database.MigrateAsync();
+        }
+        catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.DuplicateTable)
+        {
+            var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseMigration");
+            logger.LogWarning(
+                ex,
+                "EF migration hit an existing table. Continuing with schema normalization for a legacy database.");
+        }
     }
+
+    private static async Task MarkObsoleteInitialMigrationAsAppliedForEmptyDatabaseAsync(AppDbContext dbContext)
+    {
+        if (!string.Equals(dbContext.Database.ProviderName, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = '__EFMigrationsHistory'
+                ) AND NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_type = 'BASE TABLE'
+                      AND table_name <> 'spatial_ref_sys'
+                ) THEN
+                    CREATE TABLE public."__EFMigrationsHistory"
+                    (
+                        "MigrationId" character varying(150) NOT NULL,
+                        "ProductVersion" character varying(32) NOT NULL,
+                        CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY ("MigrationId")
+                    );
+
+                    INSERT INTO public."__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+                    VALUES ('20260318182223_InitialCreate', '9.0.0');
+                END IF;
+            END $$;
+            """);
+    }
+
+    private static bool UsesInMemoryDatabase(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        return IsInMemoryDatabase(dbContext);
+    }
+
+    private static bool IsInMemoryDatabase(AppDbContext dbContext) =>
+        string.Equals(
+            dbContext.Database.ProviderName,
+            "Microsoft.EntityFrameworkCore.InMemory",
+            StringComparison.Ordinal);
 
     /// <summary>
     /// Schedules OSM import after the host is running. Publishing <see cref="AccessCity.API.Messaging.OsmImportStartedEvent"/>
@@ -112,10 +176,20 @@ public static class WebApplicationExtensions
         {
             await Task.Delay(500).ConfigureAwait(false);
             await using var asyncScope = app.Services.CreateAsyncScope();
-            var import = asyncScope.ServiceProvider.GetRequiredService<IOsmImportService>();
-            logger.LogInformation("Running configured OSM import (ImportOnStartup)");
-            await import.ImportConfiguredAsync(CancellationToken.None).ConfigureAwait(false);
-            logger.LogInformation("ImportOnStartup OSM import finished");
+            var bus = asyncScope.ServiceProvider.GetRequiredService<IMessageBus>();
+            var options = asyncScope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<OsmImportOptions>>();
+            var filePath = options.Value.FilePath;
+            if (string.IsNullOrWhiteSpace(filePath))
+            {
+                logger.LogWarning("Skipping ImportOnStartup because OsmImport:FilePath is not configured.");
+                return;
+            }
+
+            var jobId = Guid.NewGuid();
+            logger.LogInformation("Queueing configured OSM import job {JobId} (ImportOnStartup)", jobId);
+            await bus.PublishAsync(
+                new OsmImportStartedEvent(jobId, filePath, "startup", DateTime.UtcNow),
+                CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -416,19 +490,54 @@ public static class WebApplicationExtensions
                 END IF;
     
                 -- RouteEdge accessibility enhancements
-                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'kerb_height') THEN
-                    ALTER TABLE public.route_edges ADD COLUMN kerb_height double precision NOT NULL DEFAULT 0.0;
-                END IF;
-                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'smoothness') THEN
-                    ALTER TABLE public.route_edges ADD COLUMN smoothness character varying(50);
-                END IF;
-                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'width_metres') THEN
-                    ALTER TABLE public.route_edges ADD COLUMN width_metres double precision;
-                END IF;
-                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'has_tactile_paving') THEN
-                    ALTER TABLE public.route_edges ADD COLUMN has_tactile_paving boolean NOT NULL DEFAULT false;
+                IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'route_edges') THEN
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'kerb_height') THEN
+                        ALTER TABLE public.route_edges ADD COLUMN kerb_height double precision NOT NULL DEFAULT 0.0;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'smoothness') THEN
+                        ALTER TABLE public.route_edges ADD COLUMN smoothness character varying(50);
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'width_metres') THEN
+                        ALTER TABLE public.route_edges ADD COLUMN width_metres double precision;
+                    END IF;
+                    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'route_edges' AND column_name = 'has_tactile_paving') THEN
+                        ALTER TABLE public.route_edges ADD COLUMN has_tactile_paving boolean NOT NULL DEFAULT false;
+                    END IF;
                 END IF;
             END $$;
+            """);
+    }
+
+    private static async Task EnsurePerformanceIndexesAsync(WebApplication app)
+    {
+        using var scope = app.Services.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+        await dbContext.Database.ExecuteSqlRawAsync(
+            """
+            CREATE INDEX IF NOT EXISTS "IX_hazard_report_geom_gist"
+                ON public.hazard_report USING GIST (geom);
+
+            CREATE INDEX IF NOT EXISTS "IX_hazard_report_status_reported_at"
+                ON public.hazard_report (status, reported_at DESC);
+
+            CREATE INDEX IF NOT EXISTS "IX_infrastructure_assets_geometry_gist"
+                ON public.infrastructure_assets USING GIST ("Geometry");
+
+            CREATE INDEX IF NOT EXISTS "IX_infrastructure_assets_geometry_geog_gist"
+                ON public.infrastructure_assets USING GIST (("Geometry"::geography));
+
+            CREATE INDEX IF NOT EXISTS "IX_infrastructure_assets_updated_at"
+                ON public.infrastructure_assets ("UpdatedAt" DESC);
+
+            CREATE INDEX IF NOT EXISTS "IX_route_edges_geometry_gist"
+                ON public.route_edges USING GIST ("Geometry");
+
+            CREATE INDEX IF NOT EXISTS "IX_route_nodes_location_gist"
+                ON public.route_nodes USING GIST ("Location");
+
+            CREATE INDEX IF NOT EXISTS "IX_feed_ingestion_runs_source_status_started"
+                ON public.feed_ingestion_runs ("SourceType", "Status", "StartedAt" DESC);
             """);
     }
 }
