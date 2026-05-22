@@ -30,12 +30,14 @@ spec:
             httpGet:
               path: /health/ready
               port: http
+            timeoutSeconds: 3
             periodSeconds: 10
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /health
               port: http
+            timeoutSeconds: 3
             periodSeconds: 30
             failureThreshold: 3
           resources:

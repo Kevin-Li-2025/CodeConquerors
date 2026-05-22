@@ -43,7 +43,11 @@ public static class WebApplicationExtensions
         app.MapControllers();
         app.MapHub<HazardAlertHub>("/hubs/hazard-alerts");
 
-        app.MapHealthChecks("/health").DisableRateLimiting();
+        app.MapHealthChecks("/health", new HealthCheckOptions
+        {
+            Predicate = _ => false
+        })
+            .DisableRateLimiting();
         app.MapHealthChecks("/health/ready", new HealthCheckOptions
         {
             Predicate = check => check.Tags.Contains("ready")

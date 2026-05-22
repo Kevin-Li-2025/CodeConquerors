@@ -62,11 +62,10 @@ data:
           safetyWeight: 0.5
         });
 
-        check(http.post(`${baseUrl}/api/v1/routing/safe-path`, safePathBody, {
-          ...jsonHeaders,
-          tags: { name: 'safe-path' }
-        }), {
-          'safe-path accepted': r => [200, 404, 503, 504].includes(r.status)
+        const safePathParams = Object.assign({}, jsonHeaders, { tags: { name: 'safe-path' } });
+
+        check(http.post(`${baseUrl}/api/v1/routing/safe-path`, safePathBody, safePathParams), {
+          'safe-path accepted': r => r.status === 200 || r.status === 404 || r.status === 503 || r.status === 504
         });
       }
 
