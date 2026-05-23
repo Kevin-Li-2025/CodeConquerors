@@ -1,11 +1,8 @@
-using System.Text.Json;
 using AccessCity.API.Common;
-using AccessCity.API.Data;
 using AccessCity.API.Models;
+using AccessCity.API.Services;
 using Asp.Versioning;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using NetTopologySuite.Geometries;
 
 namespace AccessCity.API.Controllers;
 
@@ -17,11 +14,11 @@ namespace AccessCity.API.Controllers;
 [Route("api/v{version:apiVersion}/[controller]")]
 public class SpatialController : ControllerBase
 {
-    private readonly AppDbContext _dbContext;
+    private readonly ISpatialQueryService _spatialQueries;
 
-    public SpatialController(AppDbContext dbContext)
+    public SpatialController(ISpatialQueryService spatialQueries)
     {
-        _dbContext = dbContext;
+        _spatialQueries = spatialQueries;
     }
 
     /// <summary>
@@ -46,34 +43,8 @@ public class SpatialController : ControllerBase
             return BadRequest(new ApiError("Radius must be between 1 and 10000 metres."));
         }
 
-        var assets = await _dbContext.InfrastructureAssets
-            .FromSqlInterpolated($"""
-                SELECT *
-                FROM infrastructure_assets
-                WHERE ST_DWithin(
-                    "Geometry"::geography,
-                    ST_SetSRID(ST_MakePoint({lng}, {lat}), 4326)::geography,
-                    {radius})
-                ORDER BY ST_Distance(
-                    "Geometry"::geography,
-                    ST_SetSRID(ST_MakePoint({lng}, {lat}), 4326)::geography)
-                LIMIT 100
-                """)
-            .AsNoTracking()
-            .ToListAsync(cancellationToken);
-
-        return Ok(assets.Select(asset =>
-        {
-            var centroid = asset.Geometry is Point point ? point : asset.Geometry.Centroid;
-            return new PointOfInterest
-            {
-                Id = Guid.NewGuid(),
-                Name = asset.Name ?? asset.AssetType,
-                Category = asset.AssetType,
-                Location = new Point(centroid.X, centroid.Y) { SRID = 4326 },
-                AccessibilityTags = ParseTags(asset.AccessibilityInfo)
-            };
-        }).ToList());
+        var points = await _spatialQueries.GetPointsOfInterestAsync(lat, lng, radius, cancellationToken);
+        return Ok(points);
     }
 
     /// <summary>
@@ -86,65 +57,9 @@ public class SpatialController : ControllerBase
         [FromQuery] string layerName,
         CancellationToken cancellationToken = default)
     {
-        if (string.Equals(layerName, "hazards", StringComparison.OrdinalIgnoreCase))
-        {
-            var hazards = await _dbContext.Hazards
-                .AsNoTracking()
-                .OrderByDescending(hazard => hazard.ReportedAt)
-                .Take(250)
-                .ToListAsync(cancellationToken);
-
-            return Ok(new MapOverlayResponse
-            {
-                Layer = "hazards",
-                Features = hazards.Select(hazard => new MapOverlayFeature
-                {
-                    Geometry = hazard.Location,
-                    Properties = new
-                    {
-                        hazard.Id,
-                        hazard.Type,
-                        Status = hazard.Status.ToString(),
-                        hazard.Description,
-                        hazard.ReportedAt
-                    }
-                }).ToList()
-            });
-        }
-
-        if (string.Equals(layerName, "infrastructure", StringComparison.OrdinalIgnoreCase))
-        {
-            var assets = await _dbContext.InfrastructureAssets
-                .AsNoTracking()
-                .OrderByDescending(asset => asset.UpdatedAt)
-                .Take(250)
-                .ToListAsync(cancellationToken);
-
-            return Ok(new MapOverlayResponse
-            {
-                Layer = "infrastructure",
-                Features = assets.Select(asset => new MapOverlayFeature
-                {
-                    Geometry = asset.Geometry,
-                    Properties = new
-                    {
-                        asset.Id,
-                        asset.AssetType,
-                        asset.Name,
-                        asset.Status,
-                        AccessibilityTags = ParseTags(asset.AccessibilityInfo)
-                    }
-                }).ToList()
-            });
-        }
-
-        return BadRequest(new ApiError("Supported layers: hazards, infrastructure."));
-    }
-
-    private static Dictionary<string, string> ParseTags(JsonDocument json)
-    {
-        return json.RootElement.ValueKind == JsonValueKind.Object
-            ? json.RootElement.EnumerateObject().ToDictionary(prop => prop.Name, prop => prop.Value.ToString())
-            : new Dictionary<string, string>();
+        var overlay = await _spatialQueries.GetMapOverlayAsync(layerName, cancellationToken);
+        return overlay is null
+            ? BadRequest(new ApiError("Supported layers: hazards, infrastructure."))
+            : Ok(overlay);
     }
 }

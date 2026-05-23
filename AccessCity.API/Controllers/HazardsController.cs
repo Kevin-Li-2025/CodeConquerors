@@ -1,10 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
-using NetTopologySuite.Geometries;
 using Asp.Versioning;
 using AccessCity.API.Common;
-using AccessCity.API.Data;
 using AccessCity.API.Hubs;
 using AccessCity.API.Models;
 using AccessCity.API.Models.DTOs;
@@ -20,20 +17,14 @@ namespace AccessCity.API.Controllers;
 [Route("api/v{version:apiVersion}/[controller]")]
 public class HazardsController : ControllerBase
 {
-    private readonly AppDbContext _dbContext;
-    private readonly ISpatialCacheService _spatialCache;
-    private readonly IRealHazardDataService _realHazardData;
+    private readonly IHazardReportService _hazards;
     private readonly IHubContext<HazardAlertHub> _alertHub;
 
     public HazardsController(
-        AppDbContext dbContext,
-        ISpatialCacheService spatialCache,
-        IRealHazardDataService realHazardData,
+        IHazardReportService hazards,
         IHubContext<HazardAlertHub> alertHub)
     {
-        _dbContext = dbContext;
-        _spatialCache = spatialCache;
-        _realHazardData = realHazardData;
+        _hazards = hazards;
         _alertHub = alertHub;
     }
 
@@ -50,8 +41,7 @@ public class HazardsController : ControllerBase
         [FromQuery] HazardStatus? status,
         CancellationToken cancellationToken = default)
     {
-        _ = cancellationToken;
-        var hazards = await _realHazardData.GetActiveHazardsAsync(minLat, minLng, maxLat, maxLng, status);
+        var hazards = await _hazards.GetHazardsAsync(minLat, minLng, maxLat, maxLng, status, cancellationToken);
         return Ok(hazards);
     }
 
@@ -65,25 +55,7 @@ public class HazardsController : ControllerBase
         [FromBody] CreateHazardRequest request,
         CancellationToken cancellationToken = default)
     {
-        var report = new HazardReport
-        {
-            Id = Guid.NewGuid(),
-            Location = new Point(request.Location) { SRID = 4326 },
-            Type = request.Type.Trim(),
-            Description = request.Description.Trim(),
-            PhotoUrl = request.PhotoUrl ?? string.Empty,
-            ReportedAt = DateTime.UtcNow,
-            Status = HazardStatus.Reported,
-            Source = string.IsNullOrWhiteSpace(request.Source) ? "user" : request.Source
-        };
-
-        if (report.Type.Length > 50) report.Type = report.Type[..50];
-        if (report.Description.Length > 500) report.Description = report.Description[..500];
-        report.Location.SRID = 4326;
-
-        _dbContext.Hazards.Add(report);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        await _spatialCache.UpdateHazardCacheAsync(report);
+        var report = await _hazards.CreateAsync(request, cancellationToken);
 
         // Broadcast real-time alert to connected clients
         await _alertHub.Clients.All.SendAsync("HazardReported", new RouteAlert(
@@ -101,13 +73,8 @@ public class HazardsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<HazardReport>> GetHazardById(Guid id, CancellationToken cancellationToken = default)
     {
-        var hazard = await _dbContext.Hazards.AsNoTracking().SingleOrDefaultAsync(h => h.Id == id, cancellationToken);
-        if (hazard is not null)
-            return Ok(hazard);
-
-        var merged = await _realHazardData.GetActiveHazardsAsync(null, null, null, null, null);
-        var synthetic = merged.FirstOrDefault(h => h.Id == id);
-        return synthetic is null ? NotFound() : Ok(synthetic);
+        var hazard = await _hazards.GetByIdAsync(id, cancellationToken);
+        return hazard is null ? NotFound() : Ok(hazard);
     }
 
     /// <summary>
@@ -118,13 +85,9 @@ public class HazardsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> UpdateHazardStatus(Guid id, [FromBody] HazardStatus status, CancellationToken cancellationToken = default)
     {
-        var hazard = await _dbContext.Hazards.SingleOrDefaultAsync(h => h.Id == id, cancellationToken);
+        var hazard = await _hazards.UpdateStatusAsync(id, status, cancellationToken);
         if (hazard is null)
             return NotFound();
-
-        hazard.Status = status;
-        await _dbContext.SaveChangesAsync(cancellationToken);
-        await _spatialCache.UpdateHazardCacheAsync(hazard);
 
         return NoContent();
     }

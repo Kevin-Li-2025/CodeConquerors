@@ -5,7 +5,6 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using AccessCity.API.Models.Identity;
 using AccessCity.API.Services.Security;
-using AccessCity.API.Data;
 using AccessCity.API.Common;
 using AccessCity.API.Models.DTOs;
 
@@ -22,16 +21,16 @@ public class AuthController : ControllerBase
 {
     private readonly UserManager<AccessCityUser> _userManager;
     private readonly ITokenService _tokenService;
-    private readonly AppDbContext _context;
+    private readonly IRefreshTokenRevocationService _refreshTokenRevocation;
 
     public AuthController(
         UserManager<AccessCityUser> userManager,
         ITokenService tokenService,
-        AppDbContext context)
+        IRefreshTokenRevocationService refreshTokenRevocation)
     {
         _userManager = userManager;
         _tokenService = tokenService;
-        _context = context;
+        _refreshTokenRevocation = refreshTokenRevocation;
     }
 
     /// <summary>
@@ -158,24 +157,21 @@ public class AuthController : ControllerBase
     [HttpPost("revoke-token")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ApiError), StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> RevokeToken([FromQuery] string token)
+    public async Task<IActionResult> RevokeToken(
+        [FromQuery] string token,
+        CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(token))
             return BadRequest(new ApiError("Token is required."));
 
-        var tokenHash = _tokenService.HashRefreshToken(token);
-        var refreshToken = await _context.RefreshTokens
-            .FirstOrDefaultAsync(t => t.Token == tokenHash || t.Token == token);
-
-        if (refreshToken == null) return NotFound(new ApiError("Token not found."));
-        if (!refreshToken.IsActive) return BadRequest(new ApiError("Token is already inactive."));
-
-        refreshToken.Revoked = DateTime.UtcNow;
-        refreshToken.RevokedByIp = GetIpAddress();
-        refreshToken.ReasonRevoked = "Revoked by user";
-
-        await _context.SaveChangesAsync();
-        return Ok(new { message = "Token revoked" });
+        var status = await _refreshTokenRevocation.RevokeAsync(token, GetIpAddress(), cancellationToken);
+        return status switch
+        {
+            RefreshTokenRevokeStatus.Revoked => Ok(new { message = "Token revoked" }),
+            RefreshTokenRevokeStatus.NotFound => NotFound(new ApiError("Token not found.")),
+            RefreshTokenRevokeStatus.AlreadyInactive => BadRequest(new ApiError("Token is already inactive.")),
+            _ => StatusCode(StatusCodes.Status500InternalServerError, new ApiError("Token revocation failed."))
+        };
     }
 
     /// <summary>

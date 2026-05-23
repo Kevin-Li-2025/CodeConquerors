@@ -4,6 +4,21 @@ using NetTopologySuite.Geometries;
 
 namespace AccessCity.API.Services;
 
+public interface IRoutingService
+{
+    Task<RouteResponse> FindSafePathAsync(
+        RouteRequest request,
+        IEnumerable<HazardReport> allHazards,
+        CancellationToken cancellationToken = default);
+
+    Task<SafePathOptionsResponse> FindSafePathWithVariantsAsync(
+        RouteRequest request,
+        IEnumerable<HazardReport> allHazards,
+        CancellationToken cancellationToken = default);
+
+    RouteResponse FindSafePath(RouteRequest request, IEnumerable<HazardReport> hazards);
+}
+
 /// <summary>
 /// Safety-aware routing engine with real spatial awareness.
 /// 
@@ -15,10 +30,10 @@ namespace AccessCity.API.Services;
 ///   4. If OSRM unavailable, try A* on the real imported OSM road graph (PostGIS)
 ///   5. Last resort: synthetic grid fallback
 /// </summary>
-public class RoutingService
+public class RoutingService : IRoutingService
 {
-    private readonly RiskScoringService _riskService;
-    private readonly PredictiveRiskModel _aiRisk;
+    private readonly IRiskScoringService _riskService;
+    private readonly IPredictiveRiskModel _aiRisk;
     private readonly IOsrmClient _osrmClient;
     private readonly IRouteGraphRepository _graphRepo;
     private readonly IRiskTileCacheService _tileCache;
@@ -42,8 +57,8 @@ public class RoutingService
     };
 
     public RoutingService(
-        RiskScoringService riskService,
-        PredictiveRiskModel aiRisk,
+        IRiskScoringService riskService,
+        IPredictiveRiskModel aiRisk,
         IOsrmClient osrmClient,
         IRouteGraphRepository graphRepo,
         IRiskTileCacheService tileCache,

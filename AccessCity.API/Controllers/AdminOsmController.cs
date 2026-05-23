@@ -1,14 +1,9 @@
 using AccessCity.API.Models;
 using AccessCity.API.Models.DTOs;
-using AccessCity.API.Configuration;
-using AccessCity.API.Data;
-using AccessCity.API.Messaging;
 using AccessCity.API.Services;
 using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 
 namespace AccessCity.API.Controllers;
 
@@ -19,20 +14,14 @@ namespace AccessCity.API.Controllers;
 public class AdminOsmController : ControllerBase
 {
     private readonly IOsmImportService _osmImportService;
-    private readonly IMessageBus _messageBus;
-    private readonly IOptions<OsmImportOptions> _osmOptions;
-    private readonly AppDbContext _dbContext;
+    private readonly IOsmImportJobService _osmImportJobs;
 
     public AdminOsmController(
         IOsmImportService osmImportService,
-        IMessageBus messageBus,
-        IOptions<OsmImportOptions> osmOptions,
-        AppDbContext dbContext)
+        IOsmImportJobService osmImportJobs)
     {
         _osmImportService = osmImportService;
-        _messageBus = messageBus;
-        _osmOptions = osmOptions;
-        _dbContext = dbContext;
+        _osmImportJobs = osmImportJobs;
     }
 
     /// <summary>
@@ -55,29 +44,16 @@ public class AdminOsmController : ControllerBase
     [ProducesResponseType(typeof(OsmImportJobResponse), StatusCodes.Status202Accepted)]
     public async Task<ActionResult<OsmImportJobResponse>> QueueImport(CancellationToken cancellationToken)
     {
-        var filePath = _osmOptions.Value.FilePath;
-        if (string.IsNullOrWhiteSpace(filePath))
+        try
         {
-            return BadRequest("OsmImport:FilePath is not configured.");
+            var response = await _osmImportJobs.QueueConfiguredImportAsync(cancellationToken);
+            return Accepted(response);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
         }
 
-        var jobId = Guid.NewGuid();
-        var queuedAt = DateTime.UtcNow;
-        _dbContext.OsmImportJobs.Add(new OsmImportJob
-        {
-            Id = jobId,
-            Status = "queued",
-            FilePath = filePath,
-            CityName = "configured",
-            QueuedAtUtc = queuedAt
-        });
-        await _dbContext.SaveChangesAsync(cancellationToken);
-
-        await _messageBus.PublishAsync(
-            new OsmImportStartedEvent(jobId, filePath, "configured", queuedAt),
-            cancellationToken);
-
-        return Accepted(new OsmImportJobResponse(jobId, "queued", filePath, queuedAt));
     }
 
     [HttpGet("import-jobs/{jobId:guid}")]
@@ -85,21 +61,7 @@ public class AdminOsmController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<OsmImportJobResponse>> GetImportJob(Guid jobId, CancellationToken cancellationToken)
     {
-        var job = await _dbContext.OsmImportJobs.AsNoTracking().SingleOrDefaultAsync(j => j.Id == jobId, cancellationToken);
-        if (job is null)
-        {
-            return NotFound();
-        }
-
-        return Ok(new OsmImportJobResponse(
-            job.Id,
-            job.Status,
-            job.FilePath,
-            job.QueuedAtUtc,
-            job.StartedAtUtc,
-            job.FinishedAtUtc,
-            job.Attempts,
-            job.FeedIngestionRunId,
-            job.ErrorSummary));
+        var job = await _osmImportJobs.GetImportJobAsync(jobId, cancellationToken);
+        return job is null ? NotFound() : Ok(job);
     }
 }

@@ -4,6 +4,21 @@ using Microsoft.Extensions.Caching.Memory;
 
 namespace AccessCity.API.Services
 {
+    public interface IPredictiveRiskModel
+    {
+        Task<PredictiveRiskResult> EvaluateSegmentRiskAsync(
+            double lat,
+            double lon,
+            IEnumerable<HazardReport> hazards,
+            double radiusMetres = 200);
+
+        double QuickPredictiveRisk(
+            double lat,
+            double lon,
+            IEnumerable<HazardReport> hazards,
+            double radiusMetres = 200);
+    }
+
     /// <summary>
     /// AI-powered Predictive Risk Model for route safety scoring.
     /// 
@@ -18,9 +33,9 @@ namespace AccessCity.API.Services
     /// trained on urban pedestrian safety literature. The weights are
     /// periodically tunable from collected user feedback.
     /// </summary>
-    public class PredictiveRiskModel
+    public class PredictiveRiskModel : IPredictiveRiskModel
     {
-        private readonly RiskScoringService _baseRisk;
+        private readonly IRiskScoringService _baseRisk;
         private readonly ILiveHazardClient? _weatherClient;
         private readonly IMemoryCache? _cache;
 
@@ -36,7 +51,7 @@ namespace AccessCity.API.Services
         private const double W_Surveillance = 0.09;
 
         public PredictiveRiskModel(
-            RiskScoringService baseRisk,
+            IRiskScoringService baseRisk,
             ILiveHazardClient? weatherClient = null,
             IMemoryCache? cache = null)
         {

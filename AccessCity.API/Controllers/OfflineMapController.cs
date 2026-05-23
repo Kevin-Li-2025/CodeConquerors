@@ -1,10 +1,7 @@
-using AccessCity.API.Data;
 using AccessCity.API.Services;
 using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using NetTopologySuite.Geometries;
 
 namespace AccessCity.API.Controllers
 {
@@ -18,15 +15,11 @@ namespace AccessCity.API.Controllers
     [Route("api/v{version:apiVersion}/[controller]")]
     public class OfflineMapController : ControllerBase
     {
-        private readonly ISpatialCacheService _spatialCache;
-        private readonly AppDbContext _dbContext;
-        private readonly IRealHazardDataService _realHazardData;
+        private readonly IOfflineMapBundleService _offlineMapBundles;
 
-        public OfflineMapController(ISpatialCacheService spatialCache, AppDbContext dbContext, IRealHazardDataService realHazardData)
+        public OfflineMapController(IOfflineMapBundleService offlineMapBundles)
         {
-            _spatialCache = spatialCache;
-            _dbContext = dbContext;
-            _realHazardData = realHazardData;
+            _offlineMapBundles = offlineMapBundles;
         }
 
         /// <summary>
@@ -34,7 +27,12 @@ namespace AccessCity.API.Controllers
         /// Primarily used to "warm up" the local cache on the device.
         /// </summary>
         [HttpGet("bundle")]
-        public async Task<IActionResult> GetMapBundle([FromQuery] double minLat, [FromQuery] double minLng, [FromQuery] double maxLat, [FromQuery] double maxLng)
+        public async Task<IActionResult> GetMapBundle(
+            [FromQuery] double minLat,
+            [FromQuery] double minLng,
+            [FromQuery] double maxLat,
+            [FromQuery] double maxLng,
+            CancellationToken cancellationToken)
         {
             if (minLat < -90 || minLat > 90 || maxLat < -90 || maxLat > 90)
                 return BadRequest(new { error = "Latitude values must be between -90 and 90." });
@@ -43,31 +41,8 @@ namespace AccessCity.API.Controllers
             if (minLat > maxLat || minLng > maxLng)
                 return BadRequest(new { error = "minLat must be <= maxLat and minLng must be <= maxLng." });
 
-            var bounds = new Envelope(minLng, maxLng, minLat, maxLat);
-            var hazards = await _spatialCache.GetHazardsInBoundsAsync(bounds);
-
-            // Optionally supplement with real-time data if needed, or keep them separate.
-            // For now, we'll return the cached hazards which should include real-time ones if the cache is updated.
-
-            var infrastructure = await _dbContext.InfrastructureAssets
-                .FromSqlInterpolated($"""
-                    SELECT *
-                    FROM infrastructure_assets
-                    WHERE ST_Intersects(
-                        "Geometry",
-                        ST_MakeEnvelope({minLng}, {minLat}, {maxLng}, {maxLat}, 4326))
-                    """)
-                .AsNoTracking()
-                .ToListAsync();
-
-            return Ok(new
-            {
-                Area = new { minLat, minLng, maxLat, maxLng },
-                Hazards = hazards,
-                Infrastructure = infrastructure,
-                Timestamp = DateTime.UtcNow,
-                Version = "1.0.0"
-            });
+            var bundle = await _offlineMapBundles.GetBundleAsync(minLat, minLng, maxLat, maxLng, cancellationToken);
+            return Ok(bundle);
         }
     }
 }

@@ -13,6 +13,41 @@ using Microsoft.Extensions.Configuration;
 
 namespace AccessCity.API.Services
 {
+    public interface IRiskScoringService
+    {
+        Task<RiskScoreResponse> EvaluateRiskAsync(
+            double latitude,
+            double longitude,
+            double radiusMetres,
+            IEnumerable<HazardReport> allHazards);
+
+        Task<PredictiveRiskResult> PredictRiskAsync(
+            double latitude,
+            double longitude,
+            double radiusMetres,
+            IEnumerable<HazardReport> allHazards);
+
+        RiskScoreResponse EvaluateRisk(
+            double latitude,
+            double longitude,
+            double radiusMetres,
+            IEnumerable<HazardReport> allHazards);
+
+        double QuickRisk(
+            double latitude,
+            double longitude,
+            IEnumerable<HazardReport> allHazards,
+            double radiusMetres = 300);
+
+        double QuickCrimeRisk(double lat, double lng);
+
+        double QuickInfrastructureRisk(double lat, double lng);
+
+        double QuickLightingCoverage(double lat, double lng);
+
+        double QuickSurveillanceCoverage(double lat, double lng);
+    }
+
     /// <summary>
     /// Predictive risk scoring engine.
     /// Evaluates safety at a geographic point by combining:
@@ -21,7 +56,7 @@ namespace AccessCity.API.Services
     ///   • Infrastructure quality heuristics (lighting, surface)
     ///   • UK Police open data (street crime) — cached 24h, no DB required
     /// </summary>
-    public class RiskScoringService
+    public class RiskScoringService : IRiskScoringService
     {
         private readonly IUkPoliceDataClient? _ukPolice;
         private readonly ILiveHazardClient? _weatherClient;

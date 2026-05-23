@@ -95,9 +95,9 @@ public sealed class RouteJobService : IRouteJobService
                     await using var lease = await _routeLimiter.TryAcquireAsync(waitTimeout, CancellationToken.None)
                         ?? throw new RouteCapacityExceededException();
 
-                    // Create a scoped DI container to resolve Scoped services (RoutingService, AppDbContext).
+                    // Create a scoped DI container to resolve scoped routing dependencies.
                     await using var scope = _scopeFactory.CreateAsyncScope();
-                    var routing = scope.ServiceProvider.GetRequiredService<RoutingService>();
+                    var routing = scope.ServiceProvider.GetRequiredService<IRoutingService>();
                     return await routing.FindSafePathAsync(request, hazards);
                 });
 

@@ -8,6 +8,7 @@ using AccessCity.API.Messaging;
 using AccessCity.API.Messaging.Kafka;
 using AccessCity.API.Models;
 using AccessCity.API.Models.Identity;
+using AccessCity.API.Modules;
 using AccessCity.API.Services;
 using AccessCity.API.Services.Security;
 using AccessCity.API.Validators;
@@ -111,7 +112,6 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<PostgresOptions>(configuration.GetSection(PostgresOptions.SectionName));
-        services.Configure<OsmImportOptions>(configuration.GetSection(OsmImportOptions.SectionName));
         services.AddSingleton<AccessCityMetrics>();
 
         var redisConnection = configuration.GetConnectionString("Redis");
@@ -148,88 +148,13 @@ public static class DependencyInjection
 
     public static IServiceCollection AddApplicationServices(this IServiceCollection services, IConfiguration configuration)
     {
-        services.Configure<RoutingOptions>(configuration.GetSection(RoutingOptions.SectionName));
-
-        // Singletons (thread-safe caches)
-        services.AddSingleton<ISpatialCacheService, SpatialCacheService>();
-        services.AddSingleton<IBloomFilterService, BloomFilterService>();
-        services.AddSingleton<IRouteCoalescingService, RouteCoalescingService>();
-        services.AddSingleton<IRouteComputationLimiter, RouteComputationLimiter>();
-        services.AddSingleton<IExternalDependencyGuard, ExternalDependencyGuard>();
-        services.AddSingleton<IRouteJobService, RouteJobService>();
-
-        // Scoped (per-request)
-        services.AddScoped<IMapTileService, MapTileService>();
-        services.AddScoped<IRouteGraphRepository, RouteGraphRepository>();
-        services.AddScoped<IOsmImportService, OsmImportService>();
-        services.AddScoped<RiskScoringService>();
-        services.AddScoped<PredictiveRiskModel>();
-        services.AddScoped<RoutingService>();
-        services.AddScoped<ITokenService, TokenService>();
-        services.AddScoped<IRealHazardDataService, RealHazardDataService>();
-
-        var osrmTimeout = TimeSpan.FromSeconds(configuration.GetValue("ExternalApis:Osrm:TimeoutSeconds", 3));
-        var overpassTimeout = TimeSpan.FromSeconds(configuration.GetValue("ExternalApis:Overpass:TimeoutSeconds", 5));
-        var policeTimeout = TimeSpan.FromSeconds(configuration.GetValue("ExternalApis:UkPolice:TimeoutSeconds", 2));
-        var placesTimeout = TimeSpan.FromSeconds(configuration.GetValue("ExternalApis:GooglePlaces:TimeoutSeconds", 6));
-        var weatherTimeout = TimeSpan.FromSeconds(configuration.GetValue("ExternalApis:OpenWeather:TimeoutSeconds", 5));
-        var environmentalTimeout = TimeSpan.FromSeconds(configuration.GetValue("ExternalApis:Environmental:TimeoutSeconds", 3));
-
-        // Typed HTTP clients with bounded timeouts. Tail-sensitive dependencies use ExternalDependencyGuard
-        // instead of Polly retries so one slow upstream cannot multiply p95/p99 latency.
-        services.AddHttpClient<Services.External.IOsrmClient, Services.External.OsrmClient>(client =>
-            {
-                client.Timeout = osrmTimeout;
-            });
-
-        // Overpass: no Polly retries; hazard merge degrades to DB-only through ExternalDependencyGuard.
-        services.AddHttpClient<Services.External.IOpenStreetMapClient, Services.External.OverpassApiClient>()
-            .ConfigureHttpClient(c => c.Timeout = overpassTimeout);
-
-        // Geocoding implements its own short retry in the controller; avoid Polly × retry tail latency.
-        services.AddHttpClient("Nominatim", c =>
-        {
-            c.BaseAddress = new Uri("https://nominatim.openstreetmap.org/");
-            c.DefaultRequestHeaders.Add("User-Agent", "AccessCity-App/1.0");
-            c.Timeout = TimeSpan.FromSeconds(12);
-        });
-
-        services.AddHttpClient<Services.External.IUkPoliceDataClient, Services.External.UkPoliceDataClient>(client =>
-            {
-                client.Timeout = policeTimeout;
-            });
-
-        services.AddHttpClient<Services.External.ISafeHavenPlacesClient, Services.External.GooglePlacesClient>(client =>
-            {
-                client.Timeout = placesTimeout;
-            })
-            .AddStandardResilienceHandler();
-
-        services.AddHttpClient<Services.External.ILiveHazardClient, Services.External.OpenWeatherClient>(client =>
-            {
-                client.Timeout = weatherTimeout;
-            })
-            .AddStandardResilienceHandler();
-
-        services.AddHttpClient<Services.External.IEnvironmentalDataClient, Services.External.EnvironmentalDataClient>()
-            .ConfigureHttpClient(c => c.Timeout = environmentalTimeout);
-
-        // Background workers. In multi-instance deployments these can be disabled on API replicas
-        // and enabled on a dedicated worker container consuming the same Kafka group.
-        if (configuration.GetValue("Workers:OsmImport:Enabled", true))
-        {
-            services.AddHostedService<Services.Background.OsmImportBackgroundService>();
-        }
-
-        if (configuration.GetValue("Workers:TileWarming:Enabled", true))
-        {
-            services.AddHostedService<Services.Background.TileWarmingBackgroundService>();
-        }
-
-        // Caching services
-        services.AddScoped<IRiskTileCacheService, RiskTileCacheService>();
-        services.AddScoped<IRouteCacheService, RouteCacheService>();
-        services.AddScoped<IRiskScoreCacheService, RiskScoreCacheService>();
+        services
+            .AddExternalApisModule(configuration)
+            .AddHazardsModule()
+            .AddRiskModule()
+            .AddRoutingModule(configuration)
+            .AddMapsModule(configuration)
+            .AddOsmImportModule(configuration);
 
         // API Versioning
         services.AddApiVersioning(options =>
@@ -265,6 +190,8 @@ public static class DependencyInjection
         .AddDefaultTokenProviders();
 
         services.AddScoped<IPasswordHasher<AccessCityUser>, Argon2PasswordHasher<AccessCityUser>>();
+        services.AddScoped<ITokenService, TokenService>();
+        services.AddScoped<IRefreshTokenRevocationService, RefreshTokenRevocationService>();
 
         // JWT
         var jwtKeys = ResolveJwtSigningKeys(configuration, env);
