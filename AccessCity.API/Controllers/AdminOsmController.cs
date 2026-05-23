@@ -15,13 +15,16 @@ public class AdminOsmController : ControllerBase
 {
     private readonly IOsmImportService _osmImportService;
     private readonly IOsmImportJobService _osmImportJobs;
+    private readonly IRouteGraphProfileService _routeGraphProfiler;
 
     public AdminOsmController(
         IOsmImportService osmImportService,
-        IOsmImportJobService osmImportJobs)
+        IOsmImportJobService osmImportJobs,
+        IRouteGraphProfileService routeGraphProfiler)
     {
         _osmImportService = osmImportService;
         _osmImportJobs = osmImportJobs;
+        _routeGraphProfiler = routeGraphProfiler;
     }
 
     /// <summary>
@@ -63,5 +66,19 @@ public class AdminOsmController : ControllerBase
     {
         var job = await _osmImportJobs.GetImportJobAsync(jobId, cancellationToken);
         return job is null ? NotFound() : Ok(job);
+    }
+
+    /// <summary>
+    /// Profiles packed route graph artifacts against configured or supplied routes.
+    /// Use this after a real city OSM import to measure shard reuse, Redis payload size, and hot-load time.
+    /// </summary>
+    [HttpPost("route-graph/profile")]
+    [ProducesResponseType(typeof(RouteGraphProfileResponse), StatusCodes.Status200OK)]
+    public async Task<ActionResult<RouteGraphProfileResponse>> ProfileRouteGraph(
+        [FromBody] RouteGraphProfileRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _routeGraphProfiler.ProfileAsync(request, cancellationToken);
+        return Ok(result);
     }
 }

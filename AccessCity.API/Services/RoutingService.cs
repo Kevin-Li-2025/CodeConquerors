@@ -363,7 +363,7 @@ public class RoutingService : IRoutingService
             };
         }
 
-        var path = AStarSearch(graphData.Nodes, startId, endId, request, hazardList);
+        var path = AStarSearch(graphData.Nodes, startId, endId, request, hazardList, graphData.Preprocessing);
 
         if (path == null || path.Count < 2)
         {
@@ -1250,13 +1250,14 @@ public class RoutingService : IRoutingService
         Dictionary<long, GraphNode> graph,
         long startId, long endId,
         RouteRequest request,
-        List<HazardReport> hazards)
+        List<HazardReport> hazards,
+        RouteGraphPreprocessingData? preprocessing = null)
     {
         var endNode = graph[endId];
         var gScore = new Dictionary<long, double> { [startId] = 0 };
         var fScore = new Dictionary<long, double>
         {
-            [startId] = Heuristic(graph[startId].Location, endNode.Location)
+            [startId] = Heuristic(graph, startId, endId, endNode.Location, preprocessing)
         };
         var cameFrom = new Dictionary<long, long>();
         var open = new PriorityQueue<long, double>();
@@ -1309,7 +1310,7 @@ public class RoutingService : IRoutingService
                     cameFrom[neighbourId] = current;
                     gScore[neighbourId] = tentativeG;
                     double f = tentativeG +
-                               Heuristic(graph[neighbourId].Location, endNode.Location);
+                               Heuristic(graph, neighbourId, endId, endNode.Location, preprocessing);
                     fScore[neighbourId] = f;
                     open.Enqueue(neighbourId, f);
                 }
@@ -1347,6 +1348,23 @@ public class RoutingService : IRoutingService
     {
         double dist = RiskScoringService.HaversineDistance(a.Y, a.X, b.Y, b.X);
         return dist / MaxHeuristicSpeedMetresPerSecond;
+    }
+
+    private static double Heuristic(
+        IReadOnlyDictionary<long, GraphNode> graph,
+        long nodeId,
+        long endId,
+        Coordinate endLocation,
+        RouteGraphPreprocessingData? preprocessing)
+    {
+        if (!graph.TryGetValue(nodeId, out var node))
+        {
+            return 0;
+        }
+
+        var directLowerBound = Heuristic(node.Location, endLocation);
+        var altLowerBound = RouteGraphPreprocessor.ComputeAltLowerBoundSeconds(preprocessing, nodeId, endId);
+        return Math.Max(directLowerBound, altLowerBound);
     }
 
     private double ComputeEdgeCost(

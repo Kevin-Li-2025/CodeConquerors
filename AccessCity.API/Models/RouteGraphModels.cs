@@ -46,11 +46,29 @@ public sealed class RouteGraphData
 {
     public Dictionary<long, GraphNode> Nodes { get; init; } = new();
     public Dictionary<(int X, int Y), List<long>> SpatialBuckets { get; } = new();
+    public RouteGraphPreprocessingData? Preprocessing { get; set; }
     public double SpatialBucketSizeDegrees { get; init; } = 0.001;
     public string? ShardKey { get; init; }
+    public IReadOnlyList<string> SourceShardKeys { get; init; } = Array.Empty<string>();
     public int LoadedEdgeCount { get; init; }
     public bool IsTruncated { get; init; }
     public bool HasCoverage => Nodes.Count > 0;
+}
+
+public sealed class RouteGraphPreprocessingData
+{
+    public string Algorithm { get; init; } = "ALT";
+    public int AlgorithmVersion { get; init; }
+    public string WeightVersion { get; init; } = string.Empty;
+    public long[] LandmarkNodeIds { get; init; } = Array.Empty<long>();
+    public Dictionary<long, RouteGraphNodePreprocessing> NodeDistances { get; init; } = new();
+    public bool HasLandmarks => LandmarkNodeIds.Length > 0 && NodeDistances.Count > 0;
+}
+
+public sealed class RouteGraphNodePreprocessing
+{
+    public double[] FromLandmarkSeconds { get; init; } = Array.Empty<double>();
+    public double[] ToLandmarkSeconds { get; init; } = Array.Empty<double>();
 }
 
 public sealed record RouteGraphCoverageStatus(

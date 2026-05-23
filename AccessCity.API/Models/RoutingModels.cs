@@ -69,6 +69,69 @@ namespace AccessCity.API.Models
         public RouteResponse Route { get; set; } = null!;
     }
 
+    public sealed class RouteGraphProfileRequest
+    {
+        public List<RouteGraphProfileRouteRequest> Routes { get; set; } = new();
+        public int HotReadsPerRoute { get; set; } = 1;
+    }
+
+    public sealed class RouteGraphProfileRouteRequest
+    {
+        public string Name { get; set; } = "route";
+        public double StartLat { get; set; }
+        public double StartLng { get; set; }
+        public double EndLat { get; set; }
+        public double EndLng { get; set; }
+    }
+
+    public sealed class RouteGraphProfileResponse
+    {
+        public DateTime ProfiledAtUtc { get; set; }
+        public string SourceType { get; set; } = "route-graph-repository";
+        public string? SourceName { get; set; }
+        public double SourceBuildMilliseconds { get; set; }
+        public long SourceRecordsSeen { get; set; }
+        public int SourceNodeCount { get; set; }
+        public int SourceEdgeCount { get; set; }
+        public bool SourceIsTruncated { get; set; }
+        public int SourceShardCount { get; set; }
+        public string ArtifactSchemaVersion { get; set; } = string.Empty;
+        public int EdgeCostVersion { get; set; }
+        public int EdgeWeightVersion { get; set; }
+        public string PreprocessingAlgorithm { get; set; } = string.Empty;
+        public int RouteCount { get; set; }
+        public int TotalShardReferences { get; set; }
+        public int UniqueShardReferences { get; set; }
+        public double ShardReuseRatio { get; set; }
+        public long TotalArtifactBytes { get; set; }
+        public long MaxArtifactBytes { get; set; }
+        public long TotalRedisPayloadBytes { get; set; }
+        public double MaxColdLoadMilliseconds { get; set; }
+        public double MaxHotLoadMilliseconds { get; set; }
+        public double MaxArtifactUnpackMilliseconds { get; set; }
+        public List<RouteGraphProfileRouteResult> Routes { get; set; } = new();
+    }
+
+    public sealed class RouteGraphProfileRouteResult
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? ShardKey { get; set; }
+        public int SourceShardCount { get; set; }
+        public int NodeCount { get; set; }
+        public int EdgeCount { get; set; }
+        public bool IsTruncated { get; set; }
+        public bool HasAltPreprocessing { get; set; }
+        public int LandmarkCount { get; set; }
+        public int AltPreprocessedNodeCount { get; set; }
+        public long ArtifactBytes { get; set; }
+        public long RedisPayloadBytes { get; set; }
+        public double ColdLoadMilliseconds { get; set; }
+        public double HotLoadMilliseconds { get; set; }
+        public double PreprocessingMilliseconds { get; set; }
+        public double ArtifactPackMilliseconds { get; set; }
+        public double ArtifactUnpackMilliseconds { get; set; }
+    }
+
     /// <summary>One leg / turn-by-turn instruction.</summary>
     public class RouteStep
     {

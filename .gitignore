@@ -45,6 +45,8 @@ Thumbs.db
 .vscode/settings.json
 # Data files
 *.osm
+*.pbf
+data/osm/
 
 # Build / Cache files
 __pycache__/

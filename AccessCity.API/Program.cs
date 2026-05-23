@@ -38,15 +38,33 @@ try
     var app = builder.Build();
     var migrateAndExit = builder.Configuration.GetValue<bool>("Postgres:MigrateAndExit")
         || args.Any(arg => string.Equals(arg, "--migrate-and-exit", StringComparison.OrdinalIgnoreCase));
+    var routeGraphProfileAndExit = builder.Configuration.GetValue<bool>("Routing:RouteGraphProfileAndExit")
+        || args.Any(arg => string.Equals(arg, "--profile-route-graph-and-exit", StringComparison.OrdinalIgnoreCase));
+    var routeGraphProfileUsesOsmExtract = builder.Configuration.GetValue<bool>("Routing:RouteGraphProfileUseOsmExtract")
+        && !string.IsNullOrWhiteSpace(builder.Configuration["OsmImport:FilePath"]);
 
     // Configure Pipeline
     app.ConfigurePipeline();
+
+    if (routeGraphProfileAndExit && routeGraphProfileUsesOsmExtract && !migrateAndExit)
+    {
+        await app.RunRouteGraphProfileCommandAsync();
+        Log.Information("Route graph OSM extract profile completed; exiting before database initialization.");
+        return;
+    }
 
     // Initialize Database
     await app.InitializeDatabaseAsync();
     if (migrateAndExit)
     {
         Log.Information("Database migration completed; exiting because Postgres:MigrateAndExit is enabled.");
+        return;
+    }
+
+    if (routeGraphProfileAndExit)
+    {
+        await app.RunRouteGraphProfileCommandAsync();
+        Log.Information("Route graph profile completed; exiting because Routing:RouteGraphProfileAndExit is enabled.");
         return;
     }
 

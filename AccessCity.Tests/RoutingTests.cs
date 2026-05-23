@@ -486,6 +486,8 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         {
             RouteGraphPrepartitionedShardsEnabled = true,
             RouteGraphPackedArtifactsEnabled = true,
+            RouteGraphAltPreprocessingEnabled = true,
+            RouteGraphAltLandmarkCount = 2,
             RouteGraphShardSizeDegrees = 0.01,
             RouteGraphMaxPrepartitionedShardCount = 64,
             RouteGraphMinEdgesPerPrepartitionedShard = 25,
@@ -507,6 +509,8 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
 
         Assert.True(loaded.HasCoverage);
         Assert.Contains("bundle", loaded.ShardKey);
+        Assert.True(loaded.SourceShardKeys.Count > 0);
+        Assert.True(loaded.Preprocessing?.HasLandmarks);
         Assert.All(
             loaded.Nodes.Values.SelectMany(node => node.Edges.Values),
             edge => Assert.Equal(RouteEdgeCostModel.EdgeWeightVersion, edge.EdgeWeightVersion));
@@ -530,7 +534,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"route_graph:v6:{RouteGraphArtifactCodec.SchemaVersion}:ew{RouteEdgeCostModel.EdgeWeightVersion}:region:{graphVersion}:{edgeLimit}:{minLon:F4}:{minLat:F4}:{maxLon:F4}:{maxLat:F4}");
+            $"route_graph:v7:{RouteGraphArtifactCodec.SchemaVersion}:ew{RouteEdgeCostModel.EdgeWeightVersion}:alt{RouteGraphPreprocessor.AltAlgorithmVersion}:region:{graphVersion}:{edgeLimit}:{minLon:F4}:{minLat:F4}:{maxLon:F4}:{maxLat:F4}");
     }
 
     [Fact]

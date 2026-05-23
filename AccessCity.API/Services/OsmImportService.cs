@@ -187,71 +187,80 @@ public sealed class OsmImportService : IOsmImportService
         var pendingRouteEdges = new List<RouteEdge>(250);
         var pendingAssets = new List<InfrastructureAsset>(250);
         var counters = new ImportCounters();
+        var previousAutoDetectChanges = dbContext.ChangeTracker.AutoDetectChangesEnabled;
+        dbContext.ChangeTracker.AutoDetectChangesEnabled = false;
 
-        _logger.LogInformation("Importing file (Pass 1 - Nodes): {FilePath}", filePath);
-
-        // Pass 1: Nodes
-        using (var stream = File.OpenRead(filePath))
+        try
         {
-            var source = CreateSource(stream, filePath);
-            foreach (var osmGeo in source)
+            _logger.LogInformation("Importing file (Pass 1 - Nodes): {FilePath}", filePath);
+
+            // Pass 1: Nodes
+            using (var stream = File.OpenRead(filePath))
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                counters.RecordsSeen++;
-
-                if (osmGeo is Node node && node.Id.HasValue && node.Longitude.HasValue && node.Latitude.HasValue)
+                var source = CreateSource(stream, filePath);
+                foreach (var osmGeo in source)
                 {
-                    nodeCache[node.Id.Value] = (node.Longitude.Value, node.Latitude.Value);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    counters.RecordsSeen++;
 
-                    if (TryCreatePointInfrastructureAsset(node, out var pointAsset) &&
-                        pointAsset is not null &&
-                        seenAssetKeys.Add(pointAsset.SourceRecordId!))
+                    if (osmGeo is Node node && node.Id.HasValue && node.Longitude.HasValue && node.Latitude.HasValue)
                     {
-                        pendingAssets.Add(pointAsset);
-                        counters.InfrastructureAssetsInserted++;
+                        nodeCache[node.Id.Value] = (node.Longitude.Value, node.Latitude.Value);
+
+                        if (TryCreatePointInfrastructureAsset(node, out var pointAsset) &&
+                            pointAsset is not null &&
+                            seenAssetKeys.Add(pointAsset.SourceRecordId!))
+                        {
+                            pendingAssets.Add(pointAsset);
+                            counters.InfrastructureAssetsInserted++;
+                        }
+                    }
+
+                    if (pendingAssets.Count >= 500)
+                    {
+                        await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
                     }
                 }
-
-                if (pendingAssets.Count >= 500)
-                {
-                    await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
-                }
+                await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
             }
-            await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
+
+            _logger.LogInformation("Importing file (Pass 2 - Ways): {FilePath}", filePath);
+
+            // Pass 2: Ways
+            using (var stream = File.OpenRead(filePath))
+            {
+                var source = CreateSource(stream, filePath);
+                foreach (var osmGeo in source)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (osmGeo is Way way)
+                    {
+                        if (IsWalkable(way))
+                        {
+                            AddWalkableWayManual(way, nodeCache, seenRouteNodeIds, pendingRouteNodes, pendingRouteEdges, counters);
+                        }
+
+                        if (TryCreateWayInfrastructureAssetManual(way, nodeCache, out var wayAsset) &&
+                            wayAsset is not null &&
+                            seenAssetKeys.Add(wayAsset.SourceRecordId!))
+                        {
+                            pendingAssets.Add(wayAsset);
+                            counters.InfrastructureAssetsInserted++;
+                        }
+                    }
+
+                    if (pendingRouteNodes.Count >= 500 || pendingRouteEdges.Count >= 500 || pendingAssets.Count >= 250)
+                    {
+                        await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
+                    }
+                }
+                await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
+            }
         }
-
-        _logger.LogInformation("Importing file (Pass 2 - Ways): {FilePath}", filePath);
-
-        // Pass 2: Ways
-        using (var stream = File.OpenRead(filePath))
+        finally
         {
-            var source = CreateSource(stream, filePath);
-            foreach (var osmGeo in source)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (osmGeo is Way way)
-                {
-                    if (IsWalkable(way))
-                    {
-                        AddWalkableWayManual(way, nodeCache, seenRouteNodeIds, pendingRouteNodes, pendingRouteEdges, counters);
-                    }
-
-                    if (TryCreateWayInfrastructureAssetManual(way, nodeCache, out var wayAsset) &&
-                        wayAsset is not null &&
-                        seenAssetKeys.Add(wayAsset.SourceRecordId!))
-                    {
-                        pendingAssets.Add(wayAsset);
-                        counters.InfrastructureAssetsInserted++;
-                    }
-                }
-
-                if (pendingRouteNodes.Count >= 500 || pendingRouteEdges.Count >= 1000 || pendingAssets.Count >= 500)
-                {
-                    await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
-                }
-            }
-            await FlushAsync(dbContext, pendingRouteNodes, pendingRouteEdges, pendingAssets, cancellationToken);
+            dbContext.ChangeTracker.AutoDetectChangesEnabled = previousAutoDetectChanges;
         }
 
         nodeCache.Clear();
@@ -428,7 +437,7 @@ public sealed class OsmImportService : IOsmImportService
             Geometry = geometry,
             SourceSystem = "osm",
             SourceRecordId = $"way:{way.Id}",
-            LastObservedAt = way.TimeStamp,
+            LastObservedAt = NormalizeOsmTimestamp(way.TimeStamp),
             AccessibilityInfo = ToJsonDocument(tags)
         };
 
@@ -469,11 +478,26 @@ public sealed class OsmImportService : IOsmImportService
             Geometry = CreatePoint(node.Longitude.Value, node.Latitude.Value),
             SourceSystem = "osm",
             SourceRecordId = $"node:{node.Id.Value}",
-            LastObservedAt = node.TimeStamp,
+            LastObservedAt = NormalizeOsmTimestamp(node.TimeStamp),
             AccessibilityInfo = ToJsonDocument(tags)
         };
 
         return true;
+    }
+
+    private static DateTime? NormalizeOsmTimestamp(DateTime? timestamp)
+    {
+        if (timestamp is null)
+        {
+            return null;
+        }
+
+        return timestamp.Value.Kind switch
+        {
+            DateTimeKind.Utc => timestamp.Value,
+            DateTimeKind.Local => timestamp.Value.ToUniversalTime(),
+            _ => DateTime.SpecifyKind(timestamp.Value, DateTimeKind.Utc)
+        };
     }
 
     private static bool IsWalkable(Way way)
@@ -827,6 +851,7 @@ public sealed class OsmImportService : IOsmImportService
         }
 
         await dbContext.SaveChangesAsync(cancellationToken);
+        dbContext.ChangeTracker.Clear();
         pendingRouteNodes.Clear();
         pendingRouteEdges.Clear();
         pendingAssets.Clear();

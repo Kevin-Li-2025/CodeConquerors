@@ -54,8 +54,11 @@ shard loads to stop competing with writes, migrations, and ingestion on the prim
 Route graph cache misses should create reusable graph partitions, not one-off route-sized blobs.
 The production config enables `Routing__RouteGraphPrepartitionedShardsEnabled` and
 `Routing__RouteGraphPackedArtifactsEnabled`, so workers cache packed grid-cell artifacts with
-explicit edge-weight versions. Watch packed artifact hit ratio before increasing route worker
-counts; without reusable graph partitions, worker scale mostly moves the CPU bottleneck around.
+explicit edge-weight versions. `Routing__RouteGraphAltPreprocessingEnabled` adds packed ALT
+landmark tables for non-truncated shards, improving A* pruning without changing route decisions.
+Watch packed artifact hit ratio, ALT artifact bytes, and artifact unpack time before increasing
+route worker counts; without reusable graph partitions, worker scale mostly moves the CPU
+bottleneck around.
 
 The API KEDA object replaces the standalone `hpa.yaml` in the default kustomization so only one
 controller owns the `accesscity-api` deployment scale. Keep `hpa.yaml` as a CPU/memory fallback

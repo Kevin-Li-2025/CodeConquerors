@@ -198,6 +198,8 @@ public sealed class ArchitectureModularityTests
         var root = FindRepositoryRoot();
         var repository = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Services", "RouteGraphRepository.cs"));
         var artifactCodec = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Services", "RouteGraphArtifactCodec.cs"));
+        var preprocessor = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Services", "RouteGraphPreprocessor.cs"));
+        var profiler = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Services", "RouteGraphProfileService.cs"));
         var models = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Models", "RouteGraphModels.cs"));
         var routing = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Services", "RoutingService.cs"));
         var configMap = File.ReadAllText(Path.Combine(root, "deploy", "kubernetes", "configmap.yaml"));
@@ -207,14 +209,20 @@ public sealed class ArchitectureModularityTests
         Assert.Contains("InFlightGraphLoads", repository, StringComparison.Ordinal);
         Assert.Contains("PackedRouteGraphArtifact", artifactCodec, StringComparison.Ordinal);
         Assert.Contains("FirstEdgeIndex", artifactCodec, StringComparison.Ordinal);
+        Assert.Contains("PackedRouteGraphPreprocessing", artifactCodec, StringComparison.Ordinal);
+        Assert.Contains("BuildAltPreprocessing", preprocessor, StringComparison.Ordinal);
+        Assert.Contains("ComputeAltLowerBoundSeconds", routing, StringComparison.Ordinal);
+        Assert.Contains("ShardReuseRatio", profiler, StringComparison.Ordinal);
         Assert.Contains("ComputeShardRegion", repository, StringComparison.Ordinal);
         Assert.Contains("ComputeLoadRegions", repository, StringComparison.Ordinal);
         Assert.Contains("MergeGraphShards", repository, StringComparison.Ordinal);
-        Assert.Contains("route_graph:v6", repository, StringComparison.Ordinal);
+        Assert.Contains("route_graph:v7", repository, StringComparison.Ordinal);
         Assert.Contains("Routing__RouteGraphPrepartitionedShardsEnabled: \"true\"", configMap, StringComparison.Ordinal);
         Assert.Contains("Routing__RouteGraphPackedArtifactsEnabled: \"true\"", configMap, StringComparison.Ordinal);
+        Assert.Contains("Routing__RouteGraphAltPreprocessingEnabled: \"true\"", configMap, StringComparison.Ordinal);
         Assert.Contains("BuildSpatialBuckets", repository, StringComparison.Ordinal);
         Assert.Contains("SpatialBuckets", models, StringComparison.Ordinal);
+        Assert.Contains("Preprocessing", models, StringComparison.Ordinal);
         Assert.Contains("FindNodesNear", routing, StringComparison.Ordinal);
     }
 
@@ -235,7 +243,7 @@ public sealed class ArchitectureModularityTests
         Assert.Contains("RouteEdgeCostModel.ResolveTraversalSeconds", routing, StringComparison.Ordinal);
         Assert.Contains("WheelchairAccessibilityPenaltySeconds", routeGraph, StringComparison.Ordinal);
         Assert.Contains("RouteEdgeCostModel.EdgeWeightVersion", routeGraph, StringComparison.Ordinal);
-        Assert.Contains("route-v6-packed-graph-edge-weight-v1-risk-v2", fingerprint, StringComparison.Ordinal);
+        Assert.Contains("route-v7-packed-graph-alt-v1-edge-weight-v1-risk-v2", fingerprint, StringComparison.Ordinal);
         Assert.Contains("wheelchair_accessibility_penalty_seconds", migration, StringComparison.Ordinal);
     }
 

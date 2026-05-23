@@ -98,6 +98,44 @@ public class OsmImportTests : IClassFixture<AccessCityApiFactory>
     }
 
     [Fact]
+    public async Task OfflineRouteGraphExtractProfile_Builds_Packed_Alt_Artifact()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var profileService = scope.ServiceProvider.GetRequiredService<IOsmRouteGraphExtractProfileService>();
+
+        var result = await profileService.ProfileAsync(
+            _factory.OsmFixturePath,
+            new RouteGraphProfileRequest
+            {
+                HotReadsPerRoute = 1,
+                Routes =
+                {
+                    new RouteGraphProfileRouteRequest
+                    {
+                        Name = "fixture-core",
+                        StartLat = 52.4862,
+                        StartLng = -1.8904,
+                        EndLat = 52.4862,
+                        EndLng = -1.8894
+                    }
+                }
+            });
+
+        Assert.Equal("osm-extract-offline", result.SourceType);
+        Assert.True(result.SourceRecordsSeen > 0);
+        Assert.True(result.SourceNodeCount > 0);
+        Assert.True(result.SourceEdgeCount > 0);
+        Assert.True(result.SourceShardCount > 0);
+        var route = Assert.Single(result.Routes);
+        Assert.True(route.NodeCount > 0);
+        Assert.True(route.EdgeCount > 0);
+        Assert.True(route.ArtifactBytes > 0);
+        Assert.True(route.RedisPayloadBytes > 0);
+        Assert.True(route.HotLoadMilliseconds >= 0);
+        Assert.True(route.HasAltPreprocessing);
+    }
+
+    [Fact]
     public async Task RouteGraphStatus_Reports_Coverage_After_Import()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();

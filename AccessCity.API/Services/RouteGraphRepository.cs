@@ -1,7 +1,9 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Text;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using AccessCity.API.Configuration;
 using AccessCity.API.Data;
 using AccessCity.API.Models;
@@ -35,7 +37,10 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
     private readonly RoutingOptions _options;
     private readonly IConnectionMultiplexer? _redis;
     private readonly IHotPathDbContextFactory? _hotPathDbContextFactory;
-    private static readonly JsonSerializerOptions SnapshotJsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions SnapshotJsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
 
     public RouteGraphRepository(
         AppDbContext dbContext,
@@ -291,19 +296,16 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            var json = await _distributedCache.GetStringAsync(cacheKey, cancellationToken);
-            if (string.IsNullOrWhiteSpace(json))
+            var payload = await _distributedCache.GetAsync(cacheKey, cancellationToken);
+            if (payload is null || payload.Length == 0)
             {
                 _metrics.CacheLookup("route_graph_l2", hit: false, stopwatch.Elapsed.TotalMilliseconds);
                 return null;
             }
 
-            using var document = JsonDocument.Parse(json);
             if (_options.RouteGraphPackedArtifactsEnabled
-                && (document.RootElement.TryGetProperty("schemaVersion", out _)
-                    || document.RootElement.TryGetProperty("SchemaVersion", out _)))
+                && RouteGraphArtifactCodec.TryDeserializeRedisPayload(payload, out var artifact))
             {
-                var artifact = document.RootElement.Deserialize<PackedRouteGraphArtifact>(SnapshotJsonOptions);
                 if (artifact is not null && RouteGraphArtifactCodec.IsCompatible(artifact))
                 {
                     var packedGraphData = RouteGraphArtifactCodec.Unpack(artifact);
@@ -323,6 +325,8 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
                 return null;
             }
 
+            var json = Encoding.UTF8.GetString(payload);
+            using var document = JsonDocument.Parse(json);
             var snapshot = document.RootElement.Deserialize<RouteGraphSnapshot>(SnapshotJsonOptions);
             if (snapshot is null)
             {
@@ -365,12 +369,23 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             var snapshot = _options.RouteGraphPackedArtifactsEnabled
                 ? (object)RouteGraphArtifactCodec.Pack(graphData)
                 : ToSnapshot(graphData);
-            var json = JsonSerializer.Serialize(snapshot, SnapshotJsonOptions);
-            await _distributedCache.SetStringAsync(
-                cacheKey,
-                json,
-                new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl },
-                cancellationToken);
+            if (snapshot is PackedRouteGraphArtifact artifact)
+            {
+                await _distributedCache.SetAsync(
+                    cacheKey,
+                    RouteGraphArtifactCodec.SerializeRedisPayload(artifact),
+                    new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl },
+                    cancellationToken);
+            }
+            else
+            {
+                var json = JsonSerializer.Serialize(snapshot, SnapshotJsonOptions);
+                await _distributedCache.SetStringAsync(
+                    cacheKey,
+                    json,
+                    new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl },
+                    cancellationToken);
+            }
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -446,10 +461,12 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             Nodes = graph,
             IsTruncated = isTruncated,
             ShardKey = cacheKey,
+            SourceShardKeys = new[] { cacheKey },
             LoadedEdgeCount = edges.Count,
             SpatialBucketSizeDegrees = 0.001
         };
         BuildSpatialBuckets(graphData);
+        RouteGraphPreprocessor.TryAttachPreprocessing(graphData, _options);
 
         _logger.LogDebug(
             "Loaded route graph shard {ShardKey}: {NodeCount} nodes, {EdgeCount} edges, truncated={IsTruncated}",
@@ -585,7 +602,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
     private int ComputePerShardEdgeLimit(int edgeLimit, int shardCount) =>
         Math.Max(_options.RouteGraphMinEdgesPerPrepartitionedShard, ComputeBasePerShardEdgeLimit(edgeLimit, shardCount));
 
-    private static RouteGraphData MergeGraphShards(
+    private RouteGraphData MergeGraphShards(
         IReadOnlyList<RouteGraphData> shards,
         string cacheKey,
         int edgeLimit)
@@ -618,21 +635,32 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         }
 
         var loadedEdgeCount = nodes.Values.Sum(node => node.Edges.Count);
+        var sourceShardKeys = shards
+            .SelectMany(shard => shard.SourceShardKeys.Count > 0
+                ? shard.SourceShardKeys
+                : shard.ShardKey is null
+                    ? Array.Empty<string>()
+                    : new[] { shard.ShardKey })
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(key => key, StringComparer.Ordinal)
+            .ToArray();
         var graphData = new RouteGraphData
         {
             Nodes = nodes,
             ShardKey = cacheKey,
+            SourceShardKeys = sourceShardKeys,
             LoadedEdgeCount = loadedEdgeCount,
             IsTruncated = shards.Any(shard => shard.IsTruncated) || loadedEdgeCount >= edgeLimit,
             SpatialBucketSizeDegrees = shards.Min(shard => shard.SpatialBucketSizeDegrees)
         };
         RouteGraphSpatialIndex.BuildSpatialBuckets(graphData);
+        RouteGraphPreprocessor.TryAttachPreprocessing(graphData, _options);
         return graphData;
     }
 
     private static string BuildCacheKey(GraphShardRegion region, int edgeLimit, string graphVersion, string scope) =>
         string.Create(CultureInfo.InvariantCulture,
-            $"route_graph:v6:{RouteGraphArtifactCodec.SchemaVersion}:ew{RouteEdgeCostModel.EdgeWeightVersion}:{scope}:{graphVersion}:{edgeLimit}:{region.MinLon:F4}:{region.MinLat:F4}:{region.MaxLon:F4}:{region.MaxLat:F4}");
+            $"route_graph:v7:{RouteGraphArtifactCodec.SchemaVersion}:ew{RouteEdgeCostModel.EdgeWeightVersion}:alt{RouteGraphPreprocessor.AltAlgorithmVersion}:{scope}:{graphVersion}:{edgeLimit}:{region.MinLon:F4}:{region.MinLat:F4}:{region.MaxLon:F4}:{region.MaxLat:F4}");
 
     private static void BuildSpatialBuckets(RouteGraphData graphData)
         => RouteGraphSpatialIndex.BuildSpatialBuckets(graphData);
@@ -671,6 +699,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
 
         return new RouteGraphSnapshot(
             graphData.ShardKey,
+            graphData.SourceShardKeys.ToArray(),
             graphData.LoadedEdgeCount,
             graphData.IsTruncated,
             graphData.SpatialBucketSizeDegrees,
@@ -695,6 +724,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             Nodes = nodes,
             IsTruncated = snapshot.IsTruncated,
             ShardKey = snapshot.ShardKey,
+            SourceShardKeys = snapshot.SourceShardKeys ?? Array.Empty<string>(),
             LoadedEdgeCount = snapshot.LoadedEdgeCount,
             SpatialBucketSizeDegrees = snapshot.SpatialBucketSizeDegrees
         };
@@ -705,6 +735,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
     private sealed record GraphShardRegion(double MinLon, double MinLat, double MaxLon, double MaxLat);
     private sealed record RouteGraphSnapshot(
         string? ShardKey,
+        string[] SourceShardKeys,
         int LoadedEdgeCount,
         bool IsTruncated,
         double SpatialBucketSizeDegrees,

@@ -17,6 +17,8 @@ public static class RoutingModule
         services.AddHostedService<AccessCity.API.Services.Background.RouteJobDispatchBackgroundService>();
 
         services.AddScoped<IRouteGraphRepository, RouteGraphRepository>();
+        services.AddScoped<IRouteGraphProfileService, RouteGraphProfileService>();
+        services.AddScoped<IOsmRouteGraphExtractProfileService, OsmRouteGraphExtractProfileService>();
         services.AddScoped<IRouteGraphStatusService, RouteGraphStatusService>();
         services.AddScoped<IRouteCacheService, RouteCacheService>();
         services.AddScoped<IRouteOptionsCacheService, RouteOptionsCacheService>();

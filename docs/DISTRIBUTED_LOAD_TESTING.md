@@ -70,6 +70,11 @@ injection checks.
   cell artifacts instead of caching only exact route-sized graph blobs.
 - `Routing__RouteGraphPackedArtifactsEnabled`: store compact versioned graph artifacts with
   precomputed edge traversal weights in the shared cache.
+- `Routing__RouteGraphAltPreprocessingEnabled`: add ALT landmark lower-bound tables to packed
+  artifacts for faster exact A* search on larger city shards.
+- `tools/profile-city-route-graph.sh`: profiles a real OSM extract through the offline graph
+  preprocessing path and prints source graph size, shard reuse, artifact size, compressed Redis
+  payload bytes, cold load, hot load, and artifact unpack timings.
 - `Routing__MaxHazardsPerRequest`: cap on active hazards loaded for one route/risk request.
 - `ExternalApis__*__MaxConcurrentRequests`: per-pod bulkhead for tail-sensitive upstream services.
 - `ExternalApis__CircuitBreaker__*`: shared timeout/circuit behavior for external dependency fallback.

@@ -62,12 +62,18 @@ workers can hydrate hot graph shards without immediately repeating the PostGIS e
 OSM import now also precomputes versioned accessibility penalties per route edge for standard,
 wheelchair, and stroller profiles. Route workers read those costs from cached graph shards instead
 of recomputing surface/smoothness/width/kerb penalties for every A* edge expansion.
-The production route graph cache stores packed, versioned artifacts instead of nested node
-snapshots. When `Routing__RouteGraphPrepartitionedShardsEnabled=true`, route regions are split into
-stable grid cells; each cell artifact carries schema, accessibility-cost, and edge-weight versions
-so graph data is invalidated when routing cost logic changes. Nearby but non-identical route
-requests can then reuse the same city graph partitions instead of depending only on exact request
-coalescing.
+The production route graph cache stores packed, compressed, versioned artifacts instead of nested
+node snapshots. When `Routing__RouteGraphPrepartitionedShardsEnabled=true`, route regions are split
+into stable grid cells; each cell artifact carries schema, accessibility-cost, edge-weight, and ALT
+versions so graph data is invalidated when routing cost logic changes. Nearby but non-identical
+route requests can then reuse the same city graph partitions instead of depending only on exact
+request coalescing.
+When `Routing__RouteGraphAltPreprocessingEnabled=true`, packed artifacts also carry ALT landmark
+tables over a minimum traversal-time metric. A* still returns exact deterministic paths because the
+landmark bound is admissible, but larger shards need fewer node expansions. Use
+`tools/profile-city-route-graph.sh` against a real OSM extract before raising shard size or
+landmark count; it reports full extract graph size, shard reuse, artifact size, compressed Redis
+payload bytes, and worker hot-load restore time.
 Worker config warms several Birmingham shard routes on a timer; add routes that match real demand
 clusters before a launch so city-core shards are hot before the first user request.
 
