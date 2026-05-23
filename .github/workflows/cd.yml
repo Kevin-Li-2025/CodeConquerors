@@ -90,12 +90,16 @@ jobs:
           sbom: true
 
       - name: Scan pushed image
-        run: >
-          docker run --rm
-          ghcr.io/anchore/grype:v0.112.0
-          ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
-          --only-fixed
-          --fail-on high
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+        run: |
+          docker pull "${IMAGE_REF}"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            ghcr.io/anchore/grype:v0.112.0 \
+            "docker:${IMAGE_REF}" \
+            --only-fixed \
+            --fail-on high
 
   render-kubernetes:
     name: Render deploy manifests
