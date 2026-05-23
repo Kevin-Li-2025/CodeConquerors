@@ -99,9 +99,7 @@ public class KafkaMessageBus : IMessageBus, IDisposable
                     continue;
                 }
 
-                var messageId = string.IsNullOrWhiteSpace(result.Message.Key)
-                    ? $"{result.Topic}:{result.Partition.Value}:{result.Offset.Value}"
-                    : result.Message.Key;
+                var messageId = BuildMessageIdentity(topic, result);
 
                 if (await _messageStore.HasProcessedAsync(messageId, topic, _options.ConsumerGroupId, cancellationToken)
                         .ConfigureAwait(false))
@@ -321,6 +319,15 @@ public class KafkaMessageBus : IMessageBus, IDisposable
 
         var raw = System.Text.Encoding.UTF8.GetString(header.GetValueBytes());
         return int.TryParse(raw, out var attempt) && attempt > 0 ? attempt : 1;
+    }
+
+    private static string BuildMessageIdentity(string canonicalTopic, ConsumeResult<string, string> result)
+    {
+        var rawId = string.IsNullOrWhiteSpace(result.Message.Key)
+            ? $"{result.Topic}:{result.Partition.Value}:{result.Offset.Value}"
+            : result.Message.Key;
+
+        return $"{canonicalTopic}:{rawId}";
     }
 
     private string TopicFor<T>() => _options.TopicPrefix + typeof(T).Name.ToLowerInvariant();

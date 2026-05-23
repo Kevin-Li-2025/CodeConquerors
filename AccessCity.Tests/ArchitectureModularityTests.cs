@@ -152,10 +152,21 @@ public sealed class ArchitectureModularityTests
         var routing = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Services", "RoutingService.cs"));
 
         Assert.Contains("IMemoryCache", repository, StringComparison.Ordinal);
+        Assert.Contains("InFlightGraphLoads", repository, StringComparison.Ordinal);
         Assert.Contains("ComputeShardRegion", repository, StringComparison.Ordinal);
         Assert.Contains("BuildSpatialBuckets", repository, StringComparison.Ordinal);
         Assert.Contains("SpatialBuckets", models, StringComparison.Ordinal);
         Assert.Contains("FindNodesNear", routing, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Kafka_processed_message_identity_includes_topic()
+    {
+        var root = FindRepositoryRoot();
+        var kafkaBus = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Messaging", "Kafka", "KafkaMessageBus.cs"));
+
+        Assert.Contains("BuildMessageIdentity", kafkaBus, StringComparison.Ordinal);
+        Assert.Contains("return $\"{canonicalTopic}:{rawId}\";", kafkaBus, StringComparison.Ordinal);
     }
 
     private static bool IsConcreteAccessCityService(Type type)

@@ -1,3 +1,6 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
+using System.Globalization;
 using AccessCity.API.Configuration;
 using AccessCity.API.Data;
 using AccessCity.API.Models;
@@ -5,7 +8,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using NetTopologySuite.Geometries;
-using System.Globalization;
 
 namespace AccessCity.API.Services;
 
@@ -16,19 +18,24 @@ public interface IRouteGraphRepository
 
 public sealed class RouteGraphRepository : IRouteGraphRepository
 {
+    private static readonly ConcurrentDictionary<string, Lazy<Task<RouteGraphData>>> InFlightGraphLoads = new();
+
     private readonly AppDbContext _dbContext;
     private readonly IMemoryCache _cache;
+    private readonly AccessCityMetrics _metrics;
     private readonly ILogger<RouteGraphRepository> _logger;
     private readonly RoutingOptions _options;
 
     public RouteGraphRepository(
         AppDbContext dbContext,
         IMemoryCache cache,
+        AccessCityMetrics metrics,
         IOptions<RoutingOptions> options,
         ILogger<RouteGraphRepository> logger)
     {
         _dbContext = dbContext;
         _cache = cache;
+        _metrics = metrics;
         _options = options.Value;
         _logger = logger;
     }
@@ -41,12 +48,43 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         var edgeLimit = Math.Max(100, _options.MaxRouteGraphEdges);
         var region = ComputeShardRegion(start, end);
         var cacheKey = BuildCacheKey(region, edgeLimit);
+        var stopwatch = Stopwatch.StartNew();
 
         if (_cache.TryGetValue(cacheKey, out RouteGraphData? cached) && cached is not null)
         {
+            _metrics.CacheLookup("route_graph", hit: true, stopwatch.Elapsed.TotalMilliseconds);
             return cached;
         }
 
+        var lazy = InFlightGraphLoads.GetOrAdd(
+            cacheKey,
+            _ => new Lazy<Task<RouteGraphData>>(
+                () => LoadAndCacheGraphRegionAsync(region, edgeLimit, cacheKey, cancellationToken),
+                LazyThreadSafetyMode.ExecutionAndPublication));
+
+        try
+        {
+            var graphData = await lazy.Value;
+            _metrics.CacheLookup("route_graph", hit: false, stopwatch.Elapsed.TotalMilliseconds);
+            return graphData;
+        }
+        finally
+        {
+            if (lazy.IsValueCreated && lazy.Value.IsCompleted
+                                    && InFlightGraphLoads.TryGetValue(cacheKey, out var current)
+                                    && ReferenceEquals(current, lazy))
+            {
+                InFlightGraphLoads.TryRemove(cacheKey, out _);
+            }
+        }
+    }
+
+    private async Task<RouteGraphData> LoadAndCacheGraphRegionAsync(
+        GraphShardRegion region,
+        int edgeLimit,
+        string cacheKey,
+        CancellationToken cancellationToken)
+    {
         var graphData = await LoadGraphRegionAsync(region, edgeLimit, cacheKey, cancellationToken);
         var ttl = TimeSpan.FromSeconds(Math.Max(30, _options.RouteGraphCacheTtlSeconds));
         _cache.Set(cacheKey, graphData, ttl);
