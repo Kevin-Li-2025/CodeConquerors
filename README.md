@@ -51,6 +51,7 @@ dotnet test AccessCity.Tests/AccessCity.Tests.csproj
 ```bash
 cd AccessCity.App
 npm test
+npm run test:ci
 ```
 
 ## Scripts (API must be running)
@@ -66,4 +67,5 @@ python3 scripts/measure_api_latency.py http://127.0.0.1:8080 30 3
 - `AccessCity.App` — Expo client
 - `AccessCity.Tests` — xUnit integration and benchmarks
 - `deploy/observability` — optional Compose stack (OTLP → Prometheus → Grafana) for local metrics
+- `docs/CI_CD.md` — CI/CD gates, image publishing, and manual Kubernetes deploy flow
 - `docs/images/architecture.png` — architecture diagram

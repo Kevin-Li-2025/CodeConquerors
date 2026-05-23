@@ -1,0 +1,165 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: Apply the rendered Kubernetes manifests after publishing the image.
+        required: true
+        type: boolean
+        default: false
+      environment:
+        description: GitHub environment to deploy to when deploy is true.
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_SLUG: codeconquerors-api
+
+jobs:
+  publish-api-image:
+    name: Publish API image
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    outputs:
+      image: ${{ steps.image.outputs.name }}
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve image name
+        id: image
+        shell: bash
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "name=${REGISTRY}/${owner}/${IMAGE_SLUG}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main' }}
+
+      - name: Build and push API image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./AccessCity.API
+          pull: true
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          provenance: true
+          sbom: true
+
+      - name: Scan pushed image
+        run: >
+          docker run --rm
+          ghcr.io/anchore/grype:v0.112.0
+          ${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}
+          --only-fixed
+          --fail-on high
+
+  render-kubernetes:
+    name: Render deploy manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: publish-api-image
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Render manifests with published image digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_ref="${{ needs.publish-api-image.outputs.image }}@${{ needs.publish-api-image.outputs.digest }}"
+          render_dir="$(mktemp -d)"
+          cp -R deploy/kubernetes "$render_dir/kubernetes"
+          find "$render_dir/kubernetes" -type f -name '*.yaml' -exec sed -i "s#ghcr.io/kevin-li-2025/codeconquerors-api:latest#${image_ref}#g" {} +
+          mkdir -p artifacts
+          kubectl kustomize "$render_dir/kubernetes" > artifacts/accesscity-kubernetes.yaml
+          test -s artifacts/accesscity-kubernetes.yaml
+
+      - name: Upload rendered manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-kubernetes-manifests
+          path: artifacts/accesscity-kubernetes.yaml
+
+  deploy-kubernetes:
+    name: Deploy to Kubernetes
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - publish-api-image
+      - render-kubernetes
+    environment: ${{ inputs.environment }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kube context
+        shell: bash
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
+        run: |
+          set -euo pipefail
+          test -n "$KUBE_CONFIG_B64"
+          mkdir -p "$HOME/.kube"
+          echo "$KUBE_CONFIG_B64" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+          kubectl config current-context
+
+      - name: Apply manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_ref="${{ needs.publish-api-image.outputs.image }}@${{ needs.publish-api-image.outputs.digest }}"
+          render_dir="$(mktemp -d)"
+          cp -R deploy/kubernetes "$render_dir/kubernetes"
+          find "$render_dir/kubernetes" -type f -name '*.yaml' -exec sed -i "s#ghcr.io/kevin-li-2025/codeconquerors-api:latest#${image_ref}#g" {} +
+          kubectl apply -k "$render_dir/kubernetes"
+          kubectl -n accesscity rollout status deployment/accesscity-api --timeout=300s
+          kubectl -n accesscity rollout status deployment/accesscity-worker --timeout=300s

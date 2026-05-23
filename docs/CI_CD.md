@@ -1,0 +1,48 @@
+# CI/CD
+
+AccessCity uses GitHub Actions as the primary CI/CD path and keeps GitLab CI as a secondary compatibility path.
+
+## CI gates
+
+`.github/workflows/ci.yml` runs on pull requests, pushes to `main`, `master`, and `codex/**`, and manual dispatches.
+
+- Backend: restore, release build, `dotnet format --verify-no-changes`, NuGet vulnerability scan, xUnit integration tests with PostGIS and Redis.
+- Frontend: `npm ci`, Expo lint, TypeScript typecheck, `npm audit --audit-level=high`, Jest in CI-safe serial mode.
+- Manifests: Docker Compose config validation, worker/migration profile validation, nginx config validation, and Kubernetes kustomize rendering.
+- Container security: fresh API image build with pulled base layers, then a Grype fixed high/critical vulnerability gate.
+- Pull requests also run GitHub dependency review for new high+ dependency risk.
+
+## CD path
+
+`.github/workflows/cd.yml` runs on pushes to `main`/`master`, version tags, and manual dispatches.
+
+- Builds the API image from `AccessCity.API/Dockerfile`.
+- Pushes immutable branch, tag, SHA, and default-branch `latest` tags to GHCR.
+- Publishes SBOM/provenance metadata through Docker Buildx.
+- Scans the pushed digest with Grype.
+- Renders Kubernetes manifests pinned to the published image digest and uploads them as an artifact.
+
+Manual Kubernetes deploys are disabled by default. To enable them, add a GitHub environment secret named `KUBE_CONFIG_B64` containing a base64-encoded kubeconfig, run the `CD` workflow manually, set `deploy=true`, and choose the target environment. The deploy job applies `deploy/kubernetes` with the just-published image digest and waits for API and worker rollouts.
+
+## Local parity commands
+
+```bash
+dotnet restore CodeConquerors.sln
+dotnet build CodeConquerors.sln --configuration Release --no-restore
+dotnet format CodeConquerors.sln --verify-no-changes --no-restore --verbosity minimal
+dotnet test AccessCity.Tests/AccessCity.Tests.csproj --configuration Release --no-build
+
+cd AccessCity.App
+npm ci
+npm run lint
+npx tsc -p tsconfig.json --noEmit
+npm audit --audit-level=high
+npm run test:ci
+
+docker compose config --quiet
+docker compose --profile worker config --quiet
+docker compose --profile migrate config --quiet
+kubectl kustomize deploy/kubernetes >/tmp/accesscity-kubernetes.yaml
+docker build --pull -t accesscity-api:ci ./AccessCity.API
+docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/anchore/grype:v0.112.0 accesscity-api:ci --only-fixed --fail-on high
+```

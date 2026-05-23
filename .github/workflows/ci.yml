@@ -1,13 +1,32 @@
 name: CI
 
 on:
-  push:
-    branches: [main, master]
   pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - "codex/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  NUGET_XMLDOC_MODE: skip
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
 
 jobs:
   backend:
+    name: Backend build, lint, test
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     services:
       postgres:
         image: postgis/postgis:16-3.4
@@ -32,60 +51,166 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     env:
-      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
-      DOTNET_NOLOGO: "1"
       DATABASE_URL: postgresql://accesscity:accesscity123@localhost:5432/accesscitydb?sslmode=disable
       ConnectionStrings__Redis: localhost:6379
       Jwt__Key: AccessCity_CI_Test_Jwt_Key_2026_Change_For_Production_At_Deploy_Time_64_Bytes
       OsmImport__ImportOnStartup: "false"
       Workers__OsmImport__Enabled: "false"
+      Workers__Routing__Enabled: "false"
       Workers__TileWarming__Enabled: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "9.0.x"
-      - run: dotnet restore CodeConquerors.sln
-      - run: dotnet build CodeConquerors.sln --configuration Release --no-restore
-      - name: Backend format/lint
+
+      - name: Restore
+        run: dotnet restore CodeConquerors.sln
+
+      - name: Build
+        run: dotnet build CodeConquerors.sln --configuration Release --no-restore
+
+      - name: Format and analyzer gate
         run: dotnet format CodeConquerors.sln --verify-no-changes --no-restore --verbosity minimal
-      - name: NuGet vulnerability scan
+
+      - name: NuGet vulnerability gate
         run: |
           dotnet list CodeConquerors.sln package --vulnerable --include-transitive | tee /tmp/dotnet-vulnerable.txt
           ! grep -q "has the following vulnerable packages" /tmp/dotnet-vulnerable.txt
-      - run: dotnet test AccessCity.Tests/AccessCity.Tests.csproj --configuration Release --no-build --verbosity normal
+
+      - name: Unit and integration tests
+        run: >
+          dotnet test AccessCity.Tests/AccessCity.Tests.csproj
+          --configuration Release
+          --no-build
+          --verbosity normal
+          --logger "trx;LogFileName=backend-tests.trx"
+          --collect:"XPlat Code Coverage"
+          --results-directory TestResults
+          --
+          DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura
+
+      - name: Upload backend test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: TestResults/
+          if-no-files-found: ignore
 
   frontend:
+    name: Frontend lint, typecheck, test
     runs-on: ubuntu-latest
-    env:
-      NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: AccessCity.App
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
           cache-dependency-path: AccessCity.App/package-lock.json
-      - run: npm ci
-      - run: npm run lint
-      - run: npx tsc -p tsconfig.json --noEmit
-      - run: npm audit --audit-level=high
-      - run: npm test -- --ci --watchAll=false
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc -p tsconfig.json --noEmit
+
+      - name: npm vulnerability gate
+        run: npm audit --audit-level=high
+
+      - name: Jest
+        run: npm run test:ci -- --coverage --coverageDirectory=coverage/jest
+
+      - name: Upload frontend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: AccessCity.App/coverage/jest/
+          if-no-files-found: ignore
+
+  manifests:
+    name: Compose and Kubernetes manifests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate default Compose config
+        run: docker compose config --quiet
+
+      - name: Validate worker Compose config
+        run: docker compose --profile worker config --quiet
+
+      - name: Validate migration Compose config
+        run: docker compose --profile migrate config --quiet
+
+      - name: Render Kubernetes manifests
+        run: |
+          mkdir -p artifacts
+          kubectl kustomize deploy/kubernetes > artifacts/accesscity-kubernetes.yaml
+          test -s artifacts/accesscity-kubernetes.yaml
+
+      - name: Validate nginx gateway config
+        run: >
+          docker run --rm
+          -v "$PWD/deploy/nginx/accesscity-compose.conf:/etc/nginx/conf.d/default.conf:ro"
+          nginx:1.27-alpine
+          nginx -t
+
+      - name: Upload rendered manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-kubernetes-manifests
+          path: artifacts/accesscity-kubernetes.yaml
 
   container-security:
+    name: API image vulnerability scan
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - name: Build API image
-        run: docker build -t accesscity-api:ci ./AccessCity.API
-      - name: Trivy image vulnerability scan
-        uses: aquasecurity/trivy-action@0.30.0
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build API image from fresh base layers
+        run: docker build --pull -t accesscity-api:ci ./AccessCity.API
+
+      - name: Grype vulnerability gate
+        run: >
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          ghcr.io/anchore/grype:v0.112.0
+          accesscity-api:ci
+          --only-fixed
+          --fail-on high
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
         with:
-          image-ref: accesscity-api:ci
-          severity: CRITICAL,HIGH
-          scanners: vuln,misconfig
-          exit-code: "1"
-          ignore-unfixed: true
+          fail-on-severity: high

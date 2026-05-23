@@ -1,0 +1,37 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:00"
+      timezone: Europe/London
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: npm
+    directory: /AccessCity.App
+    schedule:
+      interval: weekly
+      day: monday
+      time: "09:30"
+      timezone: Europe/London
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:00"
+      timezone: Europe/London
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: docker
+    directory: /AccessCity.API
+    schedule:
+      interval: weekly
+      day: monday
+      time: "10:30"
+      timezone: Europe/London
+    open-pull-requests-limit: 5

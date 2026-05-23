@@ -238,7 +238,7 @@ frontend:test:
   script:
     - cd AccessCity.App
     - npm ci
-    - npm test -- --ci --watchAll=false
+    - npm run test:ci
   rules:
     - exists:
         - AccessCity.App/package.json
