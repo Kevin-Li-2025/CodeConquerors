@@ -133,14 +133,21 @@ public sealed class ArchitectureModularityTests
     {
         var root = FindRepositoryRoot();
         var configMap = File.ReadAllText(Path.Combine(root, "deploy", "kubernetes", "configmap.yaml"));
+        var scaledObject = File.ReadAllText(Path.Combine(root, "deploy", "kubernetes", "keda-scaledobject.yaml"));
         var routingModule = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Modules", "RoutingModule.cs"));
         var routeJobService = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Services", "RouteJobService.cs"));
+        var kafkaBus = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Messaging", "Kafka", "KafkaMessageBus.cs"));
 
         Assert.Contains("RouteJobBackgroundService", routingModule, StringComparison.Ordinal);
         Assert.Contains("RouteJobRequestedEvent", routeJobService, StringComparison.Ordinal);
         Assert.Contains("Routing__DispatchJobsToWorker: \"true\"", configMap, StringComparison.Ordinal);
         Assert.Contains("Workers__Routing__Enabled: \"false\"", configMap, StringComparison.Ordinal);
         Assert.Contains("Workers__Routing__Enabled: \"true\"", configMap, StringComparison.Ordinal);
+        Assert.Contains("Kafka__TopicPartitions: \"12\"", configMap, StringComparison.Ordinal);
+        Assert.Contains("topic: accesscity_routejobrequestedevent", scaledObject, StringComparison.Ordinal);
+        Assert.Contains("minReplicaCount: 2", scaledObject, StringComparison.Ordinal);
+        Assert.Contains("maxReplicaCount: 12", scaledObject, StringComparison.Ordinal);
+        Assert.Contains("CreatePartitionsAsync", kafkaBus, StringComparison.Ordinal);
     }
 
     [Fact]

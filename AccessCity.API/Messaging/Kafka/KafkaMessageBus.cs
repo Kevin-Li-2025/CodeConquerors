@@ -230,6 +230,8 @@ public class KafkaMessageBus : IMessageBus, IDisposable
 
     private async Task CreateTopicAsync(string topic, CancellationToken cancellationToken)
     {
+        var desiredPartitions = Math.Max(1, _options.TopicPartitions);
+        var desiredReplicationFactor = Math.Max((short)1, _options.TopicReplicationFactor);
         var adminConfig = new AdminClientConfig
         {
             BootstrapServers = _options.BootstrapServers
@@ -243,8 +245,8 @@ public class KafkaMessageBus : IMessageBus, IDisposable
                     new TopicSpecification
                     {
                         Name = topic,
-                        NumPartitions = Math.Max(1, _options.TopicPartitions),
-                        ReplicationFactor = Math.Max((short)1, _options.TopicReplicationFactor)
+                        NumPartitions = desiredPartitions,
+                        ReplicationFactor = desiredReplicationFactor
                     }
                 ],
                 new CreateTopicsOptions
@@ -256,17 +258,66 @@ public class KafkaMessageBus : IMessageBus, IDisposable
             _logger.LogInformation(
                 "Ensured Kafka topic {Topic} with {Partitions} partitions and replication factor {ReplicationFactor}.",
                 topic,
-                Math.Max(1, _options.TopicPartitions),
-                Math.Max((short)1, _options.TopicReplicationFactor));
+                desiredPartitions,
+                desiredReplicationFactor);
         }
         catch (CreateTopicsException ex) when (ex.Results.All(result => result.Error.Code == ErrorCode.TopicAlreadyExists))
         {
             _logger.LogDebug("Kafka topic {Topic} already exists.", topic);
+            await EnsureTopicPartitionCountAsync(adminClient, topic, desiredPartitions, cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
         {
             _topicCreationTasks.TryRemove(topic, out _);
             _logger.LogWarning(ex, "Could not ensure Kafka topic {Topic}; continuing and relying on broker-side topic policy.", topic);
+        }
+    }
+
+    private async Task EnsureTopicPartitionCountAsync(
+        IAdminClient adminClient,
+        string topic,
+        int desiredPartitions,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var metadata = adminClient.GetMetadata(topic, TimeSpan.FromSeconds(10));
+            var topicMetadata = metadata.Topics.FirstOrDefault(t => string.Equals(t.Topic, topic, StringComparison.Ordinal));
+            var currentPartitions = topicMetadata?.Partitions.Count ?? 0;
+            if (currentPartitions >= desiredPartitions)
+            {
+                return;
+            }
+
+            await adminClient.CreatePartitionsAsync(
+                [
+                    new PartitionsSpecification
+                    {
+                        Topic = topic,
+                        IncreaseTo = desiredPartitions
+                    }
+                ],
+                new CreatePartitionsOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(10),
+                    OperationTimeout = TimeSpan.FromSeconds(10)
+                }).WaitAsync(cancellationToken).ConfigureAwait(false);
+
+            _logger.LogInformation(
+                "Increased Kafka topic {Topic} from {CurrentPartitions} to {DesiredPartitions} partitions.",
+                topic,
+                currentPartitions,
+                desiredPartitions);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            _topicCreationTasks.TryRemove(topic, out _);
+            _logger.LogWarning(
+                ex,
+                "Could not increase Kafka topic {Topic} to {DesiredPartitions} partitions; existing partitions will cap worker parallelism.",
+                topic,
+                desiredPartitions);
         }
     }
 
