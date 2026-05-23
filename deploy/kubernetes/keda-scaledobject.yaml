@@ -1,12 +1,69 @@
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
+  name: accesscity-api-scalability
+spec:
+  scaleTargetRef:
+    name: accesscity-api
+  minReplicaCount: 6
+  maxReplicaCount: 18
+  pollingInterval: 15
+  cooldownPeriod: 300
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 30
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 60
+            - type: Pods
+              value: 4
+              periodSeconds: 60
+          selectPolicy: Max
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 25
+              periodSeconds: 120
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus:9090
+        metricName: accesscity_safe_path_p95_ms
+        threshold: "1500"
+        query: |
+          histogram_quantile(
+            0.95,
+            sum(rate(accesscity_route_safe_path_duration_milliseconds_bucket{http_route=~".*safe-path.*"}[2m])) by (le)
+          )
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus:9090
+        metricName: accesscity_route_capacity_saturation_rate
+        threshold: "0.5"
+        query: |
+          sum(rate(accesscity_route_computation_saturated_total[2m]))
+    - type: cpu
+      metadata:
+        type: Utilization
+        value: "70"
+    - type: memory
+      metadata:
+        type: Utilization
+        value: "75"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
   name: accesscity-worker-kafka
 spec:
   scaleTargetRef:
     name: accesscity-worker
   minReplicaCount: 1
-  maxReplicaCount: 8
+  maxReplicaCount: 12
   pollingInterval: 30
   cooldownPeriod: 300
   triggers:
@@ -15,4 +72,5 @@ spec:
         bootstrapServers: kafka:9092
         consumerGroup: accesscity-workers
         topic: accesscity_osmimportstartedevent
-        lagThreshold: "5"
+        lagThreshold: "3"
+        activationLagThreshold: "1"

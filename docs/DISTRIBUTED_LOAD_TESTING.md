@@ -41,6 +41,10 @@ Expected threshold defaults:
 
 If `safe-path` returns `503` or `504` during high bursts, that is capacity protection working rather than silent overload. Increase API replicas, `Routing__MaxConcurrentComputations`, Postgres pool size, and CPU only after checking DB wait time and CPU saturation.
 
+In Kubernetes, the default kustomization now lets KEDA scale `accesscity-api` from safe-path p95
+latency and route limiter saturation in addition to CPU and memory. If Prometheus runs outside the
+`accesscity` namespace, update `deploy/kubernetes/keda-scaledobject.yaml` before applying.
+
 ## Tuning Knobs
 
 - `Postgres__MaxPoolSize`: Npgsql physical connection pool per pod.
@@ -52,3 +56,5 @@ If `safe-path` returns `503` or `504` during high bursts, that is capacity prote
 - `Routing__MaxHazardsPerRequest`: cap on active hazards loaded for one route/risk request.
 - `ExternalApis__*__MaxConcurrentRequests`: per-pod bulkhead for tail-sensitive upstream services.
 - `ExternalApis__CircuitBreaker__*`: shared timeout/circuit behavior for external dependency fallback.
+- `accesscity_route_computation_saturated_total`: increase means route CPU slots are exhausted.
+- `accesscity_external_dependency_fallback_total`: increase means OSRM/Overpass/Police/environmental calls are degrading to fallback.

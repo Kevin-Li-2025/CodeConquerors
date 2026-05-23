@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Asp.Versioning;
 using AccessCity.API.Common;
 using AccessCity.API.Configuration;
@@ -28,6 +29,7 @@ public class RoutingController : ControllerBase
     private readonly IRouteCoalescingService _coalescing;
     private readonly IRouteComputationLimiter _routeLimiter;
     private readonly IRiskScoreCacheService _riskScoreCache;
+    private readonly AccessCityMetrics _metrics;
     private readonly RoutingOptions _routingOptions;
 
     public RoutingController(
@@ -39,6 +41,7 @@ public class RoutingController : ControllerBase
         IRouteCoalescingService coalescing,
         IRouteComputationLimiter routeLimiter,
         IRiskScoreCacheService riskScoreCache,
+        AccessCityMetrics metrics,
         IOptions<RoutingOptions> routingOptions)
     {
         _routing = routing;
@@ -49,6 +52,7 @@ public class RoutingController : ControllerBase
         _coalescing = coalescing;
         _routeLimiter = routeLimiter;
         _riskScoreCache = riskScoreCache;
+        _metrics = metrics;
         _routingOptions = routingOptions.Value;
     }
 
@@ -67,6 +71,7 @@ public class RoutingController : ControllerBase
         [FromBody] RouteRequest request,
         CancellationToken cancellationToken)
     {
+        var stopwatch = Stopwatch.StartNew();
         // Enforce a short synchronous timeout; heavier work belongs on the async job path.
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var safePathTimeout = TimeSpan.FromSeconds(Math.Max(1, _routingOptions.SyncSafePathTimeoutSeconds));
@@ -88,21 +93,25 @@ public class RoutingController : ControllerBase
 
             if (result is null)
             {
+                RecordSafePath(stopwatch, "not_found");
                 return NotFound(new ApiError(
                     "No route found.",
                     Detail: "The routing engine could not find a path. Ensure the chosen area is supported."));
             }
 
+            RecordSafePath(stopwatch, "success");
             return Ok(result);
         }
         catch (RouteCapacityExceededException)
         {
+            RecordSafePath(stopwatch, "capacity_saturated");
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new ApiError(
                 "Route computation capacity is saturated.",
                 Detail: "Retry shortly or use the async job endpoint: POST /routing/safe-path/async."));
         }
         catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
+            RecordSafePath(stopwatch, "timeout");
             return StatusCode(StatusCodes.Status504GatewayTimeout, new ApiError(
                 "Route computation timed out.",
                 Detail: $"The route computation exceeded the {safePathTimeout.TotalSeconds}s limit. Consider using the async job endpoint: POST /routing/safe-path/async."));
@@ -153,10 +162,12 @@ public class RoutingController : ControllerBase
         [FromBody] RouteRequest request,
         CancellationToken cancellationToken = default)
     {
+        var stopwatch = Stopwatch.StartNew();
         var queueTimeout = TimeSpan.FromSeconds(Math.Max(1, _routingOptions.ComputationQueueTimeoutSeconds));
         await using var lease = await _routeLimiter.TryAcquireAsync(queueTimeout, cancellationToken);
         if (lease is null)
         {
+            RecordSafePathOptions(stopwatch, "capacity_saturated");
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new ApiError(
                 "Route computation capacity is saturated.",
                 Detail: "Retry shortly or use the async job endpoint for the primary route."));
@@ -164,6 +175,7 @@ public class RoutingController : ControllerBase
 
         var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
         var result = await _routing.FindSafePathWithVariantsAsync(request, hazards, cancellationToken);
+        RecordSafePathOptions(stopwatch, "success");
         return Ok(result);
     }
 
@@ -223,4 +235,16 @@ public class RoutingController : ControllerBase
         var result = await _risk.PredictRiskAsync(request.Lat, request.Lng, request.Radius, hazards);
         return Ok(result);
     }
+
+    private void RecordSafePath(Stopwatch stopwatch, string outcome) =>
+        _metrics.SafePathCompleted(
+            "/api/v{version}/routing/safe-path",
+            outcome,
+            stopwatch.Elapsed.TotalMilliseconds);
+
+    private void RecordSafePathOptions(Stopwatch stopwatch, string outcome) =>
+        _metrics.SafePathCompleted(
+            "/api/v{version}/routing/safe-path/options",
+            outcome,
+            stopwatch.Elapsed.TotalMilliseconds);
 }

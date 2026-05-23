@@ -22,10 +22,12 @@ public sealed class RouteCoalescingService : IRouteCoalescingService
 {
     private readonly ConcurrentDictionary<string, CoalescedEntry> _inflight = new();
     private readonly ILogger<RouteCoalescingService> _logger;
+    private readonly AccessCityMetrics _metrics;
 
-    public RouteCoalescingService(ILogger<RouteCoalescingService> logger)
+    public RouteCoalescingService(ILogger<RouteCoalescingService> logger, AccessCityMetrics metrics)
     {
         _logger = logger;
+        _metrics = metrics;
     }
 
     public async Task<RouteResponse?> GetOrComputeAsync(RouteRequest request, Func<Task<RouteResponse?>> factory)
@@ -36,6 +38,7 @@ public sealed class RouteCoalescingService : IRouteCoalescingService
         if (_inflight.TryGetValue(key, out var existing) && !existing.IsExpired)
         {
             _logger.LogDebug("Route request coalesced for key {Key}", key);
+            _metrics.RouteCoalescing("joined_existing");
             return await existing.Task;
         }
 
@@ -45,6 +48,7 @@ public sealed class RouteCoalescingService : IRouteCoalescingService
 
         if (_inflight.TryAdd(key, entry))
         {
+            _metrics.RouteCoalescing("started");
             try
             {
                 var result = await factory();
@@ -66,10 +70,12 @@ public sealed class RouteCoalescingService : IRouteCoalescingService
         // Another thread won the race — join their computation.
         if (_inflight.TryGetValue(key, out var raceWinner))
         {
+            _metrics.RouteCoalescing("joined_race_winner");
             return await raceWinner.Task;
         }
 
         // Extreme edge case: entry was already cleaned up.
+        _metrics.RouteCoalescing("race_miss");
         return await factory();
     }
 

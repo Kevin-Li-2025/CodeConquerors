@@ -22,3 +22,31 @@ groups:
           severity: ticket
         annotations:
           summary: "AccessCity shared cache hit ratio below 70%"
+      - alert: AccessCitySafePathP95TooSlow
+        expr: histogram_quantile(0.95, sum(rate(accesscity_route_safe_path_duration_milliseconds_bucket{http_route=~".*safe-path.*"}[5m])) by (le)) > 1500
+        for: 10m
+        labels:
+          severity: page
+        annotations:
+          summary: "AccessCity safe-path p95 latency is above 1.5s"
+      - alert: AccessCityRouteCapacitySaturated
+        expr: sum(rate(accesscity_route_computation_saturated_total[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "AccessCity route computation limiter is rejecting requests"
+      - alert: AccessCityExternalDependencyFallbackSpike
+        expr: sum(rate(accesscity_external_dependency_fallback_total[5m])) / clamp_min(sum(rate(accesscity_external_dependency_duration_milliseconds_count[5m])), 1) > 0.05
+        for: 10m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "AccessCity external dependency fallback rate is above 5%"
+      - alert: AccessCityExternalDependencyCircuitOpened
+        expr: increase(accesscity_external_dependency_circuit_opened_total[10m]) > 0
+        for: 1m
+        labels:
+          severity: ticket
+        annotations:
+          summary: "AccessCity opened a circuit breaker for an external dependency"

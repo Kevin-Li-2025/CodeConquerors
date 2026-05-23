@@ -49,8 +49,8 @@ Production manifests live in `deploy/kubernetes`:
 - `api-deployment.yaml`: stateless API replicas, no workers, no auto migrations
 - `worker-deployment.yaml`: Kafka consumers and tile warmer
 - `migration-job.yaml`: one-shot schema migration/index job
-- `hpa.yaml`: API CPU/memory autoscaling
-- `keda-scaledobject.yaml`: worker autoscaling from Kafka lag
+- `keda-scaledobject.yaml`: API autoscaling from safe-path p95, route saturation, CPU/memory; worker autoscaling from Kafka lag
+- `hpa.yaml`: optional CPU/memory fallback for environments that do not run KEDA Prometheus triggers
 - `external-secret.example.yaml`: template for External Secrets Operator
 - `cnpg-pooler.example.yaml`: optional CloudNativePG PgBouncer pooler for the app runtime path
 

@@ -14,6 +14,14 @@ public sealed class AccessCityMetrics
     private readonly Histogram<double> _cacheLatency;
     private readonly Counter<long> _cacheHit;
     private readonly Counter<long> _cacheMiss;
+    private readonly Histogram<double> _safePathDuration;
+    private readonly Histogram<double> _routeComputationQueueDuration;
+    private readonly Counter<long> _routeComputationSaturated;
+    private readonly UpDownCounter<long> _routeComputationInflight;
+    private readonly Counter<long> _routeCoalescing;
+    private readonly Histogram<double> _externalDependencyDuration;
+    private readonly Counter<long> _externalDependencyFallback;
+    private readonly Counter<long> _externalDependencyCircuitOpened;
 
     public AccessCityMetrics()
     {
@@ -24,6 +32,14 @@ public sealed class AccessCityMetrics
         _cacheLatency = Meter.CreateHistogram<double>("accesscity.cache.lookup.duration", "ms");
         _cacheHit = Meter.CreateCounter<long>("accesscity.cache.hit");
         _cacheMiss = Meter.CreateCounter<long>("accesscity.cache.miss");
+        _safePathDuration = Meter.CreateHistogram<double>("accesscity.route.safe_path.duration", "ms");
+        _routeComputationQueueDuration = Meter.CreateHistogram<double>("accesscity.route.computation.queue.duration", "ms");
+        _routeComputationSaturated = Meter.CreateCounter<long>("accesscity.route.computation.saturated");
+        _routeComputationInflight = Meter.CreateUpDownCounter<long>("accesscity.route.computation.inflight");
+        _routeCoalescing = Meter.CreateCounter<long>("accesscity.route.coalescing");
+        _externalDependencyDuration = Meter.CreateHistogram<double>("accesscity.external_dependency.duration", "ms");
+        _externalDependencyFallback = Meter.CreateCounter<long>("accesscity.external_dependency.fallback");
+        _externalDependencyCircuitOpened = Meter.CreateCounter<long>("accesscity.external_dependency.circuit_opened");
     }
 
     public void KafkaProcessed(string topic) =>
@@ -50,4 +66,39 @@ public sealed class AccessCityMetrics
             _cacheMiss.Add(1, new KeyValuePair<string, object?>("cache.name", cacheName));
         }
     }
+
+    public void SafePathCompleted(string route, string outcome, double milliseconds) =>
+        _safePathDuration.Record(
+            milliseconds,
+            new KeyValuePair<string, object?>("http.route", route),
+            new KeyValuePair<string, object?>("route.outcome", outcome));
+
+    public void RouteComputationQueueWait(string outcome, double milliseconds) =>
+        _routeComputationQueueDuration.Record(
+            milliseconds,
+            new KeyValuePair<string, object?>("route.queue.outcome", outcome));
+
+    public void RouteComputationSaturated() => _routeComputationSaturated.Add(1);
+
+    public void RouteComputationStarted() => _routeComputationInflight.Add(1);
+
+    public void RouteComputationCompleted() => _routeComputationInflight.Add(-1);
+
+    public void RouteCoalescing(string outcome) =>
+        _routeCoalescing.Add(1, new KeyValuePair<string, object?>("route.coalescing.outcome", outcome));
+
+    public void ExternalDependencyCompleted(string dependencyName, string outcome, double milliseconds) =>
+        _externalDependencyDuration.Record(
+            milliseconds,
+            new KeyValuePair<string, object?>("dependency.name", dependencyName),
+            new KeyValuePair<string, object?>("dependency.outcome", outcome));
+
+    public void ExternalDependencyFallback(string dependencyName, string reason) =>
+        _externalDependencyFallback.Add(
+            1,
+            new KeyValuePair<string, object?>("dependency.name", dependencyName),
+            new KeyValuePair<string, object?>("dependency.fallback.reason", reason));
+
+    public void ExternalDependencyCircuitOpened(string dependencyName) =>
+        _externalDependencyCircuitOpened.Add(1, new KeyValuePair<string, object?>("dependency.name", dependencyName));
 }

@@ -24,6 +24,8 @@ The backend composition root is split by feature modules under `AccessCity.API/M
 - Background work enters through module-owned job services or hosted workers.
 - The shared database remains acceptable while the app is a modular monolith, but each module
   should treat its tables as owned data and expose behavior through interfaces.
+- Scale and release decisions should use the SLO/backpressure signals in `docs/SLO_AND_SCALING.md`,
+  not only pod CPU.
 
 ## Next Split Points
 
