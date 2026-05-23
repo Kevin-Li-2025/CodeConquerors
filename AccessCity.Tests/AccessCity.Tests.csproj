@@ -28,6 +28,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="xunit.runner.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="Fixtures\test-network.osm">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
