@@ -15,6 +15,7 @@ using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using NetTopologySuite.Geometries;
 using Xunit;
@@ -61,6 +62,61 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var resolvedContext = RouteRequestFingerprint.HazardContext(new[] { hazard });
 
         Assert.NotEqual(activeContext, resolvedContext);
+    }
+
+    [Fact]
+    public async Task RouteOptionsCoalescing_Shares_InFlight_Options_Computation()
+    {
+        var coalescing = new RouteCoalescingService(
+            NullLogger<RouteCoalescingService>.Instance,
+            new AccessCityMetrics());
+        var request = new RouteRequest
+        {
+            Start = new Coordinate(-1.8904, 52.4862),
+            End = new Coordinate(-1.8894, 52.4862),
+            Profile = "manual-wheelchair",
+            SafetyWeight = 0.7,
+            Preferences = new List<string> { "wheelchair", "prefer-crossings" }
+        };
+        var factoryEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFactory = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var computeCount = 0;
+
+        var tasks = Enumerable
+            .Range(0, 24)
+            .Select(_ => coalescing.GetOrComputeOptionsAsync(
+                request,
+                "hazards:test:graph:test",
+                async () =>
+                {
+                    Interlocked.Increment(ref computeCount);
+                    factoryEntered.TrySetResult(true);
+                    await releaseFactory.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                    return new SafePathOptionsResponse
+                    {
+                        Recommended = new RouteResponse
+                        {
+                            Path = new LineString(new[] { request.Start, request.End }),
+                            Distance = 123,
+                            EstimatedTime = 98,
+                            SafetyScore = 0.82
+                        },
+                        Variants = new List<RoutedOptionVariant>()
+                    };
+                }))
+            .ToArray();
+
+        await factoryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        releaseFactory.SetResult(true);
+        var results = await Task.WhenAll(tasks);
+
+        Assert.Equal(1, Volatile.Read(ref computeCount));
+        Assert.All(results, result =>
+        {
+            Assert.NotNull(result);
+            Assert.Equal(123, result!.Recommended.Distance);
+            Assert.Equal(0.82, result.Recommended.SafetyScore);
+        });
     }
 
     [Fact]

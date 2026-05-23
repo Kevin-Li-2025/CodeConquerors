@@ -242,27 +242,42 @@ public class RoutingController : ControllerBase
             });
         }
 
-        var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
-        var synchronousContextFingerprint = await BuildRouteContextFingerprintAsync(hazards, cancellationToken);
-        var synchronousCacheKey = _routeOptionsCache.BuildKey(
-            request.Start.Y,
-            request.Start.X,
-            request.End.Y,
-            request.End.X,
-            request.Profile ?? "standard",
-            request.SafetyWeight,
-            request.Preferences,
-            synchronousContextFingerprint);
-        var synchronousCached = await _routeOptionsCache.TryGetAsync(synchronousCacheKey);
-        if (synchronousCached is not null)
-        {
-            RecordSafePathOptions(stopwatch, "cache_hit");
-            return Ok(synchronousCached);
-        }
-
         var queueTimeout = TimeSpan.FromSeconds(Math.Max(1, _routingOptions.ComputationQueueTimeoutSeconds));
-        await using var lease = await _routeLimiter.TryAcquireAsync(queueTimeout, cancellationToken);
-        if (lease is null)
+        var outcome = "success";
+        var result = await _coalescing.GetOrComputeOptionsAsync(
+            request,
+            async () =>
+            {
+                var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
+                var contextFingerprint = await BuildRouteContextFingerprintAsync(hazards, cancellationToken);
+                var cacheKey = _routeOptionsCache.BuildKey(
+                    request.Start.Y,
+                    request.Start.X,
+                    request.End.Y,
+                    request.End.X,
+                    request.Profile ?? "standard",
+                    request.SafetyWeight,
+                    request.Preferences,
+                    contextFingerprint);
+                var cached = await _routeOptionsCache.TryGetAsync(cacheKey);
+                if (cached is not null)
+                {
+                    outcome = "cache_hit";
+                    return cached;
+                }
+
+                await using var lease = await _routeLimiter.TryAcquireAsync(queueTimeout, cancellationToken);
+                if (lease is null)
+                {
+                    return null;
+                }
+
+                var computed = await _routing.FindSafePathWithVariantsAsync(request, hazards, cancellationToken);
+                await _routeOptionsCache.SetAsync(cacheKey, computed);
+                return computed;
+            });
+
+        if (result is null)
         {
             RecordSafePathOptions(stopwatch, "capacity_saturated");
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new ApiError(
@@ -270,9 +285,7 @@ public class RoutingController : ControllerBase
                 Detail: "Retry shortly or use the async job endpoint for the primary route."));
         }
 
-        var result = await _routing.FindSafePathWithVariantsAsync(request, hazards, cancellationToken);
-        await _routeOptionsCache.SetAsync(synchronousCacheKey, result);
-        RecordSafePathOptions(stopwatch, "success");
+        RecordSafePathOptions(stopwatch, outcome);
         return Ok(result);
     }
 
