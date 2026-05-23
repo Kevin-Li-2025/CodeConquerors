@@ -1,8 +1,8 @@
 import React from 'react';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import AuthScreen from '@/app/index';
-import { renderWithAuthProvider } from '../testUtils';
+import { createAuthWrapper } from '../testUtils';
 import { authService } from '@/services/auth.service';
 
 jest.mock('@/hooks/use-form-animation', () => ({
@@ -24,19 +24,22 @@ jest.mock('@/services/auth.service', () => ({
 }));
 
 describe('AuthScreen (index)', () => {
+  let signIn: jest.MockedFunction<(email: string, password: string) => Promise<void>>;
+  let signUp: jest.MockedFunction<(email: string, password: string, fullName: string) => Promise<void>>;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    signIn = jest.fn(async (_email: string, _password: string) => {});
+    signUp = jest.fn(async (_email: string, _password: string, _fullName: string) => {});
   });
 
-  /** Landing screen delays opacity with reanimated; advance timers so the form is interactable. */
   function renderAuth() {
-    jest.useFakeTimers();
-    const utils = render(renderWithAuthProvider(<AuthScreen />));
-    act(() => {
-      jest.advanceTimersByTime(5000);
-    });
-    jest.useRealTimers();
-    return utils;
+    const Wrapper = createAuthWrapper({ signIn, signUp });
+    return render(
+      <Wrapper>
+        <AuthScreen />
+      </Wrapper>,
+    );
   }
 
   it('renders email/password and primary submit after intro animation', () => {
@@ -53,13 +56,6 @@ describe('AuthScreen (index)', () => {
   });
 
   it('signs in successfully', async () => {
-    jest.mocked(authService.login).mockResolvedValue({
-      token: 't',
-      refreshToken: 'r',
-      email: 'x@test.com',
-      fullName: 'X',
-    });
-
     const { getByPlaceholderText, getByTestId } = renderAuth();
 
     fireEvent.changeText(getByPlaceholderText('Email Address'), 'x@test.com');
@@ -67,6 +63,7 @@ describe('AuthScreen (index)', () => {
     fireEvent.press(getByTestId('index-auth-submit'));
 
     await waitFor(() => {
+      expect(signIn).toHaveBeenCalledWith('x@test.com', 'Password123!');
       expect(router.replace).toHaveBeenCalledWith('/(tabs)/map');
     });
   });

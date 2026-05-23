@@ -7,6 +7,23 @@ jest.mock('@sentry/react-native', () => ({
 
 jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
 
+jest.mock('@expo/vector-icons', () => {
+  const React = require('react');
+  const { Text } = require('react-native');
+
+  const MockIcon = ({ name, testID, ...rest }) =>
+    React.createElement(Text, { accessibilityLabel: name, testID, ...rest }, name);
+
+  return {
+    AntDesign: MockIcon,
+    Feather: MockIcon,
+    FontAwesome: MockIcon,
+    Ionicons: MockIcon,
+    MaterialCommunityIcons: MockIcon,
+    MaterialIcons: MockIcon,
+  };
+});
+
 jest.mock('expo-haptics', () => ({
   notificationAsync: jest.fn(() => Promise.resolve()),
   NotificationFeedbackType: { Error: 1 },
