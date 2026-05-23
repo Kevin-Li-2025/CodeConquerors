@@ -242,51 +242,65 @@ public class RoutingController : ControllerBase
             });
         }
 
-        var queueTimeout = TimeSpan.FromSeconds(Math.Max(1, _routingOptions.ComputationQueueTimeoutSeconds));
-        var outcome = "success";
-        var result = await _coalescing.GetOrComputeOptionsAsync(
-            request,
-            async () =>
-            {
-                var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
-                var contextFingerprint = await BuildRouteContextFingerprintAsync(hazards, cancellationToken);
-                var cacheKey = _routeOptionsCache.BuildKey(
-                    request.Start.Y,
-                    request.Start.X,
-                    request.End.Y,
-                    request.End.X,
-                    request.Profile ?? "standard",
-                    request.SafetyWeight,
-                    request.Preferences,
-                    contextFingerprint);
-                var cached = await _routeOptionsCache.TryGetAsync(cacheKey);
-                if (cached is not null)
-                {
-                    outcome = "cache_hit";
-                    return cached;
-                }
+        using var timeoutCts = new CancellationTokenSource(
+            TimeSpan.FromSeconds(Math.Max(1, _routingOptions.SyncSafePathTimeoutSeconds)));
+        var workToken = timeoutCts.Token;
 
-                await using var lease = await _routeLimiter.TryAcquireAsync(queueTimeout, cancellationToken);
-                if (lease is null)
-                {
-                    return null;
-                }
-
-                var computed = await _routing.FindSafePathWithVariantsAsync(request, hazards, cancellationToken);
-                await _routeOptionsCache.SetAsync(cacheKey, computed);
-                return computed;
-            });
-
-        if (result is null)
+        try
         {
-            RecordSafePathOptions(stopwatch, "capacity_saturated");
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ApiError(
-                "Route computation capacity is saturated.",
-                Detail: "Retry shortly or use the async job endpoint for the primary route."));
-        }
+            var queueTimeout = TimeSpan.FromSeconds(Math.Max(1, _routingOptions.ComputationQueueTimeoutSeconds));
+            var outcome = "success";
+            var result = await _coalescing.GetOrComputeOptionsAsync(
+                request,
+                async () =>
+                {
+                    var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, workToken);
+                    var contextFingerprint = await BuildRouteContextFingerprintAsync(hazards, workToken);
+                    var cacheKey = _routeOptionsCache.BuildKey(
+                        request.Start.Y,
+                        request.Start.X,
+                        request.End.Y,
+                        request.End.X,
+                        request.Profile ?? "standard",
+                        request.SafetyWeight,
+                        request.Preferences,
+                        contextFingerprint);
+                    var cached = await _routeOptionsCache.TryGetAsync(cacheKey);
+                    if (cached is not null)
+                    {
+                        outcome = "cache_hit";
+                        return cached;
+                    }
 
-        RecordSafePathOptions(stopwatch, outcome);
-        return Ok(result);
+                    await using var lease = await _routeLimiter.TryAcquireAsync(queueTimeout, workToken);
+                    if (lease is null)
+                    {
+                        return null;
+                    }
+
+                    var computed = await _routing.FindSafePathWithVariantsAsync(request, hazards, workToken);
+                    await _routeOptionsCache.SetAsync(cacheKey, computed);
+                    return computed;
+                });
+
+            if (result is null)
+            {
+                RecordSafePathOptions(stopwatch, "capacity_saturated");
+                return StatusCode(StatusCodes.Status503ServiceUnavailable, new ApiError(
+                    "Route computation capacity is saturated.",
+                    Detail: "Retry shortly or use the async job endpoint for the primary route."));
+            }
+
+            RecordSafePathOptions(stopwatch, outcome);
+            return Ok(result);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested)
+        {
+            RecordSafePathOptions(stopwatch, "timeout");
+            return StatusCode(StatusCodes.Status504GatewayTimeout, new ApiError(
+                "Route options computation timed out.",
+                Detail: "The route options computation exceeded the synchronous route timeout. Consider using the async job endpoint."));
+        }
     }
 
     /// <summary>

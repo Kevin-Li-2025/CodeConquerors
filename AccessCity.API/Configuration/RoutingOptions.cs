@@ -17,4 +17,9 @@ public sealed class RoutingOptions
     public bool RequireRouteGraphForReadiness { get; set; }
     public int RouteGraphCacheTtlSeconds { get; set; } = 300;
     public double RouteGraphShardSizeDegrees { get; set; } = 0.01;
+    public bool DistributedCoalescingEnabled { get; set; } = true;
+    public int DistributedCoalescingLockTtlSeconds { get; set; } = 12;
+    public int DistributedCoalescingResultTtlSeconds { get; set; } = 5;
+    public int DistributedCoalescingWaitMilliseconds { get; set; } = 2_500;
+    public int DistributedCoalescingPollMilliseconds { get; set; } = 25;
 }
