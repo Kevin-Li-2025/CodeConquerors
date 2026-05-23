@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -309,7 +310,9 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<RouteGraphRepository>>();
         var start = new Coordinate(-1.8904, 52.4862);
         var end = new Coordinate(-1.8894, 52.4862);
+        var cacheKey = BuildRouteGraphCacheKey(start, end, options.Value);
 
+        await distributedCache.RemoveAsync(cacheKey);
         await dbContext.RouteEdges.ExecuteDeleteAsync();
         await dbContext.RouteNodes.ExecuteDeleteAsync();
 
@@ -340,6 +343,23 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
 
         var loaded = await loadedRepository.LoadGraphAsync(start, end);
         Assert.True(loaded.HasCoverage);
+    }
+
+    private static string BuildRouteGraphCacheKey(Coordinate start, Coordinate end, RoutingOptions options)
+    {
+        var edgeLimit = Math.Max(100, options.MaxRouteGraphEdges);
+        var latitudeDelta = Math.Abs(start.Y - end.Y);
+        var longitudeDelta = Math.Abs(start.X - end.X);
+        var padding = Math.Max(0.01, Math.Max(latitudeDelta, longitudeDelta) * 0.35);
+        var shardSize = Math.Clamp(options.RouteGraphShardSizeDegrees, 0.002, 0.05);
+        var minLon = Math.Floor((Math.Min(start.X, end.X) - padding) / shardSize) * shardSize;
+        var minLat = Math.Floor((Math.Min(start.Y, end.Y) - padding) / shardSize) * shardSize;
+        var maxLon = Math.Ceiling((Math.Max(start.X, end.X) + padding) / shardSize) * shardSize;
+        var maxLat = Math.Ceiling((Math.Max(start.Y, end.Y) + padding) / shardSize) * shardSize;
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"route_graph:v3:{edgeLimit}:{minLon:F4}:{minLat:F4}:{maxLon:F4}:{maxLat:F4}");
     }
 
     [Fact]
