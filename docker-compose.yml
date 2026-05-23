@@ -42,6 +42,7 @@ services:
       Routing__AsyncFirstCacheProbeMilliseconds: ${Routing__AsyncFirstCacheProbeMilliseconds:-0}
       Routing__DispatchJobsToWorker: ${Routing__DispatchJobsToWorker:-true}
       Routing__RouteJobDispatchConcurrency: ${Routing__RouteJobDispatchConcurrency:-4}
+      Routing__RouteGraphWarmupEnabled: ${Routing__RouteGraphWarmupEnabled:-false}
       Routing__RequireRouteGraphForReadiness: ${Routing__RequireRouteGraphForReadiness:-false}
       Routing__RouteGraphCacheTtlSeconds: ${Routing__RouteGraphCacheTtlSeconds:-300}
       Routing__RouteGraphShardSizeDegrees: ${Routing__RouteGraphShardSizeDegrees:-0.01}
@@ -133,6 +134,14 @@ services:
       Routing__JobComputationQueueTimeoutSeconds: ${Routing__JobComputationQueueTimeoutSeconds:-60}
       Routing__DispatchJobsToWorker: ${Routing__DispatchJobsToWorker:-true}
       Routing__RouteJobDispatchConcurrency: ${Routing__RouteJobDispatchConcurrency:-2}
+      Routing__RouteGraphWarmupEnabled: ${Routing__RouteGraphWarmupEnabled:-true}
+      Routing__RouteGraphWarmupDelaySeconds: ${Routing__RouteGraphWarmupDelaySeconds:-10}
+      Routing__RouteGraphWarmupIntervalSeconds: ${Routing__RouteGraphWarmupIntervalSeconds:-240}
+      Routing__RouteGraphWarmupRoutes__0__Name: ${Routing__RouteGraphWarmupRoutes__0__Name:-birmingham-core}
+      Routing__RouteGraphWarmupRoutes__0__StartLat: ${Routing__RouteGraphWarmupRoutes__0__StartLat:-52.4862}
+      Routing__RouteGraphWarmupRoutes__0__StartLng: ${Routing__RouteGraphWarmupRoutes__0__StartLng:--1.8904}
+      Routing__RouteGraphWarmupRoutes__0__EndLat: ${Routing__RouteGraphWarmupRoutes__0__EndLat:-52.4862}
+      Routing__RouteGraphWarmupRoutes__0__EndLng: ${Routing__RouteGraphWarmupRoutes__0__EndLng:--1.8894}
       Routing__RouteGraphCacheTtlSeconds: ${Routing__RouteGraphCacheTtlSeconds:-300}
       Routing__RouteGraphShardSizeDegrees: ${Routing__RouteGraphShardSizeDegrees:-0.01}
       Routing__RouteGraphDistributedLoadCoalescingEnabled: ${Routing__RouteGraphDistributedLoadCoalescingEnabled:-true}

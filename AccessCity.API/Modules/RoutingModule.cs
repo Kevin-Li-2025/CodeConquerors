@@ -30,6 +30,11 @@ public static class RoutingModule
             services.AddHostedService<AccessCity.API.Services.Background.RouteJobBackgroundService>();
         }
 
+        if (configuration.GetValue("Routing:RouteGraphWarmupEnabled", false))
+        {
+            services.AddHostedService<AccessCity.API.Services.Background.RouteGraphWarmupBackgroundService>();
+        }
+
         return services;
     }
 }

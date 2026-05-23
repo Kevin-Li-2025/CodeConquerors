@@ -16,6 +16,10 @@ public sealed class RoutingOptions
     public bool AsyncFirstForCacheMiss { get; set; }
     public int AsyncFirstCacheProbeMilliseconds { get; set; } = 150;
     public bool DispatchJobsToWorker { get; set; }
+    public bool RouteGraphWarmupEnabled { get; set; }
+    public int RouteGraphWarmupDelaySeconds { get; set; } = 15;
+    public int RouteGraphWarmupIntervalSeconds { get; set; } = 240;
+    public List<RouteGraphWarmupRouteOptions> RouteGraphWarmupRoutes { get; set; } = new();
     public bool RequireRouteGraphForReadiness { get; set; }
     public int RouteGraphCacheTtlSeconds { get; set; } = 300;
     public double RouteGraphShardSizeDegrees { get; set; } = 0.01;
@@ -27,4 +31,13 @@ public sealed class RoutingOptions
     public int DistributedCoalescingResultTtlSeconds { get; set; } = 10;
     public int DistributedCoalescingWaitMilliseconds { get; set; } = 3_500;
     public int DistributedCoalescingPollMilliseconds { get; set; } = 25;
+}
+
+public sealed class RouteGraphWarmupRouteOptions
+{
+    public string Name { get; set; } = "route";
+    public double StartLat { get; set; }
+    public double StartLng { get; set; }
+    public double EndLat { get; set; }
+    public double EndLng { get; set; }
 }

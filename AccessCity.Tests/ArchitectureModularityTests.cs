@@ -177,6 +177,21 @@ public sealed class ArchitectureModularityTests
     }
 
     [Fact]
+    public void Route_graph_warmup_is_worker_scoped_and_uses_configured_shards()
+    {
+        var root = FindRepositoryRoot();
+        var routingModule = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Modules", "RoutingModule.cs"));
+        var warmupService = File.ReadAllText(Path.Combine(root, "AccessCity.API", "Services", "Background", "RouteGraphWarmupBackgroundService.cs"));
+        var configMap = File.ReadAllText(Path.Combine(root, "deploy", "kubernetes", "configmap.yaml"));
+
+        Assert.Contains("RouteGraphWarmupBackgroundService", routingModule, StringComparison.Ordinal);
+        Assert.Contains("LoadGraphAsync", warmupService, StringComparison.Ordinal);
+        Assert.Contains("Routing__RouteGraphWarmupEnabled: \"false\"", configMap, StringComparison.Ordinal);
+        Assert.Contains("Routing__RouteGraphWarmupEnabled: \"true\"", configMap, StringComparison.Ordinal);
+        Assert.Contains("Routing__RouteGraphWarmupRoutes__0__Name: \"birmingham-core\"", configMap, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Ai_assist_does_not_enter_route_decision_path()
     {
         var root = FindRepositoryRoot();
