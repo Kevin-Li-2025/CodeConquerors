@@ -89,6 +89,8 @@ namespace AccessCity.API.Services
 
             // Factor 5: Infrastructure quality — uses real PostGIS route edge data
             double infraRisk = _baseRisk.QuickInfrastructureRisk(lat, lon);
+            double lightingRisk = _baseRisk.QuickLightingCoverage(lat, lon);
+            double surveillanceRisk = _baseRisk.QuickSurveillanceCoverage(lat, lon);
 
             // ──── Logistic Regression Combination ────
             // z = w₁·x₁ + w₂·x₂ + ... + wₙ·xₙ
@@ -96,7 +98,9 @@ namespace AccessCity.API.Services
                        W_TimeOfDay * timeRisk +
                        W_Weather * weatherRisk +
                        W_Crime * crimeRisk +
-                       W_Infra * infraRisk;
+                       W_Infra * infraRisk +
+                       W_Lighting * lightingRisk +
+                       W_Surveillance * surveillanceRisk;
 
             // Apply sigmoid activation for final prediction
             // Adjusted midpoint to 0.6 to allow for more 'Safe' (high score) headroom
@@ -110,6 +114,8 @@ namespace AccessCity.API.Services
                 WeatherRisk = Math.Round(weatherRisk, 4),
                 CrimeRisk = Math.Round(crimeRisk, 4),
                 InfrastructureRisk = Math.Round(infraRisk, 4),
+                LightingRisk = Math.Round(lightingRisk, 4),
+                SurveillanceRisk = Math.Round(surveillanceRisk, 4),
                 RiskFactors = GenerateRiskFactors(hazardRisk, timeRisk, weatherRisk, crimeRisk, infraRisk)
             };
         }

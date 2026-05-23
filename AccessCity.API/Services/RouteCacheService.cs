@@ -18,7 +18,9 @@ public interface IRouteCacheService
     Task<Models.RouteResponse?> TryGetAsync(string cacheKey);
     Task SetAsync(string cacheKey, Models.RouteResponse response);
     string BuildKey(double startLat, double startLng, double endLat, double endLng,
-                        string profile, double safetyWeight);
+                        string profile, double safetyWeight,
+                        IEnumerable<string>? preferences = null,
+                        string? contextFingerprint = null);
 }
 
 public interface IRouteOptionsCacheService
@@ -26,7 +28,9 @@ public interface IRouteOptionsCacheService
     Task<Models.SafePathOptionsResponse?> TryGetAsync(string cacheKey);
     Task SetAsync(string cacheKey, Models.SafePathOptionsResponse response);
     string BuildKey(double startLat, double startLng, double endLat, double endLng,
-                    string profile, double safetyWeight);
+                    string profile, double safetyWeight,
+                    IEnumerable<string>? preferences = null,
+                    string? contextFingerprint = null);
 }
 
 public class RouteCacheService : IRouteCacheService
@@ -60,9 +64,13 @@ public class RouteCacheService : IRouteCacheService
     }
 
     public string BuildKey(double startLat, double startLng, double endLat, double endLng,
-                           string profile, double safetyWeight)
+                           string profile, double safetyWeight,
+                           IEnumerable<string>? preferences = null,
+                           string? contextFingerprint = null)
     {
-        return $"route:{startLat:F5}:{startLng:F5}:{endLat:F5}:{endLng:F5}:{profile}:{safetyWeight:F2}";
+        var prefs = RouteRequestFingerprint.CanonicalPreferences(preferences);
+        var context = contextFingerprint ?? RouteRequestFingerprint.AlgorithmVersion;
+        return $"route:v2:{startLat:F5}:{startLng:F5}:{endLat:F5}:{endLng:F5}:{profile}:{safetyWeight:F2}:prefs:{prefs}:ctx:{context}";
     }
 }
 
@@ -139,9 +147,13 @@ public class RouteOptionsCacheService : IRouteOptionsCacheService
         double endLat,
         double endLng,
         string profile,
-        double safetyWeight)
+        double safetyWeight,
+        IEnumerable<string>? preferences = null,
+        string? contextFingerprint = null)
     {
-        return $"route_options:v1:{startLat:F5}:{startLng:F5}:{endLat:F5}:{endLng:F5}:{profile}:{safetyWeight:F2}";
+        var prefs = RouteRequestFingerprint.CanonicalPreferences(preferences);
+        var context = contextFingerprint ?? RouteRequestFingerprint.AlgorithmVersion;
+        return $"route_options:v2:{startLat:F5}:{startLng:F5}:{endLat:F5}:{endLng:F5}:{profile}:{safetyWeight:F2}:prefs:{prefs}:ctx:{context}";
     }
 
     private static JsonSerializerOptions CreateCacheJsonOptions()

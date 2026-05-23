@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Globalization;
 using AccessCity.API.Configuration;
 using AccessCity.API.Data;
 using AccessCity.API.Models;
@@ -283,12 +284,34 @@ public sealed class OsmImportService : IOsmImportService
     private RouteEdge CreateRouteEdgeManual(Way way, long fromId, long toId, Point fromPoint, Point toPoint)
     {
         var tags = ToDictionary(way.Tags);
-        var surface = tags.GetValueOrDefault("surface", "asphalt");
+        var surface = GetFirstTag(tags,
+            "surface",
+            "sidewalk:surface",
+            "sidewalk:left:surface",
+            "sidewalk:right:surface",
+            "left:surface",
+            "right:surface") ?? "asphalt";
+        var smoothness = GetFirstTag(tags,
+            "smoothness",
+            "sidewalk:smoothness",
+            "sidewalk:left:smoothness",
+            "sidewalk:right:smoothness",
+            "left:smoothness",
+            "right:smoothness");
         var lit = tags.GetValueOrDefault("lit");
         var highway = tags.GetValueOrDefault("highway");
         var incline = tags.GetValueOrDefault("incline");
         var barrier = tags.GetValueOrDefault("barrier");
-        var access = tags.GetValueOrDefault("access");
+        var width = ParseMetres(GetFirstTag(tags,
+            "width",
+            "sidewalk:width",
+            "sidewalk:left:width",
+            "sidewalk:right:width",
+            "left:width",
+            "right:width"));
+        var kerbHeight = ParseKerbHeight(tags);
+        var wheelchair = tags.GetValueOrDefault("wheelchair");
+        var access = BuildAccessDescriptor(tags);
 
         var line = _geometryFactory.CreateLineString(new[]
         {
@@ -303,9 +326,10 @@ public sealed class OsmImportService : IOsmImportService
             SourceWayId = way.Id,
             Geometry = line,
             DistanceMetres = RiskScoringService.HaversineDistance(fromPoint.Y, fromPoint.X, toPoint.Y, toPoint.X),
-            BaseSafetyCost = ComputeBaseSafetyCost(surface, lit, highway, incline, barrier),
+            BaseSafetyCost = ComputeBaseSafetyCost(surface, smoothness, lit, highway, incline, barrier, kerbHeight, width, wheelchair),
             SurfaceType = surface,
             HasStairs = string.Equals(highway, "steps", StringComparison.OrdinalIgnoreCase),
+            HasCrossing = HasCrossing(tags),
             LightingQuality = lit?.ToLowerInvariant() switch
             {
                 "yes" => 0.95,
@@ -314,7 +338,12 @@ public sealed class OsmImportService : IOsmImportService
                 _ => 0.45
             },
             IsSteep = IsSteep(incline),
-            HasBarrier = !string.IsNullOrWhiteSpace(barrier),
+            IsUnderConstruction = IsUnderConstruction(tags),
+            KerbHeight = kerbHeight,
+            Smoothness = smoothness,
+            WidthMetres = width,
+            HasTactilePaving = IsYes(GetFirstTag(tags, "tactile_paving", "sidewalk:tactile_paving")),
+            HasBarrier = IsBlockingBarrier(tags, kerbHeight),
             Access = access,
             Tags = ToJsonDocument(tags)
         };
@@ -482,17 +511,169 @@ public sealed class OsmImportService : IOsmImportService
         return null;
     }
 
-    private static double ComputeBaseSafetyCost(string surface, string? lit, string? highway, string? incline, string? barrier)
+    private static string? GetFirstTag(IReadOnlyDictionary<string, string> tags, params string[] keys)
+    {
+        foreach (var key in keys)
+        {
+            if (tags.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
+            {
+                return value.Trim();
+            }
+        }
+
+        return null;
+    }
+
+    private static string? BuildAccessDescriptor(IReadOnlyDictionary<string, string> tags)
+    {
+        var parts = new List<string>();
+        AddAccessPart(parts, tags, "access");
+        AddAccessPart(parts, tags, "foot");
+        AddAccessPart(parts, tags, "wheelchair");
+        return parts.Count == 0 ? null : string.Join(";", parts);
+    }
+
+    private static void AddAccessPart(List<string> parts, IReadOnlyDictionary<string, string> tags, string key)
+    {
+        if (tags.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value))
+        {
+            parts.Add($"{key}={value.Trim().ToLowerInvariant()}");
+        }
+    }
+
+    private static double? ParseMetres(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+
+        var normalized = raw.Trim().ToLowerInvariant()
+            .Replace("meters", "", StringComparison.Ordinal)
+            .Replace("metres", "", StringComparison.Ordinal)
+            .Replace("meter", "", StringComparison.Ordinal)
+            .Replace("metre", "", StringComparison.Ordinal)
+            .Replace("m", "", StringComparison.Ordinal)
+            .Trim();
+
+        if (normalized.Contains(';', StringComparison.Ordinal))
+        {
+            normalized = normalized.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)[0];
+        }
+
+        if (double.TryParse(normalized, NumberStyles.Float, CultureInfo.InvariantCulture, out var metres) && metres >= 0)
+        {
+            return metres;
+        }
+
+        return null;
+    }
+
+    private static double ParseKerbHeight(IReadOnlyDictionary<string, string> tags)
+    {
+        var explicitHeight = ParseMetres(GetFirstTag(
+            tags,
+            "kerb:height",
+            "sidewalk:kerb:height",
+            "sidewalk:left:kerb:height",
+            "sidewalk:right:kerb:height",
+            "sloped_curb:height"));
+        if (explicitHeight.HasValue)
+        {
+            return explicitHeight.Value;
+        }
+
+        var kerb = GetFirstTag(tags, "kerb", "sidewalk:kerb", "sidewalk:left:kerb", "sidewalk:right:kerb");
+        if (!string.IsNullOrWhiteSpace(kerb))
+        {
+            return kerb.ToLowerInvariant() switch
+            {
+                "flush" or "lowered" or "no" => 0.0,
+                "rolled" => 0.03,
+                "raised" => 0.10,
+                _ => 0.05
+            };
+        }
+
+        var slopedCurb = GetFirstTag(tags, "sloped_curb", "sidewalk:sloped_curb");
+        if (!string.IsNullOrWhiteSpace(slopedCurb))
+        {
+            return IsYes(slopedCurb) ? 0.02 : 0.10;
+        }
+
+        return string.Equals(tags.GetValueOrDefault("barrier"), "kerb", StringComparison.OrdinalIgnoreCase)
+            ? 0.10
+            : 0.0;
+    }
+
+    private static bool IsBlockingBarrier(IReadOnlyDictionary<string, string> tags, double kerbHeight)
+    {
+        var barrier = tags.GetValueOrDefault("barrier");
+        if (string.IsNullOrWhiteSpace(barrier))
+        {
+            return false;
+        }
+
+        if (string.Equals(barrier, "kerb", StringComparison.OrdinalIgnoreCase))
+        {
+            return kerbHeight > 0.05;
+        }
+
+        return barrier.ToLowerInvariant() switch
+        {
+            "wall" or "fence" or "gate" or "stile" or "turnstile" or "cycle_barrier" or "block" or "chain" => true,
+            _ => false
+        };
+    }
+
+    private static bool HasCrossing(IReadOnlyDictionary<string, string> tags) =>
+        string.Equals(tags.GetValueOrDefault("highway"), "crossing", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(tags.GetValueOrDefault("footway"), "crossing", StringComparison.OrdinalIgnoreCase)
+        || tags.ContainsKey("crossing");
+
+    private static bool IsUnderConstruction(IReadOnlyDictionary<string, string> tags) =>
+        string.Equals(tags.GetValueOrDefault("highway"), "construction", StringComparison.OrdinalIgnoreCase)
+        || tags.ContainsKey("construction")
+        || string.Equals(tags.GetValueOrDefault("access"), "no", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsYes(string? value) =>
+        string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, "true", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(value, "1", StringComparison.OrdinalIgnoreCase);
+
+    private static double ComputeBaseSafetyCost(
+        string surface,
+        string? smoothness,
+        string? lit,
+        string? highway,
+        string? incline,
+        string? barrier,
+        double kerbHeight,
+        double? widthMetres,
+        string? wheelchair)
     {
         var score = surface.ToLowerInvariant() switch
         {
             "asphalt" => 0.08,
+            "paved" => 0.1,
             "paving_stones" => 0.14,
             "concrete" => 0.1,
             "cobblestone" => 0.35,
+            "sett" => 0.35,
             "gravel" => 0.4,
             "unpaved" => 0.45,
+            "sand" or "dirt" or "earth" or "grass" => 0.5,
             _ => 0.2
+        };
+
+        score += smoothness?.ToLowerInvariant() switch
+        {
+            "excellent" or "good" => -0.02,
+            "intermediate" => 0.02,
+            "bad" => 0.15,
+            "very_bad" => 0.25,
+            "horrible" or "very_horrible" or "impassable" => 0.35,
+            _ => 0
         };
 
         if (string.Equals(lit, "no", StringComparison.OrdinalIgnoreCase))
@@ -512,7 +693,26 @@ public sealed class OsmImportService : IOsmImportService
 
         if (!string.IsNullOrWhiteSpace(barrier))
         {
-            score += 0.3; // Obstacle penalty
+            score += 0.2;
+        }
+
+        if (kerbHeight > 0.03)
+        {
+            score += Math.Min(kerbHeight * 4.0, 0.25);
+        }
+
+        if (widthMetres.HasValue && widthMetres < 0.9)
+        {
+            score += 0.25;
+        }
+
+        if (string.Equals(wheelchair, "no", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 0.6;
+        }
+        else if (string.Equals(wheelchair, "limited", StringComparison.OrdinalIgnoreCase))
+        {
+            score += 0.2;
         }
 
         return Math.Clamp(score, 0.01, 0.95);

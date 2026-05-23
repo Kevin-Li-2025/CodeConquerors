@@ -88,13 +88,17 @@ public class RoutingController : ControllerBase
         {
             if (_routingOptions.AsyncFirstForCacheMiss)
             {
+                var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
+                var contextFingerprint = RouteRequestFingerprint.HazardContext(hazards);
                 var cacheKey = _routeCache.BuildKey(
                     request.Start.Y,
                     request.Start.X,
                     request.End.Y,
                     request.End.X,
                     request.Profile ?? "standard",
-                    request.SafetyWeight);
+                    request.SafetyWeight,
+                    request.Preferences,
+                    contextFingerprint);
                 var cached = await _routeCache.TryGetAsync(cacheKey);
                 if (cached is not null)
                 {
@@ -102,7 +106,7 @@ public class RoutingController : ControllerBase
                     return Ok(cached);
                 }
 
-                var jobId = await _jobs.SubmitAsync(request, cancellationToken: cancellationToken);
+                var jobId = await _jobs.SubmitAsync(request, hazards, cancellationToken);
                 RecordSafePath(stopwatch, "async_accepted");
                 return Accepted(new { jobId, status = "pending", pollUrl = $"/api/v1/routing/jobs/{jobId}" });
             }
@@ -195,13 +199,17 @@ public class RoutingController : ControllerBase
 
         if (_routingOptions.AsyncFirstForCacheMiss)
         {
+            var asyncHazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
+            var contextFingerprint = RouteRequestFingerprint.HazardContext(asyncHazards);
             var cacheKey = _routeOptionsCache.BuildKey(
                 request.Start.Y,
                 request.Start.X,
                 request.End.Y,
                 request.End.X,
                 request.Profile ?? "standard",
-                request.SafetyWeight);
+                request.SafetyWeight,
+                request.Preferences,
+                contextFingerprint);
             var cached = await _routeOptionsCache.TryGetAsync(cacheKey);
             if (cached is not null)
             {
@@ -209,7 +217,7 @@ public class RoutingController : ControllerBase
                 return Ok(cached);
             }
 
-            var jobId = await _jobs.SubmitOptionsAsync(request, cancellationToken: cancellationToken);
+            var jobId = await _jobs.SubmitOptionsAsync(request, asyncHazards, cancellationToken);
             RecordSafePathOptions(stopwatch, "async_accepted");
             return Accepted(new
             {
@@ -233,7 +241,7 @@ public class RoutingController : ControllerBase
 
         var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
         var result = await _routing.FindSafePathWithVariantsAsync(request, hazards, cancellationToken);
-        await CacheOptionsAsync(request, result);
+        await CacheOptionsAsync(request, result, hazards);
         RecordSafePathOptions(stopwatch, "success");
         return Ok(result);
     }
@@ -307,17 +315,23 @@ public class RoutingController : ControllerBase
             outcome,
             stopwatch.Elapsed.TotalMilliseconds);
 
-    private async Task CacheOptionsAsync(RouteRequest request, SafePathOptionsResponse response)
+    private async Task CacheOptionsAsync(
+        RouteRequest request,
+        SafePathOptionsResponse response,
+        IEnumerable<HazardReport> hazards)
     {
         try
         {
+            var contextFingerprint = RouteRequestFingerprint.HazardContext(hazards);
             var cacheKey = _routeOptionsCache.BuildKey(
                 request.Start.Y,
                 request.Start.X,
                 request.End.Y,
                 request.End.X,
                 request.Profile ?? "standard",
-                request.SafetyWeight);
+                request.SafetyWeight,
+                request.Preferences,
+                contextFingerprint);
             await _routeOptionsCache.SetAsync(cacheKey, response);
         }
         catch

@@ -37,6 +37,33 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
     }
 
     [Fact]
+    public void RouteRequestFingerprint_Changes_For_Preferences_And_Hazards()
+    {
+        var prefsA = RouteRequestFingerprint.CanonicalPreferences(new[] { "prefer-crossings", "avoid-stairs" });
+        var prefsB = RouteRequestFingerprint.CanonicalPreferences(new[] { "avoid-stairs", "prefer-crossings" });
+        var prefsC = RouteRequestFingerprint.CanonicalPreferences(new[] { "low-light-penalty" });
+
+        Assert.Equal(prefsA, prefsB);
+        Assert.NotEqual(prefsA, prefsC);
+
+        var hazard = new HazardReport
+        {
+            Id = Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            Location = new Point(-1.8904, 52.4862) { SRID = 4326 },
+            Type = "pothole",
+            Description = "fingerprint hazard",
+            ReportedAt = new DateTime(2026, 5, 23, 12, 0, 0, DateTimeKind.Utc),
+            Status = HazardStatus.Reported
+        };
+
+        var activeContext = RouteRequestFingerprint.HazardContext(new[] { hazard });
+        hazard.Status = HazardStatus.Resolved;
+        var resolvedContext = RouteRequestFingerprint.HazardContext(new[] { hazard });
+
+        Assert.NotEqual(activeContext, resolvedContext);
+    }
+
+    [Fact]
     public void RouteRequest_Coordinates_RoundTrip_Without_NaN_Or_Z()
     {
         var request = JsonSerializer.Deserialize<RouteRequest>(

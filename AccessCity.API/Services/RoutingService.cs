@@ -40,20 +40,17 @@ public class RoutingService : IRoutingService
     private readonly IRouteCacheService _routeCache;
 
     private const double WalkingSpeed = 1.3;
+    private const double MaxHeuristicSpeedMetresPerSecond = 2.0;
+    private const double MinimumCostMultiplier = 0.8;
     private const double HazardAvoidanceRadiusMetres = 50.0;
     private const double HazardWaypointOffsetMetres = 100.0;
 
     /// <summary>Profile-specific edge filters for accessibility routing.</summary>
     private static readonly Dictionary<string, Func<GraphEdge, bool>> ProfileFilters = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["manual-wheelchair"] = e => !e.HasStairs && !e.HasBarrier && e.SurfaceType != "cobblestone"
-            && e.SurfaceType != "gravel" && e.SurfaceType != "unpaved" && e.KerbHeight < 0.03
-            && (e.WidthMetres == null || e.WidthMetres >= 0.9),
-        ["power-wheelchair"] = e => !e.HasStairs && !e.HasBarrier && e.SurfaceType != "gravel"
-            && e.SurfaceType != "unpaved" && e.KerbHeight < 0.05
-            && (e.WidthMetres == null || e.WidthMetres >= 0.9),
-        ["stroller"] = e => !e.HasStairs && !e.HasBarrier && e.SurfaceType != "gravel"
-            && e.SurfaceType != "unpaved" && e.KerbHeight < 0.05,
+        ["manual-wheelchair"] = e => IsWheelFriendly(e, maxKerbHeightMetres: 0.03, allowCobblestone: false),
+        ["power-wheelchair"] = e => IsWheelFriendly(e, maxKerbHeightMetres: 0.05, allowCobblestone: true),
+        ["stroller"] = e => IsWheelFriendly(e, maxKerbHeightMetres: 0.05, allowCobblestone: true),
     };
 
     public RoutingService(
@@ -83,18 +80,40 @@ public class RoutingService : IRoutingService
         IEnumerable<HazardReport> allHazards,
         CancellationToken cancellationToken = default)
     {
-        // Route-level cache: return instantly for identical requests
-        var cacheKey = _routeCache.BuildKey(
-            request.Start.Y, request.Start.X, request.End.Y, request.End.X,
-            request.Profile ?? "standard", request.SafetyWeight);
-        var cached = await _routeCache.TryGetAsync(cacheKey);
-        if (cached != null) return cached;
-
         var hazardList = allHazards
             .Where(h => h.Status == HazardStatus.Reported || h.Status == HazardStatus.UnderReview)
             .ToList();
+        var contextFingerprint = RouteRequestFingerprint.HazardContext(hazardList);
+
+        // Route-level cache: return instantly for identical request + preference + risk context.
+        var cacheKey = _routeCache.BuildKey(
+            request.Start.Y, request.Start.X, request.End.Y, request.End.X,
+            request.Profile ?? "standard", request.SafetyWeight,
+            request.Preferences, contextFingerprint);
+        var cached = await _routeCache.TryGetAsync(cacheKey);
+        if (cached != null) return cached;
 
         RouteResponse response;
+        RouteGraphData? graphForScoring = null;
+
+        if (RequiresVerifiedAccessibility(request))
+        {
+            try
+            {
+                graphForScoring = await _graphRepo.LoadGraphAsync(request.Start, request.End, cancellationToken);
+                if (graphForScoring.HasCoverage && !graphForScoring.IsTruncated)
+                {
+                    response = FindSafePathOnRealGraph(request, hazardList, graphForScoring);
+                    await CacheRouteAsync(cacheKey, response);
+                    return response;
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch
+            {
+                // Fall through to OSRM with an explicit degraded-confidence warning.
+            }
+        }
 
         // ── Tier 1: OSRM with alternatives + PostGIS obstacle scoring ──
         var alternatives = await _osrmClient.GetAlternativeRoutesAsync(request.Start, request.End, cancellationToken);
@@ -102,7 +121,7 @@ public class RoutingService : IRoutingService
         if (alternatives != null && alternatives.Count > 0
             && !IsOsrmDetourExcessive(request.Start, request.End, alternatives))
         {
-            var graphData = await TryLoadRouteGraphAsync(request, cancellationToken);
+            var graphData = graphForScoring ?? await TryLoadRouteGraphAsync(request, cancellationToken);
             response = await BuildBestOsrmRouteResponseAsync(request, hazardList, alternatives, graphData, cancellationToken);
             await CacheRouteAsync(cacheKey, response);
             return response;
@@ -153,6 +172,12 @@ public class RoutingService : IRoutingService
         var hazardList = allHazards
             .Where(h => h.Status == HazardStatus.Reported || h.Status == HazardStatus.UnderReview)
             .ToList();
+
+        if (RequiresVerifiedAccessibility(request))
+        {
+            var rec = await FindSafePathAsync(request, hazardList, cancellationToken);
+            return new SafePathOptionsResponse { Recommended = rec, Variants = new List<RoutedOptionVariant>() };
+        }
 
         var alternatives = await _osrmClient.GetAlternativeRoutesAsync(request.Start, request.End, cancellationToken);
         if (alternatives == null || alternatives.Count == 0
@@ -471,6 +496,80 @@ public class RoutingService : IRoutingService
         _ => $"{obstacle} present"
     };
 
+    private static bool RequiresVerifiedAccessibility(RouteRequest request)
+    {
+        if (IsAccessibilityProfile(request.Profile))
+        {
+            return true;
+        }
+
+        return request.Preferences.Any(preference =>
+            string.Equals(preference, "wheelchair", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsAccessibilityProfile(string? profile) =>
+        string.Equals(profile, "manual-wheelchair", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(profile, "power-wheelchair", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(profile, "stroller", StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsWheelFriendly(GraphEdge edge, double maxKerbHeightMetres, bool allowCobblestone)
+    {
+        if (edge.HasStairs || edge.HasBarrier || IsAccessBlocked(edge))
+        {
+            return false;
+        }
+
+        if (edge.KerbHeight > maxKerbHeightMetres)
+        {
+            return false;
+        }
+
+        if (edge.WidthMetres.HasValue && edge.WidthMetres < 0.9)
+        {
+            return false;
+        }
+
+        if (!SmoothnessAllowsWheels(edge.Smoothness))
+        {
+            return false;
+        }
+
+        return edge.SurfaceType.ToLowerInvariant() switch
+        {
+            "gravel" or "unpaved" or "sand" or "dirt" or "earth" or "grass" => false,
+            "cobblestone" or "sett" => allowCobblestone,
+            _ => true
+        };
+    }
+
+    private static bool IsAccessBlocked(GraphEdge edge)
+    {
+        if (string.IsNullOrWhiteSpace(edge.Access))
+        {
+            return false;
+        }
+
+        var access = edge.Access.ToLowerInvariant();
+        return access.Contains("access=no", StringComparison.Ordinal)
+               || access.Contains("access=private", StringComparison.Ordinal)
+               || access.Contains("foot=no", StringComparison.Ordinal)
+               || access.Contains("wheelchair=no", StringComparison.Ordinal);
+    }
+
+    private static bool SmoothnessAllowsWheels(string? smoothness)
+    {
+        if (string.IsNullOrWhiteSpace(smoothness))
+        {
+            return true;
+        }
+
+        return smoothness.ToLowerInvariant() switch
+        {
+            "bad" or "very_bad" or "horrible" or "very_horrible" or "impassable" => false,
+            _ => true
+        };
+    }
+
     // ──────── OSRM-based routing with obstacle awareness ────────
 
     /// <summary>
@@ -484,23 +583,62 @@ public class RoutingService : IRoutingService
 
         foreach (var hazard in hazards)
         {
-            double minDist = double.MaxValue;
-            int step = Math.Max(1, routeCoords.Count / 50);
-            for (int i = 0; i < routeCoords.Count; i += step)
-            {
-                double dist = RiskScoringService.HaversineDistance(
-                    routeCoords[i].Y, routeCoords[i].X,
-                    hazard.Location.Y, hazard.Location.X);
-
-                if (dist < minDist) minDist = dist;
-                if (minDist < HazardAvoidanceRadiusMetres) break;
-            }
-
+            var minDist = DistancePointToPolylineMetres(hazard.Location.Coordinate, routeCoords);
             if (minDist < HazardAvoidanceRadiusMetres)
                 result.Add(hazard);
         }
 
         return result;
+    }
+
+    private static double DistancePointToPolylineMetres(Coordinate point, IReadOnlyList<Coordinate> line)
+    {
+        if (line.Count == 0)
+        {
+            return double.MaxValue;
+        }
+
+        if (line.Count == 1)
+        {
+            return RiskScoringService.HaversineDistance(point.Y, point.X, line[0].Y, line[0].X);
+        }
+
+        var best = double.MaxValue;
+        for (var i = 0; i < line.Count - 1; i++)
+        {
+            best = Math.Min(best, DistancePointToSegmentMetres(point, line[i], line[i + 1]));
+            if (best < HazardAvoidanceRadiusMetres)
+            {
+                return best;
+            }
+        }
+
+        return best;
+    }
+
+    private static double DistancePointToSegmentMetres(Coordinate point, Coordinate a, Coordinate b)
+    {
+        var lat0 = point.Y * Math.PI / 180.0;
+        var metresPerDegreeLon = 111_320.0 * Math.Max(0.1, Math.Cos(lat0));
+        const double metresPerDegreeLat = 111_320.0;
+
+        var ax = (a.X - point.X) * metresPerDegreeLon;
+        var ay = (a.Y - point.Y) * metresPerDegreeLat;
+        var bx = (b.X - point.X) * metresPerDegreeLon;
+        var by = (b.Y - point.Y) * metresPerDegreeLat;
+
+        var dx = bx - ax;
+        var dy = by - ay;
+        var lenSq = dx * dx + dy * dy;
+        if (lenSq <= 1e-9)
+        {
+            return Math.Sqrt(ax * ax + ay * ay);
+        }
+
+        var t = Math.Clamp(-(ax * dx + ay * dy) / lenSq, 0.0, 1.0);
+        var closestX = ax + t * dx;
+        var closestY = ay + t * dy;
+        return Math.Sqrt(closestX * closestX + closestY * closestY);
     }
 
     private async Task<OsrmRouteResult?> AttemptWaypointRerouteAsync(
@@ -703,6 +841,11 @@ public class RoutingService : IRoutingService
         var warnings = new List<string>();
         double safetySum = 0;
         double totalDist = osrmRoute.DistanceMetres;
+
+        if (RequiresVerifiedAccessibility(request) && (graphData is null || !graphData.HasCoverage))
+        {
+            warnings.Add("Verified accessibility graph data is unavailable for this route; the OSRM foot route may not satisfy all mobility constraints.");
+        }
 
         if (osrmRoute.Steps.Count > 0)
         {
@@ -1027,7 +1170,7 @@ public class RoutingService : IRoutingService
         var gScore = new Dictionary<long, double> { [startId] = 0 };
         var fScore = new Dictionary<long, double>
         {
-            [startId] = Heuristic(graph[startId].Location, endNode.Location, request.SafetyWeight)
+            [startId] = Heuristic(graph[startId].Location, endNode.Location)
         };
         var cameFrom = new Dictionary<long, long>();
         var open = new PriorityQueue<long, double>();
@@ -1080,7 +1223,7 @@ public class RoutingService : IRoutingService
                     cameFrom[neighbourId] = current;
                     gScore[neighbourId] = tentativeG;
                     double f = tentativeG +
-                               Heuristic(graph[neighbourId].Location, endNode.Location, request.SafetyWeight);
+                               Heuristic(graph[neighbourId].Location, endNode.Location);
                     fScore[neighbourId] = f;
                     open.Enqueue(neighbourId, f);
                 }
@@ -1114,10 +1257,10 @@ public class RoutingService : IRoutingService
         return filters;
     }
 
-    private static double Heuristic(Coordinate a, Coordinate b, double safetyWeight)
+    private static double Heuristic(Coordinate a, Coordinate b)
     {
         double dist = RiskScoringService.HaversineDistance(a.Y, a.X, b.Y, b.X);
-        return dist * (1.0 - safetyWeight * 0.3);
+        return dist / MaxHeuristicSpeedMetresPerSecond;
     }
 
     private double ComputeEdgeCost(
@@ -1127,7 +1270,7 @@ public class RoutingService : IRoutingService
         Dictionary<(long From, long To), double> riskMemo)
     {
         double w = Math.Clamp(request.SafetyWeight, 0.0, 1.0);
-        double distCost = edge.DistanceMetres;
+        double baseSeconds = edge.DistanceMetres / ResolveProfileSpeed(request.Profile);
 
         var riskKey = fromNode.Id <= toNode.Id
             ? (fromNode.Id, toNode.Id)
@@ -1140,7 +1283,9 @@ public class RoutingService : IRoutingService
             riskMemo[riskKey] = liveRisk;
         }
 
-        double safetyCost = (edge.BaseSafetyCost + liveRisk) / 2.0 * edge.DistanceMetres;
+        double edgeRisk = Math.Clamp((edge.BaseSafetyCost + liveRisk) / 2.0, 0.0, 1.0);
+        double riskPenaltySeconds = baseSeconds * edgeRisk * 4.0 * w;
+        double accessibilityPenaltySeconds = ComputeSoftAccessibilityPenaltySeconds(edge, request.Profile) * w;
 
         double modifier = 1.0;
         foreach (var pref in request.Preferences)
@@ -1149,8 +1294,37 @@ public class RoutingService : IRoutingService
                 modifier *= fn(edge);
         }
 
-        double blended = ((1.0 - w) * distCost + w * safetyCost) * modifier;
-        return Math.Max(blended, 0.001);
+        modifier = Math.Max(MinimumCostMultiplier, modifier);
+        var cost = (baseSeconds + riskPenaltySeconds + accessibilityPenaltySeconds) * modifier;
+        return Math.Max(cost, edge.DistanceMetres / MaxHeuristicSpeedMetresPerSecond);
+    }
+
+    private static double ResolveProfileSpeed(string? profile) => profile switch
+    {
+        "manual-wheelchair" => 0.9,
+        "power-wheelchair" => 1.1,
+        "stroller" => 1.1,
+        _ => WalkingSpeed
+    };
+
+    private static double ComputeSoftAccessibilityPenaltySeconds(GraphEdge edge, string profile)
+    {
+        var baseSeconds = edge.DistanceMetres / ResolveProfileSpeed(profile);
+        var strict = IsAccessibilityProfile(profile);
+        var surface = edge.SurfaceType.ToLowerInvariant();
+        double penalty = 0;
+
+        if (edge.HasStairs) penalty += strict ? 600 : 90;
+        if (edge.HasBarrier) penalty += strict ? 600 : 60;
+        if (edge.KerbHeight > 0.03) penalty += strict ? 300 : 30;
+        if (surface is "cobblestone" or "sett") penalty += baseSeconds * (strict ? 2.0 : 0.4);
+        if (surface is "gravel" or "unpaved" or "sand" or "dirt" or "earth" or "grass")
+            penalty += baseSeconds * (strict ? 4.0 : 0.8);
+        if (!SmoothnessAllowsWheels(edge.Smoothness)) penalty += strict ? 300 : 45;
+        if (edge.WidthMetres.HasValue && edge.WidthMetres < 0.9) penalty += strict ? 300 : 30;
+        if (edge.IsSteep) penalty += baseSeconds * (strict ? 1.5 : 0.5);
+
+        return penalty;
     }
 
     private static List<long> ReconstructPath(Dictionary<long, long> cameFrom, long current)

@@ -270,7 +270,7 @@ public sealed class RouteJobService : IRouteJobService
         var routing = scope.ServiceProvider.GetRequiredService<IRoutingService>();
         var options = await routing.FindSafePathWithVariantsAsync(request, scopedHazards, stoppingToken);
 
-        await CacheOptionsResultAsync(scope.ServiceProvider, request, options);
+        await CacheOptionsResultAsync(scope.ServiceProvider, request, options, scopedHazards);
         return options;
     }
 
@@ -292,16 +292,18 @@ public sealed class RouteJobService : IRouteJobService
     private async Task CacheOptionsResultAsync(
         IServiceProvider serviceProvider,
         RouteRequest request,
-        SafePathOptionsResponse options)
+        SafePathOptionsResponse options,
+        IEnumerable<HazardReport> hazards)
     {
         try
         {
+            var contextFingerprint = RouteRequestFingerprint.HazardContext(hazards);
             var routeCache = serviceProvider.GetRequiredService<IRouteCacheService>();
-            var routeCacheKey = BuildRouteCacheKey(routeCache, request);
+            var routeCacheKey = BuildRouteCacheKey(routeCache, request, contextFingerprint);
             await routeCache.SetAsync(routeCacheKey, options.Recommended);
 
             var optionsCache = serviceProvider.GetRequiredService<IRouteOptionsCacheService>();
-            var optionsCacheKey = BuildOptionsCacheKey(optionsCache, request);
+            var optionsCacheKey = BuildOptionsCacheKey(optionsCache, request, contextFingerprint);
             await optionsCache.SetAsync(optionsCacheKey, options);
         }
         catch (Exception ex)
@@ -380,23 +382,33 @@ public sealed class RouteJobService : IRouteJobService
 
     private static string JobCacheKey(string jobId) => $"route_job:{jobId}";
 
-    private static string BuildRouteCacheKey(IRouteCacheService routeCache, RouteRequest request) =>
+    private static string BuildRouteCacheKey(
+        IRouteCacheService routeCache,
+        RouteRequest request,
+        string contextFingerprint) =>
         routeCache.BuildKey(
             request.Start.Y,
             request.Start.X,
             request.End.Y,
             request.End.X,
             request.Profile ?? "standard",
-            request.SafetyWeight);
+            request.SafetyWeight,
+            request.Preferences,
+            contextFingerprint);
 
-    private static string BuildOptionsCacheKey(IRouteOptionsCacheService optionsCache, RouteRequest request) =>
+    private static string BuildOptionsCacheKey(
+        IRouteOptionsCacheService optionsCache,
+        RouteRequest request,
+        string contextFingerprint) =>
         optionsCache.BuildKey(
             request.Start.Y,
             request.Start.X,
             request.End.Y,
             request.End.X,
             request.Profile ?? "standard",
-            request.SafetyWeight);
+            request.SafetyWeight,
+            request.Preferences,
+            contextFingerprint);
 
     private static JsonSerializerOptions CreateJobJsonOptions()
     {

@@ -22,6 +22,11 @@
     <nd ref="1003" />
     <tag k="highway" v="footway" />
     <tag k="surface" v="asphalt" />
+    <tag k="smoothness" v="good" />
+    <tag k="width" v="1.8" />
+    <tag k="kerb" v="flush" />
+    <tag k="tactile_paving" v="yes" />
+    <tag k="wheelchair" v="yes" />
     <tag k="lit" v="yes" />
     <tag k="name" v="Accessible Walkway" />
   </way>

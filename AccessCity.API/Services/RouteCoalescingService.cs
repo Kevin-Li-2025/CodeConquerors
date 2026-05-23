@@ -79,8 +79,11 @@ public sealed class RouteCoalescingService : IRouteCoalescingService
         return await factory();
     }
 
-    private static string BuildKey(RouteRequest request) =>
-        $"{request.Start?.X:F5},{request.Start?.Y:F5}->{request.End?.X:F5},{request.End?.Y:F5}|{request.Profile}|{request.SafetyWeight:F2}";
+    private static string BuildKey(RouteRequest request)
+    {
+        var prefs = RouteRequestFingerprint.CanonicalPreferences(request.Preferences);
+        return $"{request.Start?.X:F5},{request.Start?.Y:F5}->{request.End?.X:F5},{request.End?.Y:F5}|{request.Profile}|{request.SafetyWeight:F2}|prefs:{prefs}|{RouteRequestFingerprint.AlgorithmVersion}";
+    }
 
     private async Task RemoveAfterDelay(string key, TimeSpan delay)
     {
