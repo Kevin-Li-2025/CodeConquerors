@@ -40,11 +40,11 @@ public class RiskTileCacheService : IRiskTileCacheService
         var key = TileKey(lat, lng);
 
 #pragma warning disable EXTEXP0018
-        return await _cache.GetOrCreateAsync(key, _ =>
+        return await _cache.GetOrCreateAsync(key, async token =>
         {
             double risk = _riskService.QuickRisk(lat, lng, Enumerable.Empty<Models.HazardReport>());
             double crime = _riskService.QuickCrimeRisk(lat, lng);
-            double infra = _riskService.QuickInfrastructureRisk(lat, lng);
+            double infra = await _riskService.EstimateInfrastructureRiskAsync(lat, lng, 250, token);
             double lighting = _riskService.QuickLightingCoverage(lat, lng);
             double surveillance = _riskService.QuickSurveillanceCoverage(lat, lng);
 
@@ -52,7 +52,7 @@ public class RiskTileCacheService : IRiskTileCacheService
             double result = Math.Clamp(
                 risk * 0.35 + crime * 0.12 + infra * 0.15 +
                 lighting * 0.10 + surveillance * 0.08 + 0.20 * 0.15, 0, 1);
-            return ValueTask.FromResult(result);
+            return result;
         }, new HybridCacheEntryOptions { Expiration = TileTtl });
 #pragma warning restore EXTEXP0018
     }

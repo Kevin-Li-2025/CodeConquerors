@@ -41,7 +41,13 @@ namespace AccessCity.API.Services
 
         double QuickCrimeRisk(double lat, double lng);
 
-        double QuickInfrastructureRisk(double lat, double lng);
+        double QuickInfrastructureRisk(double lat, double lng, double radiusMetres = 150);
+
+        Task<double> EstimateInfrastructureRiskAsync(
+            double lat,
+            double lng,
+            double radiusMetres,
+            CancellationToken cancellationToken = default);
 
         double QuickLightingCoverage(double lat, double lng);
 
@@ -179,7 +185,7 @@ namespace AccessCity.API.Services
             double hazardDensity = Math.Min(densityPerKmSq / 50.0, 1.0);
 
             var infrastructureRiskTask = WithExternalSignalBudgetAsync(
-                EstimateInfrastructureRiskAsync(latitude, longitude, radiusMetres),
+                token => EstimateInfrastructureRiskAsync(latitude, longitude, radiusMetres, token),
                 DefaultInfrastructureRisk);
             var crimeCountTask = WithExternalSignalBudgetAsync(GetCachedCrimeCountAsync(latitude, longitude), 0);
             var environmentalRisksTask = WithExternalSignalBudgetAsync(
@@ -343,32 +349,24 @@ namespace AccessCity.API.Services
 
         /// <summary>
         /// Lightweight sync infrastructure risk score.
-        /// Queries PostGIS route edges within ~100m of the point for lighting,
-        /// stairs, and kerb height. Result is consistent with per-edge routing.
-        /// Falls back to 0.25 baseline when no PostGIS data is available.
+        /// Hot-path callers must not block on PostGIS. This method only reads
+        /// already-warmed memory entries and otherwise returns the conservative
+        /// baseline; full async endpoints use <see cref="EstimateInfrastructureRiskAsync"/>.
         /// </summary>
-        public double QuickInfrastructureRisk(double lat, double lng)
+        public double QuickInfrastructureRisk(double lat, double lng, double radiusMetres = 150)
         {
-            if (_cache != null)
+            if (_cache == null)
             {
-                var cacheKey = $"infra:{Math.Round(lat, 4):F4}:{Math.Round(lng, 4):F4}";
-                if (_cache.TryGetValue(cacheKey, out double cached)) return cached;
-
-                try
-                {
-                    double risk = EstimateInfrastructureRiskAsync(lat, lng, 150)
-                        .GetAwaiter().GetResult();
-                    _cache.Set(cacheKey, risk, TimeSpan.FromMinutes(10));
-                    return risk;
-                }
-                catch
-                {
-                    return 0.25;
-                }
+                return DefaultInfrastructureRisk;
             }
 
-            // No cache — just return baseline instead of random
-            return 0.25;
+            var cacheKey = BuildInfrastructureRiskCacheKey(lat, lng, radiusMetres);
+            if (_cache.TryGetValue(cacheKey, out double cached))
+            {
+                return cached;
+            }
+
+            return DefaultInfrastructureRisk;
         }
 
         /// <summary>Lighting coverage risk [0,1]. 0 = well-lit, 1 = no lamps.</summary>
@@ -442,6 +440,26 @@ namespace AccessCity.API.Services
                 return await task.WaitAsync(_externalSignalBudget);
             }
             catch (TimeoutException)
+            {
+                return fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        private async Task<T> WithExternalSignalBudgetAsync<T>(
+            Func<CancellationToken, Task<T>> factory,
+            T fallback)
+        {
+            using var budgetCts = new CancellationTokenSource(_externalSignalBudget);
+
+            try
+            {
+                return await factory(budgetCts.Token);
+            }
+            catch (OperationCanceledException) when (budgetCts.IsCancellationRequested)
             {
                 return fallback;
             }
@@ -531,7 +549,11 @@ namespace AccessCity.API.Services
         /// </summary>
         private static readonly GeometryFactory Wgs84 = new(new PrecisionModel(), 4326);
 
-        private async Task<double> EstimateInfrastructureRiskAsync(double lat, double lng, double radiusMetres)
+        public async Task<double> EstimateInfrastructureRiskAsync(
+            double lat,
+            double lng,
+            double radiusMetres,
+            CancellationToken cancellationToken = default)
         {
             var cacheKey = BuildInfrastructureRiskCacheKey(lat, lng, radiusMetres);
             var cached = await TryGetCachedAsync<double>(cacheKey, "infrastructure");
@@ -540,12 +562,16 @@ namespace AccessCity.API.Services
                 return cached.Value;
             }
 
-            var risk = await ComputeInfrastructureRiskAsync(lat, lng, radiusMetres);
+            var risk = await ComputeInfrastructureRiskAsync(lat, lng, radiusMetres, cancellationToken);
             await SetCachedAsync(cacheKey, risk, InfrastructureRiskCacheExpiry);
             return risk;
         }
 
-        private async Task<double> ComputeInfrastructureRiskAsync(double lat, double lng, double radiusMetres)
+        private async Task<double> ComputeInfrastructureRiskAsync(
+            double lat,
+            double lng,
+            double radiusMetres,
+            CancellationToken cancellationToken)
         {
             var queryPoint = Wgs84.CreatePoint(new Coordinate(lng, lat));
             List<RouteEdge> nearbyEdges;
@@ -563,14 +589,14 @@ namespace AccessCity.API.Services
                         LIMIT 50
                         """)
                     .AsNoTracking()
-                    .ToListAsync();
+                    .ToListAsync(cancellationToken);
             }
             else
             {
                 nearbyEdges = await _dbContext.RouteEdges
                     .Where(e => e.Geometry.Distance(queryPoint) < (radiusMetres / 100000.0))
                     .Take(50)
-                    .ToListAsync();
+                    .ToListAsync(cancellationToken);
             }
 
             if (nearbyEdges.Count == 0) return 0.35;

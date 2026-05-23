@@ -1,9 +1,12 @@
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace AccessCity.API.Data.Migrations
 {
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260523111500_AddDashboardSummaryIndexes")]
     public partial class AddDashboardSummaryIndexes : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)

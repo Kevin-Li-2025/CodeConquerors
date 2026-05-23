@@ -11,7 +11,14 @@ public interface IRiskScoreCacheService
         Func<CancellationToken, Task<RiskScoreResponse>> factory,
         CancellationToken cancellationToken = default);
 
+    Task<T> GetOrComputeAsync<T>(
+        string cacheKey,
+        Func<CancellationToken, Task<T>> factory,
+        CancellationToken cancellationToken = default);
+
     string BuildKey(double latitude, double longitude, double radiusMetres);
+
+    string BuildKey(string prefix, double latitude, double longitude, double radiusMetres);
 }
 
 public sealed class RiskScoreCacheService : IRiskScoreCacheService
@@ -34,6 +41,14 @@ public sealed class RiskScoreCacheService : IRiskScoreCacheService
         Func<CancellationToken, Task<RiskScoreResponse>> factory,
         CancellationToken cancellationToken = default)
     {
+        return await GetOrComputeAsync<RiskScoreResponse>(cacheKey, factory, cancellationToken);
+    }
+
+    public async Task<T> GetOrComputeAsync<T>(
+        string cacheKey,
+        Func<CancellationToken, Task<T>> factory,
+        CancellationToken cancellationToken = default)
+    {
 #pragma warning disable EXTEXP0018
         return await _cache.GetOrCreateAsync(
             cacheKey,
@@ -45,6 +60,11 @@ public sealed class RiskScoreCacheService : IRiskScoreCacheService
 
     public string BuildKey(double latitude, double longitude, double radiusMetres)
     {
+        return BuildKey("risk-score", latitude, longitude, radiusMetres);
+    }
+
+    public string BuildKey(string prefix, double latitude, double longitude, double radiusMetres)
+    {
         var roundedLatitude = Math.Round(latitude, _coordinatePrecision, MidpointRounding.AwayFromZero);
         var roundedLongitude = Math.Round(longitude, _coordinatePrecision, MidpointRounding.AwayFromZero);
         var radiusBucket = (int)Math.Ceiling(Math.Max(0, radiusMetres) / _radiusBucketMetres) * _radiusBucketMetres;
@@ -52,6 +72,6 @@ public sealed class RiskScoreCacheService : IRiskScoreCacheService
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"risk-score:{roundedLatitude.ToString(coordinateFormat, CultureInfo.InvariantCulture)}:{roundedLongitude.ToString(coordinateFormat, CultureInfo.InvariantCulture)}:{radiusBucket}");
+            $"{prefix}:{roundedLatitude.ToString(coordinateFormat, CultureInfo.InvariantCulture)}:{roundedLongitude.ToString(coordinateFormat, CultureInfo.InvariantCulture)}:{radiusBucket}");
     }
 }

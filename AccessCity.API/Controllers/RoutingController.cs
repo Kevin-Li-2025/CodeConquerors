@@ -91,22 +91,36 @@ public class RoutingController : ControllerBase
         {
             if (_routingOptions.AsyncFirstForCacheMiss)
             {
-                var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
-                var contextFingerprint = await BuildRouteContextFingerprintAsync(hazards, cancellationToken);
-                var cacheKey = _routeCache.BuildKey(
-                    request.Start.Y,
-                    request.Start.X,
-                    request.End.Y,
-                    request.End.X,
-                    request.Profile ?? "standard",
-                    request.SafetyWeight,
-                    request.Preferences,
-                    contextFingerprint);
-                var cached = await _routeCache.TryGetAsync(cacheKey);
-                if (cached is not null)
+                List<HazardReport>? hazards = null;
+                var probeBudget = GetAsyncFirstCacheProbeBudget();
+                if (probeBudget > TimeSpan.Zero)
                 {
-                    RecordSafePath(stopwatch, "cache_hit");
-                    return Ok(cached);
+                    using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    probeCts.CancelAfter(probeBudget);
+                    try
+                    {
+                        hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, probeCts.Token);
+                        var contextFingerprint = await BuildRouteContextFingerprintAsync(hazards, probeCts.Token);
+                        var cacheKey = _routeCache.BuildKey(
+                            request.Start.Y,
+                            request.Start.X,
+                            request.End.Y,
+                            request.End.X,
+                            request.Profile ?? "standard",
+                            request.SafetyWeight,
+                            request.Preferences,
+                            contextFingerprint);
+                        var cached = await _routeCache.TryGetAsync(cacheKey);
+                        if (cached is not null)
+                        {
+                            RecordSafePath(stopwatch, "cache_hit");
+                            return Ok(cached);
+                        }
+                    }
+                    catch (OperationCanceledException) when (probeCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                    {
+                        hazards = null;
+                    }
                 }
 
                 var jobId = await _jobs.SubmitAsync(request, hazards, cancellationToken);
@@ -124,7 +138,7 @@ public class RoutingController : ControllerBase
 
                     var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, timeoutCts.Token);
                     return await _routing.FindSafePathAsync(request, hazards, timeoutCts.Token);
-                });
+                }).WaitAsync(timeoutCts.Token);
 
             if (result is null)
             {
@@ -212,22 +226,36 @@ public class RoutingController : ControllerBase
 
         if (_routingOptions.AsyncFirstForCacheMiss)
         {
-            var asyncHazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
-            var contextFingerprint = await BuildRouteContextFingerprintAsync(asyncHazards, cancellationToken);
-            var cacheKey = _routeOptionsCache.BuildKey(
-                request.Start.Y,
-                request.Start.X,
-                request.End.Y,
-                request.End.X,
-                request.Profile ?? "standard",
-                request.SafetyWeight,
-                request.Preferences,
-                contextFingerprint);
-            var cached = await _routeOptionsCache.TryGetAsync(cacheKey);
-            if (cached is not null)
+            List<HazardReport>? asyncHazards = null;
+            var probeBudget = GetAsyncFirstCacheProbeBudget();
+            if (probeBudget > TimeSpan.Zero)
             {
-                RecordSafePathOptions(stopwatch, "cache_hit");
-                return Ok(cached);
+                using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                probeCts.CancelAfter(probeBudget);
+                try
+                {
+                    asyncHazards = await _hazardQueries.LoadHazardsForRouteAsync(request, probeCts.Token);
+                    var contextFingerprint = await BuildRouteContextFingerprintAsync(asyncHazards, probeCts.Token);
+                    var cacheKey = _routeOptionsCache.BuildKey(
+                        request.Start.Y,
+                        request.Start.X,
+                        request.End.Y,
+                        request.End.X,
+                        request.Profile ?? "standard",
+                        request.SafetyWeight,
+                        request.Preferences,
+                        contextFingerprint);
+                    var cached = await _routeOptionsCache.TryGetAsync(cacheKey);
+                    if (cached is not null)
+                    {
+                        RecordSafePathOptions(stopwatch, "cache_hit");
+                        return Ok(cached);
+                    }
+                }
+                catch (OperationCanceledException) when (probeCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+                {
+                    asyncHazards = null;
+                }
             }
 
             var jobId = await _jobs.SubmitOptionsAsync(request, asyncHazards, cancellationToken);
@@ -249,6 +277,39 @@ public class RoutingController : ControllerBase
         try
         {
             var queueTimeout = TimeSpan.FromSeconds(Math.Max(1, _routingOptions.ComputationQueueTimeoutSeconds));
+            if (UsesPrimaryRouteOnlyOptions(request))
+            {
+                var primaryRoute = await _coalescing.GetOrComputeAsync(
+                    request,
+                    async () =>
+                    {
+                        await using var lease = await _routeLimiter.TryAcquireAsync(queueTimeout, workToken);
+                        if (lease is null)
+                        {
+                            return null;
+                        }
+
+                        var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, workToken);
+                        return await _routing.FindSafePathAsync(request, hazards, workToken);
+                    }).WaitAsync(workToken);
+                if (primaryRoute is null)
+                {
+                    RecordSafePathOptions(stopwatch, "capacity_saturated");
+                    return StatusCode(StatusCodes.Status503ServiceUnavailable, new ApiError(
+                        "Route computation capacity is saturated.",
+                        Detail: "Retry shortly or use the async job endpoint for the primary route."));
+                }
+
+                var response = new SafePathOptionsResponse
+                {
+                    Recommended = primaryRoute,
+                    Variants = new List<RoutedOptionVariant>()
+                };
+
+                RecordSafePathOptions(stopwatch, "primary_route_only");
+                return Ok(response);
+            }
+
             var outcome = "success";
             var result = await _coalescing.GetOrComputeOptionsAsync(
                 request,
@@ -281,7 +342,7 @@ public class RoutingController : ControllerBase
                     var computed = await _routing.FindSafePathWithVariantsAsync(request, hazards, workToken);
                     await _routeOptionsCache.SetAsync(cacheKey, computed);
                     return computed;
-                });
+                }).WaitAsync(workToken);
 
             if (result is null)
             {
@@ -339,8 +400,18 @@ public class RoutingController : ControllerBase
         [FromQuery] RiskScoreRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var hazards = await _hazardQueries.LoadHazardsNearPointAsync(request.Lat, request.Lng, request.Radius, cancellationToken);
-        var result = await _aiRisk.EvaluateSegmentRiskAsync(request.Lat, request.Lng, hazards, request.Radius);
+        var cappedRadius = Math.Min(
+            Math.Max(0, request.Radius),
+            Math.Max(1, _routingOptions.MaxRiskQueryRadiusMetres));
+        var cacheKey = _riskScoreCache.BuildKey("ai-risk-score", request.Lat, request.Lng, cappedRadius);
+        var result = await _riskScoreCache.GetOrComputeAsync(
+            cacheKey,
+            async token =>
+            {
+                var hazards = await _hazardQueries.LoadHazardsNearPointAsync(request.Lat, request.Lng, cappedRadius, token);
+                return await _aiRisk.EvaluateSegmentRiskAsync(request.Lat, request.Lng, hazards, cappedRadius);
+            },
+            cancellationToken);
         return Ok(result);
     }
 
@@ -355,8 +426,18 @@ public class RoutingController : ControllerBase
         [FromQuery] RiskScoreRequestDto request,
         CancellationToken cancellationToken = default)
     {
-        var hazards = await _hazardQueries.LoadHazardsNearPointAsync(request.Lat, request.Lng, request.Radius, cancellationToken);
-        var result = await _risk.PredictRiskAsync(request.Lat, request.Lng, request.Radius, hazards);
+        var cappedRadius = Math.Min(
+            Math.Max(0, request.Radius),
+            Math.Max(1, _routingOptions.MaxRiskQueryRadiusMetres));
+        var cacheKey = _riskScoreCache.BuildKey("hazard-blend-risk", request.Lat, request.Lng, cappedRadius);
+        var result = await _riskScoreCache.GetOrComputeAsync(
+            cacheKey,
+            async token =>
+            {
+                var hazards = await _hazardQueries.LoadHazardsNearPointAsync(request.Lat, request.Lng, cappedRadius, token);
+                return await _risk.PredictRiskAsync(request.Lat, request.Lng, cappedRadius, hazards);
+            },
+            cancellationToken);
         return Ok(result);
     }
 
@@ -380,4 +461,23 @@ public class RoutingController : ControllerBase
             "/api/v{version}/routing/safe-path/options",
             outcome,
             stopwatch.Elapsed.TotalMilliseconds);
+
+    private static bool UsesPrimaryRouteOnlyOptions(RouteRequest request)
+    {
+        if (string.Equals(request.Profile, "manual-wheelchair", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.Profile, "power-wheelchair", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.Profile, "stroller", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return request.Preferences?.Any(preference =>
+            string.Equals(preference, "wheelchair", StringComparison.OrdinalIgnoreCase)) == true;
+    }
+
+    private TimeSpan GetAsyncFirstCacheProbeBudget()
+    {
+        var milliseconds = Math.Clamp(_routingOptions.AsyncFirstCacheProbeMilliseconds, 0, 1_000);
+        return TimeSpan.FromMilliseconds(milliseconds);
+    }
 }

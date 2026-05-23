@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AccessCity.API.Configuration;
@@ -7,9 +9,11 @@ using AccessCity.API.Messaging;
 using AccessCity.API.Models;
 using AccessCity.API.Serialization;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using NetTopologySuite.IO.Converters;
+using StackExchange.Redis;
 
 namespace AccessCity.API.Services;
 
@@ -52,6 +56,7 @@ public enum RouteJobStatus { Pending, Processing, Completed, Failed }
 public sealed class RouteJobService : IRouteJobService
 {
     private readonly ConcurrentDictionary<string, RouteJobResult> _jobs = new();
+    private readonly ConcurrentDictionary<string, Lazy<Task<string>>> _inflightSubmissions = new();
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IMessageBus _messageBus;
     private readonly IRouteCoalescingService _coalescing;
@@ -60,8 +65,10 @@ public sealed class RouteJobService : IRouteJobService
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<RouteJobService> _logger;
     private readonly RoutingOptions _options;
+    private readonly IConnectionMultiplexer? _redis;
     private readonly bool _dispatchJobsToWorker;
     private static readonly TimeSpan JobTtl = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan JobDedupeTtl = TimeSpan.FromSeconds(30);
     private static readonly JsonSerializerOptions JobJsonOptions = CreateJobJsonOptions();
 
     public RouteJobService(
@@ -73,7 +80,8 @@ public sealed class RouteJobService : IRouteJobService
         IHostApplicationLifetime lifetime,
         IConfiguration configuration,
         IOptions<RoutingOptions> options,
-        ILogger<RouteJobService> logger)
+        ILogger<RouteJobService> logger,
+        IServiceProvider services)
     {
         _scopeFactory = scopeFactory;
         _messageBus = messageBus;
@@ -82,6 +90,7 @@ public sealed class RouteJobService : IRouteJobService
         _distributedCache = distributedCache;
         _lifetime = lifetime;
         _options = options.Value;
+        _redis = services.GetService<IConnectionMultiplexer>();
         _dispatchJobsToWorker = _options.DispatchJobsToWorker || configuration.GetValue<bool>("Messaging:UseKafka");
         _logger = logger;
     }
@@ -108,7 +117,36 @@ public sealed class RouteJobService : IRouteJobService
         List<HazardReport>? hazards,
         CancellationToken cancellationToken)
     {
-        var jobId = Guid.NewGuid().ToString("N")[..12];
+        var dedupeKey = BuildJobDedupeKey(kind, request);
+        var lazy = _inflightSubmissions.GetOrAdd(
+            dedupeKey,
+            _ => new Lazy<Task<string>>(
+                () => SubmitCoreUncoalescedAsync(kind, request, hazards, dedupeKey, cancellationToken),
+                LazyThreadSafetyMode.ExecutionAndPublication));
+
+        try
+        {
+            return await lazy.Value;
+        }
+        finally
+        {
+            if (lazy.IsValueCreated && lazy.Value.IsCompleted
+                                    && _inflightSubmissions.TryGetValue(dedupeKey, out var current)
+                                    && ReferenceEquals(current, lazy))
+            {
+                _inflightSubmissions.TryRemove(dedupeKey, out _);
+            }
+        }
+    }
+
+    private Task<string> SubmitCoreUncoalescedAsync(
+        RouteJobKind kind,
+        RouteRequest request,
+        List<HazardReport>? hazards,
+        string dedupeKey,
+        CancellationToken cancellationToken)
+    {
+        var jobId = BuildDeterministicJobId(dedupeKey);
         var result = new RouteJobResult
         {
             JobId = jobId,
@@ -118,22 +156,70 @@ public sealed class RouteJobService : IRouteJobService
         };
 
         _jobs[jobId] = result;
-        await PersistAsync(result, cancellationToken);
-
-        if (_dispatchJobsToWorker)
-        {
-            await _messageBus.PublishAsync(
-                new RouteJobRequestedEvent(jobId, request, result.SubmittedAt, kind),
-                cancellationToken);
-            return jobId;
-        }
-
-        // Local-dev fallback: compute in-process when Kafka worker dispatch is disabled.
         _ = Task.Run(
-            () => ComputeAsync(jobId, kind, request, hazards, result.SubmittedAt, _lifetime.ApplicationStopping),
+            () => PersistAndDispatchAsync(jobId, kind, request, hazards, result, dedupeKey, CancellationToken.None),
             CancellationToken.None);
 
-        return jobId;
+        return Task.FromResult(jobId);
+    }
+
+    private async Task PersistAndDispatchAsync(
+        string jobId,
+        RouteJobKind kind,
+        RouteRequest request,
+        List<HazardReport>? hazards,
+        RouteJobResult result,
+        string dedupeKey,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(250), cancellationToken);
+
+            if (_redis is { IsConnected: true })
+            {
+                var reserved = await _redis.GetDatabase().StringSetAsync(dedupeKey, jobId, JobDedupeTtl, When.NotExists);
+                if (!reserved)
+                {
+                    return;
+                }
+            }
+
+            await PersistAsync(result, cancellationToken);
+
+            if (_dispatchJobsToWorker)
+            {
+                await _messageBus.PublishAsync(
+                    new RouteJobRequestedEvent(jobId, request, result.SubmittedAt, kind),
+                    cancellationToken);
+                return;
+            }
+
+            await ComputeAsync(jobId, kind, request, hazards, result.SubmittedAt, _lifetime.ApplicationStopping);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Route job {JobId} could not be queued", jobId);
+            result.Status = RouteJobStatus.Failed;
+            result.Error = "Route job could not be queued.";
+            result.CompletedAt = DateTime.UtcNow;
+            await PersistAsync(result, CancellationToken.None);
+        }
+    }
+
+    private static string BuildJobDedupeKey(RouteJobKind kind, RouteRequest request)
+    {
+        var prefs = RouteRequestFingerprint.CanonicalPreferences(request.Preferences);
+        return string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"route_job:dedupe:{kind}:{request.Start?.X:F5},{request.Start?.Y:F5}->{request.End?.X:F5},{request.End?.Y:F5}|{request.Profile}|{request.SafetyWeight:F2}|prefs:{prefs}|{RouteRequestFingerprint.AlgorithmVersion}");
+    }
+
+    private static string BuildDeterministicJobId(string dedupeKey)
+    {
+        var bucket = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / (long)JobDedupeTtl.TotalSeconds;
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes($"{dedupeKey}:{bucket}"));
+        return Convert.ToHexString(bytes).ToLowerInvariant()[..12];
     }
 
     public async Task ProcessQueuedJobAsync(RouteJobRequestedEvent @event, CancellationToken cancellationToken = default)

@@ -211,6 +211,41 @@ public class RiskScoringServiceTests
         Assert.Equal(0.15, risk);
     }
 
+    [Fact]
+    public void QuickInfrastructureRisk_NoCachedData_ReturnsBaseline()
+    {
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var svc = CreateService(cache: cache);
+
+        double risk = svc.QuickInfrastructureRisk(52.48, -1.89);
+
+        Assert.Equal(0.35, risk);
+    }
+
+    [Fact]
+    public void QuickInfrastructureRisk_UsesWarmMemoryCache()
+    {
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        cache.Set("infra-risk:52.4800:-1.8900:150", 0.72);
+        var svc = CreateService(cache: cache);
+
+        double risk = svc.QuickInfrastructureRisk(52.48, -1.89);
+
+        Assert.Equal(0.72, risk);
+    }
+
+    [Fact]
+    public void QuickInfrastructureRisk_UsesRequestedRadiusBucket()
+    {
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        cache.Set("infra-risk:52.4800:-1.8900:200", 0.81);
+        var svc = CreateService(cache: cache);
+
+        double risk = svc.QuickInfrastructureRisk(52.48, -1.89, 200);
+
+        Assert.Equal(0.81, risk);
+    }
+
     // ─────────── Environmental data mocking ───────────
 
     [Fact]

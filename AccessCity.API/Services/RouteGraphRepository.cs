@@ -10,6 +10,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using NetTopologySuite.Geometries;
+using StackExchange.Redis;
 
 namespace AccessCity.API.Services;
 
@@ -20,6 +21,9 @@ public interface IRouteGraphRepository
 
 public sealed class RouteGraphRepository : IRouteGraphRepository
 {
+    private const string ReleaseLoadLockScript =
+        "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end";
+
     private static readonly ConcurrentDictionary<string, Lazy<Task<RouteGraphData>>> InFlightGraphLoads = new();
 
     private readonly AppDbContext _dbContext;
@@ -29,6 +33,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
     private readonly IRouteGraphStatusService _routeGraphStatus;
     private readonly ILogger<RouteGraphRepository> _logger;
     private readonly RoutingOptions _options;
+    private readonly IConnectionMultiplexer? _redis;
     private static readonly JsonSerializerOptions SnapshotJsonOptions = new(JsonSerializerDefaults.Web);
 
     public RouteGraphRepository(
@@ -38,7 +43,8 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         AccessCityMetrics metrics,
         IRouteGraphStatusService routeGraphStatus,
         IOptions<RoutingOptions> options,
-        ILogger<RouteGraphRepository> logger)
+        ILogger<RouteGraphRepository> logger,
+        IConnectionMultiplexer? redis = null)
     {
         _dbContext = dbContext;
         _cache = cache;
@@ -47,6 +53,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         _routeGraphStatus = routeGraphStatus;
         _options = options.Value;
         _logger = logger;
+        _redis = redis;
     }
 
     public async Task<RouteGraphData> LoadGraphAsync(
@@ -109,8 +116,8 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             return distributed;
         }
 
-        var graphData = await LoadGraphRegionAsync(region, edgeLimit, cacheKey, cancellationToken);
         var ttl = TimeSpan.FromSeconds(Math.Max(30, _options.RouteGraphCacheTtlSeconds));
+        var graphData = await LoadGraphRegionWithDistributedCoalescingAsync(region, edgeLimit, cacheKey, ttl, cancellationToken);
         if (graphData.HasCoverage)
         {
             _cache.Set(cacheKey, graphData, ttl);
@@ -118,6 +125,109 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         }
 
         return graphData;
+    }
+
+    private async Task<RouteGraphData> LoadGraphRegionWithDistributedCoalescingAsync(
+        GraphShardRegion region,
+        int edgeLimit,
+        string cacheKey,
+        TimeSpan ttl,
+        CancellationToken cancellationToken)
+    {
+        if (!_options.RouteGraphDistributedLoadCoalescingEnabled || _redis is not { IsConnected: true })
+        {
+            return await LoadGraphRegionAsync(region, edgeLimit, cacheKey, cancellationToken);
+        }
+
+        var database = _redis.GetDatabase();
+        var lockKey = $"route_graph:load:{cacheKey}";
+        var lockToken = Guid.NewGuid().ToString("N");
+        var lockTtl = TimeSpan.FromSeconds(Math.Clamp(_options.RouteGraphDistributedLoadLockTtlSeconds, 1, 30));
+
+        try
+        {
+            var acquired = await database.StringSetAsync(lockKey, lockToken, lockTtl, When.NotExists);
+            if (acquired)
+            {
+                try
+                {
+                    var snapshot = await TryGetDistributedSnapshotAsync(cacheKey, cancellationToken);
+                    if (snapshot is not null)
+                    {
+                        return snapshot;
+                    }
+
+                    var graphData = await LoadGraphRegionAsync(region, edgeLimit, cacheKey, cancellationToken);
+                    if (graphData.HasCoverage)
+                    {
+                        await TrySetDistributedSnapshotAsync(cacheKey, graphData, ttl, cancellationToken);
+                    }
+
+                    return graphData;
+                }
+                finally
+                {
+                    await ReleaseDistributedLoadLockAsync(database, lockKey, lockToken);
+                }
+            }
+
+            var peerSnapshot = await WaitForDistributedSnapshotAsync(cacheKey, cancellationToken);
+            if (peerSnapshot is not null)
+            {
+                return peerSnapshot;
+            }
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogDebug(ex, "Route graph shard {ShardKey} distributed load coalescing unavailable", cacheKey);
+        }
+
+        return await LoadGraphRegionAsync(region, edgeLimit, cacheKey, cancellationToken);
+    }
+
+    private async Task<RouteGraphData?> WaitForDistributedSnapshotAsync(
+        string cacheKey,
+        CancellationToken cancellationToken)
+    {
+        var waitBudget = TimeSpan.FromMilliseconds(Math.Clamp(
+            _options.RouteGraphDistributedLoadWaitMilliseconds,
+            0,
+            Math.Max(0, _options.SyncSafePathTimeoutSeconds * 1000 - 250)));
+        if (waitBudget == TimeSpan.Zero)
+        {
+            return null;
+        }
+
+        var deadline = Stopwatch.GetTimestamp() + (long)(waitBudget.TotalSeconds * Stopwatch.Frequency);
+        while (Stopwatch.GetTimestamp() < deadline)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(50), cancellationToken);
+            var snapshot = await TryGetDistributedSnapshotAsync(cacheKey, cancellationToken);
+            if (snapshot is not null)
+            {
+                return snapshot;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task ReleaseDistributedLoadLockAsync(
+        IDatabase database,
+        RedisKey lockKey,
+        RedisValue lockToken)
+    {
+        try
+        {
+            await database.ScriptEvaluateAsync(
+                ReleaseLoadLockScript,
+                new[] { lockKey },
+                new[] { lockToken });
+        }
+        catch (RedisException ex)
+        {
+            _logger.LogDebug(ex, "Route graph load lock {LockKey} could not be released", lockKey);
+        }
     }
 
     private async Task<RouteGraphData?> TryGetDistributedSnapshotAsync(

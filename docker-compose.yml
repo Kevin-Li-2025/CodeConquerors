@@ -38,19 +38,25 @@ services:
       Routing__MaxHazardsPerRequest: ${Routing__MaxHazardsPerRequest:-500}
       Routing__MaxRiskQueryRadiusMetres: ${Routing__MaxRiskQueryRadiusMetres:-2500}
       Routing__MaxRouteGraphEdges: ${Routing__MaxRouteGraphEdges:-20000}
-      Routing__DispatchJobsToWorker: ${Routing__DispatchJobsToWorker:-false}
+      Routing__AsyncFirstForCacheMiss: ${Routing__AsyncFirstForCacheMiss:-true}
+      Routing__AsyncFirstCacheProbeMilliseconds: ${Routing__AsyncFirstCacheProbeMilliseconds:-0}
+      Routing__DispatchJobsToWorker: ${Routing__DispatchJobsToWorker:-true}
       Routing__RequireRouteGraphForReadiness: ${Routing__RequireRouteGraphForReadiness:-false}
       Routing__RouteGraphCacheTtlSeconds: ${Routing__RouteGraphCacheTtlSeconds:-300}
       Routing__RouteGraphShardSizeDegrees: ${Routing__RouteGraphShardSizeDegrees:-0.01}
+      Routing__RouteGraphDistributedLoadCoalescingEnabled: ${Routing__RouteGraphDistributedLoadCoalescingEnabled:-true}
+      Routing__RouteGraphDistributedLoadLockTtlSeconds: ${Routing__RouteGraphDistributedLoadLockTtlSeconds:-8}
+      Routing__RouteGraphDistributedLoadWaitMilliseconds: ${Routing__RouteGraphDistributedLoadWaitMilliseconds:-3500}
       Routing__DistributedCoalescingEnabled: ${Routing__DistributedCoalescingEnabled:-true}
-      Routing__DistributedCoalescingLockTtlSeconds: ${Routing__DistributedCoalescingLockTtlSeconds:-12}
-      Routing__DistributedCoalescingResultTtlSeconds: ${Routing__DistributedCoalescingResultTtlSeconds:-5}
-      Routing__DistributedCoalescingWaitMilliseconds: ${Routing__DistributedCoalescingWaitMilliseconds:-2500}
+      Routing__DistributedCoalescingLockTtlSeconds: ${Routing__DistributedCoalescingLockTtlSeconds:-6}
+      Routing__DistributedCoalescingResultTtlSeconds: ${Routing__DistributedCoalescingResultTtlSeconds:-10}
+      Routing__DistributedCoalescingWaitMilliseconds: ${Routing__DistributedCoalescingWaitMilliseconds:-3500}
       Routing__DistributedCoalescingPollMilliseconds: ${Routing__DistributedCoalescingPollMilliseconds:-25}
       RiskScoring__CacheTtlSeconds: ${RiskScoring__CacheTtlSeconds:-30}
       RiskScoring__CacheCoordinatePrecision: ${RiskScoring__CacheCoordinatePrecision:-4}
       RiskScoring__CacheRadiusBucketMetres: ${RiskScoring__CacheRadiusBucketMetres:-50}
       RiskScoring__ExternalSignalBudgetMilliseconds: ${RiskScoring__ExternalSignalBudgetMilliseconds:-350}
+      RiskScoring__RealtimeExternalSignalsEnabled: ${RiskScoring__RealtimeExternalSignalsEnabled:-false}
       ExternalApis__CircuitBreaker__FailureThreshold: ${ExternalApis__CircuitBreaker__FailureThreshold:-3}
       ExternalApis__CircuitBreaker__BreakSeconds: ${ExternalApis__CircuitBreaker__BreakSeconds:-30}
       ExternalApis__CircuitBreaker__QueueTimeoutMilliseconds: ${ExternalApis__CircuitBreaker__QueueTimeoutMilliseconds:-50}
@@ -125,15 +131,19 @@ services:
       Routing__DispatchJobsToWorker: ${Routing__DispatchJobsToWorker:-true}
       Routing__RouteGraphCacheTtlSeconds: ${Routing__RouteGraphCacheTtlSeconds:-300}
       Routing__RouteGraphShardSizeDegrees: ${Routing__RouteGraphShardSizeDegrees:-0.01}
+      Routing__RouteGraphDistributedLoadCoalescingEnabled: ${Routing__RouteGraphDistributedLoadCoalescingEnabled:-true}
+      Routing__RouteGraphDistributedLoadLockTtlSeconds: ${Routing__RouteGraphDistributedLoadLockTtlSeconds:-8}
+      Routing__RouteGraphDistributedLoadWaitMilliseconds: ${Routing__RouteGraphDistributedLoadWaitMilliseconds:-3500}
       Routing__DistributedCoalescingEnabled: ${Routing__DistributedCoalescingEnabled:-true}
-      Routing__DistributedCoalescingLockTtlSeconds: ${Routing__DistributedCoalescingLockTtlSeconds:-12}
-      Routing__DistributedCoalescingResultTtlSeconds: ${Routing__DistributedCoalescingResultTtlSeconds:-5}
-      Routing__DistributedCoalescingWaitMilliseconds: ${Routing__DistributedCoalescingWaitMilliseconds:-2500}
+      Routing__DistributedCoalescingLockTtlSeconds: ${Routing__DistributedCoalescingLockTtlSeconds:-6}
+      Routing__DistributedCoalescingResultTtlSeconds: ${Routing__DistributedCoalescingResultTtlSeconds:-10}
+      Routing__DistributedCoalescingWaitMilliseconds: ${Routing__DistributedCoalescingWaitMilliseconds:-3500}
       Routing__DistributedCoalescingPollMilliseconds: ${Routing__DistributedCoalescingPollMilliseconds:-25}
       RiskScoring__CacheTtlSeconds: ${RiskScoring__CacheTtlSeconds:-30}
       RiskScoring__CacheCoordinatePrecision: ${RiskScoring__CacheCoordinatePrecision:-4}
       RiskScoring__CacheRadiusBucketMetres: ${RiskScoring__CacheRadiusBucketMetres:-50}
       RiskScoring__ExternalSignalBudgetMilliseconds: ${RiskScoring__ExternalSignalBudgetMilliseconds:-350}
+      RiskScoring__RealtimeExternalSignalsEnabled: ${RiskScoring__RealtimeExternalSignalsEnabled:-false}
       OsmImport__ImportOnStartup: "false"
       OsmImport__FilePath: ${OsmImport__FilePath:-/app/osm/test-network.osm}
       ConnectionStrings__Redis: ${REDIS_CONNECTION:-redis:6379}

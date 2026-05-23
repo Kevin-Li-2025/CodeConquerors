@@ -1,10 +1,13 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+﻿using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace AccessCity.API.Data.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(AppDbContext))]
+    [Migration("20260318234500_NormalizeHazardAndRefreshSchema")]
     public partial class NormalizeHazardAndRefreshSchema : Migration
     {
         /// <inheritdoc />

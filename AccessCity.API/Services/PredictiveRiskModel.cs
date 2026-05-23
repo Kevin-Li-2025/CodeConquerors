@@ -39,6 +39,7 @@ namespace AccessCity.API.Services
         private readonly IRiskScoringService _baseRisk;
         private readonly ILiveHazardClient? _weatherClient;
         private readonly IMemoryCache? _cache;
+        private readonly TimeSpan _externalSignalBudget;
         private readonly bool _realtimeExternalSignalsEnabled;
 
         // ──── Fixed model weights (logistic regression coefficients) ────
@@ -51,6 +52,8 @@ namespace AccessCity.API.Services
         private const double W_Infra = 0.12;
         private const double W_Lighting = 0.12;
         private const double W_Surveillance = 0.09;
+        private const double DefaultInfrastructureRisk = 0.35;
+        private static readonly TimeSpan DefaultExternalSignalBudget = TimeSpan.FromMilliseconds(350);
 
         public PredictiveRiskModel(
             IRiskScoringService baseRisk,
@@ -61,6 +64,9 @@ namespace AccessCity.API.Services
             _baseRisk = baseRisk;
             _weatherClient = weatherClient;
             _cache = cache;
+            var budgetMs = configuration?.GetValue("RiskScoring:ExternalSignalBudgetMilliseconds", (int)DefaultExternalSignalBudget.TotalMilliseconds)
+                ?? (int)DefaultExternalSignalBudget.TotalMilliseconds;
+            _externalSignalBudget = TimeSpan.FromMilliseconds(Math.Max(50, budgetMs));
             _realtimeExternalSignalsEnabled = configuration?.GetValue("RiskScoring:RealtimeExternalSignalsEnabled", true) ?? true;
         }
 
@@ -81,14 +87,16 @@ namespace AccessCity.API.Services
 
             // Factor 3: Weather risk
             double weatherRisk = _realtimeExternalSignalsEnabled
-                ? await WeatherRiskEvaluator.GetRiskAsync(_weatherClient, _cache, lat, lon)
+                ? await WithExternalSignalBudgetAsync(
+                    WeatherRiskEvaluator.GetRiskAsync(_weatherClient, _cache, lat, lon),
+                    0.1)
                 : WeatherRiskEvaluator.GetCachedRisk(_cache, lat, lon);
 
             // Factor 4: Crime risk — uses cached UK Police street crime data
             double crimeRisk = _baseRisk.QuickCrimeRisk(lat, lon);
 
             // Factor 5: Infrastructure quality — uses real PostGIS route edge data
-            double infraRisk = _baseRisk.QuickInfrastructureRisk(lat, lon);
+            double infraRisk = await EstimateInfrastructureRiskWithBudgetAsync(lat, lon, radiusMetres);
             double lightingRisk = _baseRisk.QuickLightingCoverage(lat, lon);
             double surveillanceRisk = _baseRisk.QuickSurveillanceCoverage(lat, lon);
 
@@ -133,7 +141,7 @@ namespace AccessCity.API.Services
             double timeRisk = ComputeTimeOfDayRisk(DateTime.UtcNow);
             double weatherRisk = WeatherRiskEvaluator.GetCachedRisk(_cache, lat, lon);
             double crimeRisk = _baseRisk.QuickCrimeRisk(lat, lon);
-            double infraRisk = _baseRisk.QuickInfrastructureRisk(lat, lon);
+            double infraRisk = _baseRisk.QuickInfrastructureRisk(lat, lon, radiusMetres);
             double lightingRisk = _baseRisk.QuickLightingCoverage(lat, lon);
             double surveillanceRisk = _baseRisk.QuickSurveillanceCoverage(lat, lon);
 
@@ -146,6 +154,52 @@ namespace AccessCity.API.Services
                        W_Surveillance * surveillanceRisk;
 
             return Math.Clamp(Sigmoid(z, k: 5.0, midpoint: 0.60), 0, 1);
+        }
+
+        private async Task<double> EstimateInfrastructureRiskWithBudgetAsync(
+            double lat,
+            double lon,
+            double radiusMetres)
+        {
+            return await WithExternalSignalBudgetAsync(
+                token => _baseRisk.EstimateInfrastructureRiskAsync(lat, lon, radiusMetres, token),
+                DefaultInfrastructureRisk);
+        }
+
+        private async Task<T> WithExternalSignalBudgetAsync<T>(Task<T> task, T fallback)
+        {
+            try
+            {
+                return await task.WaitAsync(_externalSignalBudget);
+            }
+            catch (TimeoutException)
+            {
+                return fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
+        }
+
+        private async Task<T> WithExternalSignalBudgetAsync<T>(
+            Func<CancellationToken, Task<T>> factory,
+            T fallback)
+        {
+            using var budgetCts = new CancellationTokenSource(_externalSignalBudget);
+
+            try
+            {
+                return await factory(budgetCts.Token);
+            }
+            catch (OperationCanceledException) when (budgetCts.IsCancellationRequested)
+            {
+                return fallback;
+            }
+            catch
+            {
+                return fallback;
+            }
         }
 
         // ──────── Factor Computations ────────

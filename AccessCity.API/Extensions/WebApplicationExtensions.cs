@@ -109,17 +109,25 @@ public static class WebApplicationExtensions
 
         var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseMigration");
         logger.LogInformation("Waiting for PostgreSQL schema startup advisory lock.");
-        await dbContext.Database.ExecuteSqlRawAsync("SELECT pg_advisory_lock(hashtext('accesscity:schema-startup'));");
+        await dbContext.Database.OpenConnectionAsync();
+        var lockAcquired = false;
 
         try
         {
+            await dbContext.Database.ExecuteSqlRawAsync("SELECT pg_advisory_lock(hashtext('accesscity:schema-startup'));");
+            lockAcquired = true;
             logger.LogInformation("Acquired PostgreSQL schema startup advisory lock.");
             await schemaWork();
         }
         finally
         {
-            await dbContext.Database.ExecuteSqlRawAsync("SELECT pg_advisory_unlock(hashtext('accesscity:schema-startup'));");
-            logger.LogInformation("Released PostgreSQL schema startup advisory lock.");
+            if (lockAcquired)
+            {
+                await dbContext.Database.ExecuteSqlRawAsync("SELECT pg_advisory_unlock(hashtext('accesscity:schema-startup'));");
+                logger.LogInformation("Released PostgreSQL schema startup advisory lock.");
+            }
+
+            await dbContext.Database.CloseConnectionAsync();
         }
     }
 
