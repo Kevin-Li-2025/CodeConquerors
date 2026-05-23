@@ -75,7 +75,7 @@ public class ComparisonTests : IClassFixture<AccessCityApiFactory>
         var resultWheelchair = await respWheelchair.Content.ReadFromJsonAsync<RouteResponse>(JsonOptions);
 
         _output.WriteLine($"Wheelchair Route: Distance={resultWheelchair!.Distance}m, Safety={resultWheelchair.SafetyScore}");
-        
+
         Assert.NotNull(resultStandard);
         Assert.NotNull(resultWheelchair);
     }

@@ -14,6 +14,7 @@ public sealed class KafkaHealthCheck : IHealthCheck
     private readonly IConfiguration _configuration;
     private readonly IMemoryCache _cache;
     private readonly IOptions<KafkaOptions> _options;
+    private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     public KafkaHealthCheck(
         IConfiguration configuration,
@@ -25,22 +26,28 @@ public sealed class KafkaHealthCheck : IHealthCheck
         _options = options;
     }
 
-    public Task<HealthCheckResult> CheckHealthAsync(
+    public async Task<HealthCheckResult> CheckHealthAsync(
         HealthCheckContext context,
         CancellationToken cancellationToken = default)
     {
         if (!_configuration.GetValue<bool>("Messaging:UseKafka"))
         {
-            return Task.FromResult(HealthCheckResult.Healthy("Kafka disabled."));
+            return HealthCheckResult.Healthy("Kafka disabled.");
         }
 
         if (_cache.TryGetValue(CacheKey, out HealthCheckResult cached))
         {
-            return Task.FromResult(cached);
+            return cached;
         }
 
+        await _refreshLock.WaitAsync(cancellationToken);
         try
         {
+            if (_cache.TryGetValue(CacheKey, out cached))
+            {
+                return cached;
+            }
+
             using var admin = new AdminClientBuilder(new AdminClientConfig
             {
                 BootstrapServers = _options.Value.BootstrapServers,
@@ -52,13 +59,21 @@ public sealed class KafkaHealthCheck : IHealthCheck
                 ? HealthCheckResult.Healthy()
                 : HealthCheckResult.Unhealthy("Kafka returned no brokers.");
             _cache.Set(CacheKey, result, CacheTtl);
-            return Task.FromResult(result);
+            return result;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
             var result = HealthCheckResult.Unhealthy("Kafka is not reachable.", ex);
             _cache.Set(CacheKey, result, CacheTtl);
-            return Task.FromResult(result);
+            return result;
+        }
+        finally
+        {
+            _refreshLock.Release();
         }
     }
 }

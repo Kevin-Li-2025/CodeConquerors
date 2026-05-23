@@ -95,7 +95,7 @@ public class AuthController : ControllerBase
         if (!result) return Unauthorized(new ApiError("Invalid credentials."));
 
         var refreshToken = _tokenService.GenerateRefreshToken(GetIpAddress());
-        
+
         // Revoke existing active tokens (Single Session pattern)
         foreach (var t in user.RefreshTokens.Where(x => x.IsActive))
         {
@@ -187,8 +187,8 @@ public class AuthController : ControllerBase
     public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
     {
         var user = await _userManager.FindByEmailAsync(request.Email.Trim().ToLower());
-        
-        if (user == null) 
+
+        if (user == null)
         {
             return Ok(new { message = "If your email is registered, you will receive a reset token." });
         }
@@ -242,7 +242,7 @@ public class AuthController : ControllerBase
     {
         if (Request.Headers.ContainsKey("X-Forwarded-For"))
             return Request.Headers["X-Forwarded-For"]!;
-        
+
         return HttpContext.Connection.RemoteIpAddress?.MapToIPv4().ToString() ?? "unknown";
     }
 }

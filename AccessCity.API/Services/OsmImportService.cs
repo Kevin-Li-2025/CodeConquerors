@@ -95,12 +95,12 @@ public sealed class OsmImportService : IOsmImportService
                 await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
                 var fileCounters = await ImportFileAsync(_dbContext, fullPath, globalSeenNodes, cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
-                
+
                 // Help GC recover memory between large files
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
                 GC.Collect();
-                
+
                 combinedCounters.RecordsSeen += fileCounters.RecordsSeen;
                 combinedCounters.RouteNodesInserted += fileCounters.RouteNodesInserted;
                 combinedCounters.RouteEdgesInserted += fileCounters.RouteEdgesInserted;
@@ -157,7 +157,7 @@ public sealed class OsmImportService : IOsmImportService
         var counters = new ImportCounters();
 
         _logger.LogInformation("Importing file (Pass 1 - Nodes): {FilePath}", filePath);
-        
+
         // Pass 1: Nodes
         using (var stream = File.OpenRead(filePath))
         {
@@ -166,11 +166,11 @@ public sealed class OsmImportService : IOsmImportService
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 counters.RecordsSeen++;
-                
+
                 if (osmGeo is Node node && node.Id.HasValue && node.Longitude.HasValue && node.Latitude.HasValue)
                 {
                     nodeCache[node.Id.Value] = (node.Longitude.Value, node.Latitude.Value);
-                    
+
                     if (TryCreatePointInfrastructureAsset(node, out var pointAsset) &&
                         pointAsset is not null &&
                         seenAssetKeys.Add(pointAsset.SourceRecordId!))
@@ -197,7 +197,7 @@ public sealed class OsmImportService : IOsmImportService
             foreach (var osmGeo in source)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                
+
                 if (osmGeo is Way way)
                 {
                     if (IsWalkable(way))
@@ -267,7 +267,7 @@ public sealed class OsmImportService : IOsmImportService
 
             var fromPoint = CreatePoint(from.Lon, from.Lat);
             var toPoint = CreatePoint(to.Lon, to.Lat);
-            
+
             var edge = CreateRouteEdgeManual(way, from.Id, to.Id, fromPoint, toPoint);
             pendingRouteEdges.Add(edge);
             counters.RouteEdgesInserted++;
@@ -421,8 +421,8 @@ public sealed class OsmImportService : IOsmImportService
         }
 
         var barrier = tags.GetValueOrDefault("barrier");
-        if (!string.IsNullOrWhiteSpace(barrier) && 
-            (string.Equals(barrier, "wall", StringComparison.OrdinalIgnoreCase) || 
+        if (!string.IsNullOrWhiteSpace(barrier) &&
+            (string.Equals(barrier, "wall", StringComparison.OrdinalIgnoreCase) ||
              string.Equals(barrier, "fence", StringComparison.OrdinalIgnoreCase)))
         {
             return false;

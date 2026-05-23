@@ -6,7 +6,7 @@ namespace AccessCity.API.Models
     public class RouteRequest
     {
         public Coordinate Start { get; set; } = null!;
-        public Coordinate End   { get; set; } = null!;
+        public Coordinate End { get; set; } = null!;
 
         /// <summary>
         /// User accessibility / comfort preferences.  
@@ -30,12 +30,12 @@ namespace AccessCity.API.Models
     /// <summary>Full route response returned to the client.</summary>
     public class RouteResponse
     {
-        public LineString?     Path          { get; set; }
-        public double          Distance      { get; set; }
-        public double          EstimatedTime { get; set; }
-        public double          SafetyScore   { get; set; }
-        public List<string>    Warnings      { get; set; } = new();
-        public List<RouteStep> Steps         { get; set; } = new();
+        public LineString? Path { get; set; }
+        public double Distance { get; set; }
+        public double EstimatedTime { get; set; }
+        public double SafetyScore { get; set; }
+        public List<string> Warnings { get; set; } = new();
+        public List<RouteStep> Steps { get; set; } = new();
     }
 
     /// <summary>
@@ -65,17 +65,17 @@ namespace AccessCity.API.Models
     /// <summary>One leg / turn-by-turn instruction.</summary>
     public class RouteStep
     {
-        public Point      From        { get; set; } = null!;
-        public Point      To          { get; set; } = null!;
-        public double     Distance    { get; set; }
-        public double     SafetyScore { get; set; }
-        public string     Instruction { get; set; } = string.Empty;
+        public Point From { get; set; } = null!;
+        public Point To { get; set; } = null!;
+        public double Distance { get; set; }
+        public double SafetyScore { get; set; }
+        public string Instruction { get; set; } = string.Empty;
     }
 
     /// <summary>Request for a predictive risk score at a location.</summary>
     public class RiskScoreRequest
     {
-        public double Latitude  { get; set; }
+        public double Latitude { get; set; }
         public double Longitude { get; set; }
 
         /// <summary>Radius in metres to consider for hazard density.</summary>
@@ -86,31 +86,31 @@ namespace AccessCity.API.Models
     public class RiskScoreResponse
     {
         /// <summary>Overall risk score (0 = perfectly safe, 1 = maximum risk).</summary>
-        public double OverallRisk           { get; set; }
+        public double OverallRisk { get; set; }
 
         /// <summary>Risk from proximity to reported hazards.</summary>
-        public double HazardProximityRisk    { get; set; }
+        public double HazardProximityRisk { get; set; }
 
         /// <summary>Risk from density of hazards in the area.</summary>
-        public double HazardDensityRisk     { get; set; }
+        public double HazardDensityRisk { get; set; }
 
         /// <summary>Risk estimated from infrastructure quality indicators.</summary>
-        public double InfrastructureRisk    { get; set; }
+        public double InfrastructureRisk { get; set; }
 
         /// <summary>Risk from UK Police open data (recent street crime at location).</summary>
-        public double CrimeRisk               { get; set; }
+        public double CrimeRisk { get; set; }
 
         /// <summary>Risk from lack of street lamp coverage (OSM data).</summary>
-        public double LightingRisk            { get; set; }
+        public double LightingRisk { get; set; }
 
         /// <summary>Risk from lack of CCTV/surveillance coverage (OSM data).</summary>
-        public double SurveillanceRisk        { get; set; }
+        public double SurveillanceRisk { get; set; }
 
         /// <summary>Number of active hazards within the search radius.</summary>
-        public int    NearbyHazardCount     { get; set; }
+        public int NearbyHazardCount { get; set; }
 
         /// <summary>Number of street crimes (UK Police API) used for CrimeRisk.</summary>
-        public int    CrimeCount            { get; set; }
+        public int CrimeCount { get; set; }
 
         public List<NearbyHazard> NearbyHazards { get; set; } = new();
     }
@@ -132,16 +132,16 @@ namespace AccessCity.API.Models
     /// <summary>A nearby hazard surfaced in the risk response.</summary>
     public class NearbyHazard
     {
-        public Guid   Id             { get; set; }
-        public string Type           { get; set; } = string.Empty;
+        public Guid Id { get; set; }
+        public string Type { get; set; } = string.Empty;
         public double DistanceMetres { get; set; }
-        public double RiskWeight     { get; set; }
+        public double RiskWeight { get; set; }
     }
 
     /// <summary>A node in the routing graph representing an intersection or waypoint.</summary>
     public class GraphNode
     {
-        public long       Id       { get; set; }
+        public long Id { get; set; }
         public Coordinate Location { get; set; } = null!;
 
         /// <summary>Adjacency list: neighbour node id → edge.</summary>
@@ -151,26 +151,26 @@ namespace AccessCity.API.Models
     /// <summary>A directed edge between two graph nodes.</summary>
     public class GraphEdge
     {
-        public long   TargetNodeId       { get; set; }
-        public double DistanceMetres     { get; set; }
+        public long TargetNodeId { get; set; }
+        public double DistanceMetres { get; set; }
 
         /// <summary>Base safety cost (higher = less safe). Range 0-1.</summary>
-        public double BaseSafetyCost     { get; set; }
+        public double BaseSafetyCost { get; set; }
 
         /// <summary>Surface type, e.g. "asphalt", "cobblestone", "gravel".</summary>
-        public string SurfaceType        { get; set; } = "asphalt";
+        public string SurfaceType { get; set; } = "asphalt";
 
         /// <summary>True if this edge contains stairs / steps.</summary>
-        public bool   HasStairs          { get; set; }
+        public bool HasStairs { get; set; }
 
         /// <summary>True if a marked pedestrian crossing exists on this edge.</summary>
-        public bool   HasCrossing        { get; set; }
+        public bool HasCrossing { get; set; }
 
         /// <summary>True when active construction / temporary closure is reported.</summary>
-        public bool   IsUnderConstruction { get; set; }
+        public bool IsUnderConstruction { get; set; }
 
         /// <summary>Estimated street-lighting quality (0 = none, 1 = well-lit).</summary>
-        public double LightingQuality    { get; set; } = 0.8;
+        public double LightingQuality { get; set; } = 0.8;
 
         /// <summary>True if the segment has a steep gradient.</summary>
         public bool IsSteep { get; set; }

@@ -28,10 +28,11 @@ public class SpeedBenchmarkTests : IClassFixture<AccessCityApiFactory>
     public async Task Benchmark_Routing_Speed_Cold_vs_Warm()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
-        var request = new { 
-            Start = new { X = -1.8985, Y = 52.4814 }, 
-            End = new { X = -1.9300, Y = 52.4510 }, 
-            SafetyWeight = 0.5 
+        var request = new
+        {
+            Start = new { X = -1.8985, Y = 52.4814 },
+            End = new { X = -1.9300, Y = 52.4510 },
+            SafetyWeight = 0.5
         };
 
         _output.WriteLine("### Performance Analysis: Environmental Data Integration");

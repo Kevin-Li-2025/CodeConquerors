@@ -28,7 +28,7 @@ namespace AccessCity.API.Validators
             RuleFor(x => x.Description)
                 .NotEmpty().WithMessage("Description is required.")
                 .MaximumLength(500).WithMessage("Description cannot exceed 500 characters.");
-            
+
             RuleFor(x => x.PhotoUrl)
                 .MaximumLength(2048).WithMessage("Photo URL cannot exceed 2048 characters.");
         }

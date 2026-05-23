@@ -388,7 +388,7 @@ public static class DependencyInjection
                 .AddOtlpExporter());
 
         services.AddHealthChecks()
-            .AddDbContextCheck<AppDbContext>("db", tags: new[] { "ready" })
+            .AddCheck<PostgresHealthCheck>("db", tags: new[] { "ready" })
             .AddCheck<DistributedCacheHealthCheck>("cache", tags: new[] { "ready" })
             .AddCheck<KafkaHealthCheck>("kafka", tags: new[] { "ready" });
 

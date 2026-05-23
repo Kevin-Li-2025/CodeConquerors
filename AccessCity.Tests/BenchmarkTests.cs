@@ -31,7 +31,7 @@ public class BenchmarkTests : IClassFixture<AccessCityApiFactory>
     public async Task RunQuantitativeEvaluation()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
-        
+
         var testRoutes = new List<RouteBenchmark>
         {
             new("Birmingham New St to Bullring", -1.8989, 52.4777, -1.8943, 52.4776),
@@ -80,7 +80,7 @@ public class BenchmarkTests : IClassFixture<AccessCityApiFactory>
             var safeData = await safeResp.Content.ReadFromJsonAsync<RouteResponse>(JsonOptions);
 
             double overhead = ((safeData!.Distance - baseData!.Distance) / baseData.Distance) * 100;
-            _output.WriteLine($"| {route.Name} | {baseData.Distance/1000:F2} | {safeData.Distance/1000:F2} | {Math.Max(0, overhead):F1}% | {safeData.SafetyScore:F2} |");
+            _output.WriteLine($"| {route.Name} | {baseData.Distance / 1000:F2} | {safeData.Distance / 1000:F2} | {Math.Max(0, overhead):F1}% | {safeData.SafetyScore:F2} |");
         }
     }
 
@@ -88,11 +88,11 @@ public class BenchmarkTests : IClassFixture<AccessCityApiFactory>
     public async Task AblationStudy_HazardImpact()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
-        double startX = -1.9050, startY = 52.4794; 
-        double endX = -1.9060, endY = 52.4794;   
-        
+        double startX = -1.9050, startY = 52.4794;
+        double endX = -1.9060, endY = 52.4794;
+
         _output.WriteLine("\n### Ablation Study: Hazard Removal Impact");
-        
+
         // 1. No Hazard
         var req1 = new { Start = new { X = startX, Y = startY }, End = new { X = endX, Y = endY }, Profile = "standard", SafetyWeight = 1.0 };
         var resp1 = await client.PostAsJsonAsync("/api/v1/routing/safe-path", req1, JsonOptions);
@@ -103,12 +103,13 @@ public class BenchmarkTests : IClassFixture<AccessCityApiFactory>
         using (var scope = _factory.Services.CreateScope())
         {
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-            dbContext.Hazards.Add(new HazardReport { 
-                Id = Guid.NewGuid(), 
-                Location = new Point(-1.9055, 52.4794) { SRID = 4326 }, 
-                Type = "construction", 
+            dbContext.Hazards.Add(new HazardReport
+            {
+                Id = Guid.NewGuid(),
+                Location = new Point(-1.9055, 52.4794) { SRID = 4326 },
+                Type = "construction",
                 Description = "Test hazard",
-                Status = HazardStatus.Reported 
+                Status = HazardStatus.Reported
             });
             await dbContext.SaveChangesAsync();
         }
@@ -116,7 +117,7 @@ public class BenchmarkTests : IClassFixture<AccessCityApiFactory>
         var resp2 = await client.PostAsJsonAsync("/api/v1/routing/safe-path", req1, JsonOptions);
         var content2 = await resp2.Content.ReadAsStringAsync();
         _output.WriteLine($"Response Content: {content2}");
-        
+
         if (resp2.IsSuccessStatusCode)
         {
             var data2 = JsonSerializer.Deserialize<RouteResponse>(content2, JsonOptions);

@@ -27,7 +27,7 @@ namespace AccessCity.Tests
             // 1. Register
             var registerRequest = new RegisterRequest("test" + Guid.NewGuid() + "@example.com", "P@ssword123!", "Test User");
             var regResponse = await _client.PostAsJsonAsync("/api/v1/auth/register", registerRequest, _jsonOptions);
-            
+
             if (!regResponse.IsSuccessStatusCode)
             {
                 var error = await regResponse.Content.ReadAsStringAsync();
@@ -40,10 +40,10 @@ namespace AccessCity.Tests
             // 2. Login
             var loginRequest = new LoginRequest(registerRequest.Email, "P@ssword123!");
             var loginResponse = await _client.PostAsJsonAsync("/api/v1/auth/login", loginRequest, _jsonOptions);
-            
+
             loginResponse.EnsureSuccessStatusCode();
             var loginResult = await loginResponse.Content.ReadFromJsonAsync<AuthResponse>(_jsonOptions);
-            
+
             Assert.NotNull(loginResult?.Token);
             Assert.Equal(registerRequest.Email, loginResult.Email);
         }

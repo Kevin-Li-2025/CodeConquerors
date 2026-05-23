@@ -25,10 +25,10 @@ namespace AccessCity.API.Services
         {
             // Optimal size m = -(n * ln(p)) / (ln(2)^2)
             _size = (int)(-(expectedItems * Math.Log(falsePositiveProbability)) / Math.Pow(Math.Log(2), 2));
-            
+
             // Optimal hash functions k = (m/n) * ln(2)
             _hashCount = (int)Math.Max(1, Math.Round((double)_size / expectedItems * Math.Log(2)));
-            
+
             _bitArray = new BitArray(_size);
         }
 

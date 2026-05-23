@@ -94,7 +94,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var request = new
         {
             Start = new { X = -1.8985, Y = 52.4814 },   // Birmingham New St Station
-            End   = new { X = -1.9300, Y = 52.4510 },   // University of Birmingham
+            End = new { X = -1.9300, Y = 52.4510 },   // University of Birmingham
             Preferences = new List<string>(),
             SafetyWeight = 0.5
         };
@@ -106,7 +106,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         Assert.NotNull(result);
         Assert.True(result.Distance > 0, "Route distance should be > 0");
         Assert.True(result.EstimatedTime > 0, "Estimated walking time should be > 0");
-        Assert.True(result.SafetyScore >= 0 && result.SafetyScore <= 1, 
+        Assert.True(result.SafetyScore >= 0 && result.SafetyScore <= 1,
             $"Safety score ({result.SafetyScore}) should be between 0 and 1");
         Assert.NotNull(result.Steps);
         Assert.True(result.Steps.Count > 0, "Should have at least one route step");
@@ -116,12 +116,12 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
     public async Task SafePath_WithHighSafetyWeight_Returns_Warnings()
     {
         HttpClient client = await _factory.CreateAuthenticatedClientAsync();
-        
+
         // Route near known hazard area with high safety weight
         var request = new
         {
             Start = new { X = -1.8985, Y = 52.4814 },
-            End   = new { X = -1.9300, Y = 52.4510 },
+            End = new { X = -1.9300, Y = 52.4510 },
             Preferences = new List<string>(),
             SafetyWeight = 1.0  // Maximum safety preference
         };
@@ -186,7 +186,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var request = new
         {
             Start = new { X = -1.8904, Y = 52.4862 }, // Node 1001
-            End   = new { X = -1.8894, Y = 52.4862 }, // Node 1003
+            End = new { X = -1.8894, Y = 52.4862 }, // Node 1003
             Profile = "manual-wheelchair",
             Preferences = new List<string> { "avoid-stairs" }
         };

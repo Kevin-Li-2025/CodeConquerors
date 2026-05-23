@@ -20,7 +20,7 @@ namespace AccessCity.API.Services.Security
         {
             var salt = RandomNumberGenerator.GetBytes(SaltSize);
             var hash = GenerateHash(password, salt);
-            
+
             return $"{Convert.ToBase64String(salt)}.{Convert.ToBase64String(hash)}";
         }
 
@@ -34,8 +34,8 @@ namespace AccessCity.API.Services.Security
 
             var providedHash = GenerateHash(providedPassword, salt);
 
-            return CryptographicOperations.FixedTimeEquals(hash, providedHash) 
-                ? PasswordVerificationResult.Success 
+            return CryptographicOperations.FixedTimeEquals(hash, providedHash)
+                ? PasswordVerificationResult.Success
                 : PasswordVerificationResult.Failed;
         }
 

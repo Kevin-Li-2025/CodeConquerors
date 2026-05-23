@@ -12,6 +12,7 @@ public sealed class DistributedCacheHealthCheck : IHealthCheck
 
     private readonly IMemoryCache _memoryCache;
     private readonly IDistributedCache _cache;
+    private readonly SemaphoreSlim _refreshLock = new(1, 1);
 
     public DistributedCacheHealthCheck(IMemoryCache memoryCache, IDistributedCache cache)
     {
@@ -28,9 +29,15 @@ public sealed class DistributedCacheHealthCheck : IHealthCheck
             return cached;
         }
 
-        var key = $"health:cache:{Guid.NewGuid():N}";
+        await _refreshLock.WaitAsync(cancellationToken);
         try
         {
+            if (_memoryCache.TryGetValue(CacheKey, out cached))
+            {
+                return cached;
+            }
+
+            var key = $"health:cache:{Guid.NewGuid():N}";
             await _cache.SetAsync(
                 key,
                 Payload,
@@ -43,11 +50,19 @@ public sealed class DistributedCacheHealthCheck : IHealthCheck
             _memoryCache.Set(CacheKey, result, CacheTtl);
             return result;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             var result = HealthCheckResult.Unhealthy("Distributed cache is not reachable.", ex);
             _memoryCache.Set(CacheKey, result, CacheTtl);
             return result;
+        }
+        finally
+        {
+            _refreshLock.Release();
         }
     }
 }

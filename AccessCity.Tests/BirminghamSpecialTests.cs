@@ -28,23 +28,24 @@ public class BirminghamSpecialTests : IClassFixture<AccessCityApiFactory>
     public async Task GetBirminghamRoute_SyntheticFallback_Test()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();
-        
+
         // Moor St: 52.4789, -1.8926
         // New St: 52.4777, -1.8989
         // We Use 0.5 SafetyWeight.
         // We want to force synthetic grid, but wait, I can't easily disable OSRM via the public API.
         // I will just use the normal call and observe.
-        
-        var request = new { 
-            Start = new { X = -1.8926, Y = 52.4789 }, 
-            End = new { X = -1.8989, Y = 52.4777 }, 
+
+        var request = new
+        {
+            Start = new { X = -1.8926, Y = 52.4789 },
+            End = new { X = -1.8989, Y = 52.4777 },
             SafetyWeight = 0.5,
             Profile = "standard"
         };
 
         var response = await client.PostAsJsonAsync("/api/v1/routing/safe-path", request, JsonOptions);
         var result = await response.Content.ReadFromJsonAsync<RouteResponse>(JsonOptions);
-        
+
         _output.WriteLine($"### Birmingham Station Route (via OSRM):");
         _output.WriteLine($"- **Distance**: {result!.Distance:F1}m");
         _output.WriteLine($"- **Estimated Time**: {result.EstimatedTime:F1} mins");

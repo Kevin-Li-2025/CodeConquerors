@@ -45,10 +45,10 @@ namespace AccessCity.API.Controllers
 
             var bounds = new Envelope(minLng, maxLng, minLat, maxLat);
             var hazards = await _spatialCache.GetHazardsInBoundsAsync(bounds);
-            
+
             // Optionally supplement with real-time data if needed, or keep them separate.
             // For now, we'll return the cached hazards which should include real-time ones if the cache is updated.
-            
+
             var infrastructure = await _dbContext.InfrastructureAssets
                 .FromSqlInterpolated($"""
                     SELECT *

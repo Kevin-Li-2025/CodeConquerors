@@ -1,3 +1,4 @@
+using System.Data;
 using AccessCity.API.Configuration;
 using AccessCity.API.Data;
 using AccessCity.API.Hubs;
@@ -91,6 +92,7 @@ public static class WebApplicationExtensions
         }
 
         await MarkObsoleteInitialMigrationAsAppliedForEmptyDatabaseAsync(dbContext);
+        await EnsureRequiredPostgresExtensionsAsync(dbContext, scope.ServiceProvider);
 
         try
         {
@@ -102,6 +104,61 @@ public static class WebApplicationExtensions
             logger.LogWarning(
                 ex,
                 "EF migration hit an existing table. Continuing with schema normalization for a legacy database.");
+        }
+    }
+
+    private static async Task EnsureRequiredPostgresExtensionsAsync(
+        AppDbContext dbContext,
+        IServiceProvider services)
+    {
+        if (!string.Equals(dbContext.Database.ProviderName, "Npgsql.EntityFrameworkCore.PostgreSQL", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var connection = dbContext.Database.GetDbConnection();
+        var shouldClose = connection.State != ConnectionState.Open;
+        if (shouldClose)
+        {
+            await connection.OpenAsync();
+        }
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText =
+                """
+                SELECT
+                    EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'postgis') AS postgis_installed,
+                    COALESCE((SELECT rolsuper FROM pg_roles WHERE rolname = current_user), false) AS is_superuser;
+                """;
+
+            await using var reader = await command.ExecuteReaderAsync();
+            if (!await reader.ReadAsync())
+            {
+                return;
+            }
+
+            var postgisInstalled = reader.GetBoolean(0);
+            var isSuperuser = reader.GetBoolean(1);
+            if (postgisInstalled || isSuperuser)
+            {
+                return;
+            }
+
+            var message =
+                "PostGIS extension is not installed and the configured PostgreSQL user cannot create it. " +
+                "Install PostGIS with a database administrator account before running application migrations.";
+            var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("DatabaseMigration");
+            logger.LogCritical(message);
+            throw new InvalidOperationException(message);
+        }
+        finally
+        {
+            if (shouldClose)
+            {
+                await connection.CloseAsync();
+            }
         }
     }
 

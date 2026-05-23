@@ -135,12 +135,12 @@ namespace AccessCity.API.Services
             {
                 var vectorTile = new VectorTile();
                 var layer = new Layer { Name = "hazards" };
-                
+
                 foreach (var f in features)
                 {
                     layer.Features.Add(f);
                 }
-                
+
                 vectorTile.Layers.Add(layer);
                 using var ms = new MemoryStream();
 #pragma warning disable CS0618
@@ -189,10 +189,10 @@ namespace AccessCity.API.Services
             double n = Math.Pow(2.0, z);
             double lonMin = x / n * 360.0 - 180.0;
             double lonMax = (x + 1) / n * 360.0 - 180.0;
-            
+
             double latMinRad = Math.Atan(Math.Sinh(Math.PI * (1 - 2 * (y + 1) / n)));
             double latMaxRad = Math.Atan(Math.Sinh(Math.PI * (1 - 2 * y / n)));
-            
+
             double latMin = latMinRad * 180.0 / Math.PI;
             double latMax = latMaxRad * 180.0 / Math.PI;
 

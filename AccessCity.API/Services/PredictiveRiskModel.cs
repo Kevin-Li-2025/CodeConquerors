@@ -27,12 +27,12 @@ namespace AccessCity.API.Services
         // ──── Learned model weights (logistic regression coefficients) ────
         // Derived from urban pedestrian safety research:
         //   Ewing & Dumbaugh 2009, Loukaitou-Sideris 2006, WHO pedestrian safety reports
-        private const double W_Hazard       = 0.35;
-        private const double W_TimeOfDay    = 0.10;
-        private const double W_Weather      = 0.10;
-        private const double W_Crime        = 0.12;
-        private const double W_Infra        = 0.12;
-        private const double W_Lighting     = 0.12;
+        private const double W_Hazard = 0.35;
+        private const double W_TimeOfDay = 0.10;
+        private const double W_Weather = 0.10;
+        private const double W_Crime = 0.12;
+        private const double W_Infra = 0.12;
+        private const double W_Lighting = 0.12;
         private const double W_Surveillance = 0.09;
 
         public PredictiveRiskModel(
@@ -136,16 +136,16 @@ namespace AccessCity.API.Services
             // Piecewise circadian risk curve
             return hour switch
             {
-                < 2            => 0.80,  // Late night — peak risk
-                >= 2 and < 4   => 0.75,  // Deep night — very high
-                >= 4 and < 6   => 0.50,  // Pre-dawn — high
-                >= 6 and < 8   => 0.15,  // Early morning — moderate visibility
-                >= 8 and < 10  => 0.05,  // Morning — low risk
+                < 2 => 0.80,  // Late night — peak risk
+                >= 2 and < 4 => 0.75,  // Deep night — very high
+                >= 4 and < 6 => 0.50,  // Pre-dawn — high
+                >= 6 and < 8 => 0.15,  // Early morning — moderate visibility
+                >= 8 and < 10 => 0.05,  // Morning — low risk
                 >= 10 and < 16 => 0.02,  // Daytime — minimal risk
                 >= 16 and < 18 => 0.10,  // Late afternoon — increasing
                 >= 18 and < 20 => 0.30,  // Early evening — dusk
                 >= 20 and < 22 => 0.55,  // Night — elevated
-                _              => 0.80   // >= 22 — late night peak risk
+                _ => 0.80   // >= 22 — late night peak risk
             };
         }
 
