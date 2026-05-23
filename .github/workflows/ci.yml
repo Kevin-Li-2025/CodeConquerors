@@ -61,7 +61,7 @@ jobs:
       Workers__TileWarming__Enabled: "false"
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v5
@@ -111,7 +111,7 @@ jobs:
         working-directory: AccessCity.App
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -149,7 +149,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
 
       - name: Validate default Compose config
         run: docker compose config --quiet
@@ -185,7 +185,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
 
       - name: Build API image from fresh base layers
         run: docker build --pull -t accesscity-api:ci ./AccessCity.API
@@ -209,7 +209,7 @@ jobs:
       pull-requests: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v5
 
       - name: Review dependency changes
         uses: actions/dependency-review-action@v5
