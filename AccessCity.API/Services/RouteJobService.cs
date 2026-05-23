@@ -270,7 +270,7 @@ public sealed class RouteJobService : IRouteJobService
         var routing = scope.ServiceProvider.GetRequiredService<IRoutingService>();
         var options = await routing.FindSafePathWithVariantsAsync(request, scopedHazards, stoppingToken);
 
-        await CacheOptionsResultAsync(scope.ServiceProvider, request, options, scopedHazards);
+        await CacheOptionsResultAsync(scope.ServiceProvider, request, options, scopedHazards, stoppingToken);
         return options;
     }
 
@@ -293,11 +293,14 @@ public sealed class RouteJobService : IRouteJobService
         IServiceProvider serviceProvider,
         RouteRequest request,
         SafePathOptionsResponse options,
-        IEnumerable<HazardReport> hazards)
+        IEnumerable<HazardReport> hazards,
+        CancellationToken cancellationToken)
     {
         try
         {
-            var contextFingerprint = RouteRequestFingerprint.HazardContext(hazards);
+            var routeGraphStatus = serviceProvider.GetRequiredService<IRouteGraphStatusService>();
+            var graphVersion = await routeGraphStatus.GetVersionAsync(cancellationToken);
+            var contextFingerprint = $"{RouteRequestFingerprint.HazardContext(hazards)}:graph:{graphVersion}";
             var routeCache = serviceProvider.GetRequiredService<IRouteCacheService>();
             var routeCacheKey = BuildRouteCacheKey(routeCache, request, contextFingerprint);
             await routeCache.SetAsync(routeCacheKey, options.Recommended);

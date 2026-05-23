@@ -128,6 +128,9 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         Assert.NotNull(result!.Path);
         Assert.True(result.Distance > 0);
         Assert.NotEmpty(result.Steps);
+        Assert.DoesNotContain(
+            result.Warnings,
+            warning => warning.Contains("approximate mesh", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -286,6 +289,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var distributedCache = scope.ServiceProvider.GetRequiredService<IDistributedCache>();
         var metrics = scope.ServiceProvider.GetRequiredService<AccessCityMetrics>();
+        var routeGraphStatus = scope.ServiceProvider.GetRequiredService<IRouteGraphStatusService>();
         var options = scope.ServiceProvider.GetRequiredService<IOptions<RoutingOptions>>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<RouteGraphRepository>>();
         var start = new Coordinate(-1.8904, 52.4862);
@@ -297,6 +301,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             firstMemory,
             distributedCache,
             metrics,
+            routeGraphStatus,
             options,
             logger);
 
@@ -313,6 +318,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             secondMemory,
             distributedCache,
             metrics,
+            routeGraphStatus,
             options,
             logger);
 
@@ -333,15 +339,22 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var distributedCache = scope.ServiceProvider.GetRequiredService<IDistributedCache>();
         var metrics = scope.ServiceProvider.GetRequiredService<AccessCityMetrics>();
+        var routeGraphStatus = scope.ServiceProvider.GetRequiredService<IRouteGraphStatusService>();
         var options = scope.ServiceProvider.GetRequiredService<IOptions<RoutingOptions>>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<RouteGraphRepository>>();
         var start = new Coordinate(-1.8904, 52.4862);
         var end = new Coordinate(-1.8894, 52.4862);
-        var cacheKey = BuildRouteGraphCacheKey(start, end, options.Value);
 
-        await distributedCache.RemoveAsync(cacheKey);
         await dbContext.RouteEdges.ExecuteDeleteAsync();
         await dbContext.RouteNodes.ExecuteDeleteAsync();
+        routeGraphStatus.InvalidateLocalCache();
+        var emptyCacheKey = BuildRouteGraphCacheKey(
+            start,
+            end,
+            options.Value,
+            await routeGraphStatus.GetVersionAsync());
+
+        await distributedCache.RemoveAsync(emptyCacheKey);
 
         using (var emptyMemory = new MemoryCache(new MemoryCacheOptions()))
         {
@@ -350,6 +363,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
                 emptyMemory,
                 distributedCache,
                 metrics,
+                routeGraphStatus,
                 options,
                 logger);
 
@@ -365,6 +379,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             loadedMemory,
             distributedCache,
             metrics,
+            routeGraphStatus,
             options,
             logger);
 
@@ -372,7 +387,11 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         Assert.True(loaded.HasCoverage);
     }
 
-    private static string BuildRouteGraphCacheKey(Coordinate start, Coordinate end, RoutingOptions options)
+    private static string BuildRouteGraphCacheKey(
+        Coordinate start,
+        Coordinate end,
+        RoutingOptions options,
+        string graphVersion)
     {
         var edgeLimit = Math.Max(100, options.MaxRouteGraphEdges);
         var latitudeDelta = Math.Abs(start.Y - end.Y);
@@ -386,7 +405,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"route_graph:v3:{edgeLimit}:{minLon:F4}:{minLat:F4}:{maxLon:F4}:{maxLat:F4}");
+            $"route_graph:v4:{graphVersion}:{edgeLimit}:{minLon:F4}:{minLat:F4}:{maxLon:F4}:{maxLat:F4}");
     }
 
     [Fact]

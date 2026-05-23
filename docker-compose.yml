@@ -6,6 +6,8 @@ services:
       dockerfile: Dockerfile
     expose:
       - "8080"
+    volumes:
+      - ./AccessCity.Tests/Fixtures:/app/osm:ro
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Jwt__Key: ${JWT_SECRET:-AccessCity_Secret_Key_For_Dev_2026_Placeholder}
@@ -37,6 +39,7 @@ services:
       Routing__MaxRiskQueryRadiusMetres: ${Routing__MaxRiskQueryRadiusMetres:-2500}
       Routing__MaxRouteGraphEdges: ${Routing__MaxRouteGraphEdges:-20000}
       Routing__DispatchJobsToWorker: ${Routing__DispatchJobsToWorker:-false}
+      Routing__RequireRouteGraphForReadiness: ${Routing__RequireRouteGraphForReadiness:-false}
       Routing__RouteGraphCacheTtlSeconds: ${Routing__RouteGraphCacheTtlSeconds:-300}
       Routing__RouteGraphShardSizeDegrees: ${Routing__RouteGraphShardSizeDegrees:-0.01}
       RiskScoring__CacheTtlSeconds: ${RiskScoring__CacheTtlSeconds:-30}
@@ -59,9 +62,9 @@ services:
       Workers__OsmImport__Enabled: ${API_OSM_WORKER_ENABLED:-true}
       Workers__Routing__Enabled: ${API_ROUTING_WORKER_ENABLED:-false}
       Workers__TileWarming__Enabled: ${API_TILE_WORKER_ENABLED:-true}
-      # Default false (avoids OOM on large extracts). Override when starting compose, e.g.:
-      #   OsmImport__ImportOnStartup=true docker compose up -d --force-recreate api
-      OsmImport__ImportOnStartup: ${OsmImport__ImportOnStartup:-false}
+      # Local compose mounts the small fixture below; production should override FilePath with a city extract.
+      OsmImport__FilePath: ${OsmImport__FilePath:-/app/osm/test-network.osm}
+      OsmImport__ImportOnStartup: ${OsmImport__ImportOnStartup:-true}
       # HybridCache L2 (route cache, etc.). Empty = use in-process memory only (see DependencyInjection).
       # Enable Redis: put `REDIS_CONNECTION=redis:6379` in a `.env` next to this file, then recreate api.
       ConnectionStrings__Redis: ${REDIS_CONNECTION:-redis:6379}
@@ -87,6 +90,8 @@ services:
     build:
       context: ./AccessCity.API
       dockerfile: Dockerfile
+    volumes:
+      - ./AccessCity.Tests/Fixtures:/app/osm:ro
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Jwt__Key: ${JWT_SECRET:-AccessCity_Secret_Key_For_Dev_2026_Placeholder}
@@ -120,6 +125,7 @@ services:
       RiskScoring__CacheRadiusBucketMetres: ${RiskScoring__CacheRadiusBucketMetres:-50}
       RiskScoring__ExternalSignalBudgetMilliseconds: ${RiskScoring__ExternalSignalBudgetMilliseconds:-350}
       OsmImport__ImportOnStartup: "false"
+      OsmImport__FilePath: ${OsmImport__FilePath:-/app/osm/test-network.osm}
       ConnectionStrings__Redis: ${REDIS_CONNECTION:-redis:6379}
       Workers__OsmImport__Enabled: "true"
       Workers__Routing__Enabled: "true"

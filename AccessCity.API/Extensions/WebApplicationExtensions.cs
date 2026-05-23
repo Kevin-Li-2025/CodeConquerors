@@ -3,7 +3,6 @@ using AccessCity.API.Configuration;
 using AccessCity.API.Data;
 using AccessCity.API.HealthChecks;
 using AccessCity.API.Hubs;
-using AccessCity.API.Messaging;
 using AccessCity.API.Models;
 using AccessCity.API.Services;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -261,9 +260,7 @@ public static class WebApplicationExtensions
             StringComparison.Ordinal);
 
     /// <summary>
-    /// Schedules OSM import after the host is running. Publishing <see cref="AccessCity.API.Messaging.OsmImportStartedEvent"/>
-    /// during <see cref="InitializeDatabaseAsync"/> runs before <see cref="Services.Background.OsmImportBackgroundService"/>
-    /// subscribes, so the in-memory bus drops the event and import never starts.
+    /// Schedules OSM import after the host is running so background consumers have subscribed before the job is published.
     /// </summary>
     private static Task RunOptionalOsmImportAsync(WebApplication app)
     {
@@ -292,8 +289,9 @@ public static class WebApplicationExtensions
         {
             await Task.Delay(500).ConfigureAwait(false);
             await using var asyncScope = app.Services.CreateAsyncScope();
-            var bus = asyncScope.ServiceProvider.GetRequiredService<IMessageBus>();
             var options = asyncScope.ServiceProvider.GetRequiredService<Microsoft.Extensions.Options.IOptions<OsmImportOptions>>();
+            var routeGraphStatus = asyncScope.ServiceProvider.GetRequiredService<IRouteGraphStatusService>();
+            var importJobs = asyncScope.ServiceProvider.GetRequiredService<IOsmImportJobService>();
             var filePath = options.Value.FilePath;
             if (string.IsNullOrWhiteSpace(filePath))
             {
@@ -301,11 +299,19 @@ public static class WebApplicationExtensions
                 return;
             }
 
-            var jobId = Guid.NewGuid();
-            logger.LogInformation("Queueing configured OSM import job {JobId} (ImportOnStartup)", jobId);
-            await bus.PublishAsync(
-                new OsmImportStartedEvent(jobId, filePath, "startup", DateTime.UtcNow),
-                CancellationToken.None).ConfigureAwait(false);
+            var status = await routeGraphStatus.GetStatusAsync(CancellationToken.None).ConfigureAwait(false);
+            if (status.HasCoverage)
+            {
+                logger.LogInformation(
+                    "Skipping ImportOnStartup because route graph coverage already exists ({RouteNodes} nodes, {RouteEdges} edges, version {Version}).",
+                    status.RouteNodeCount,
+                    status.RouteEdgeCount,
+                    status.Version);
+                return;
+            }
+
+            var job = await importJobs.QueueConfiguredImportAsync(CancellationToken.None).ConfigureAwait(false);
+            logger.LogInformation("Queued configured OSM import job {JobId} (ImportOnStartup)", job.JobId);
         }
         catch (Exception ex)
         {

@@ -26,6 +26,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
     private readonly IMemoryCache _cache;
     private readonly IDistributedCache _distributedCache;
     private readonly AccessCityMetrics _metrics;
+    private readonly IRouteGraphStatusService _routeGraphStatus;
     private readonly ILogger<RouteGraphRepository> _logger;
     private readonly RoutingOptions _options;
     private static readonly JsonSerializerOptions SnapshotJsonOptions = new(JsonSerializerDefaults.Web);
@@ -35,6 +36,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         IMemoryCache cache,
         IDistributedCache distributedCache,
         AccessCityMetrics metrics,
+        IRouteGraphStatusService routeGraphStatus,
         IOptions<RoutingOptions> options,
         ILogger<RouteGraphRepository> logger)
     {
@@ -42,6 +44,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         _cache = cache;
         _distributedCache = distributedCache;
         _metrics = metrics;
+        _routeGraphStatus = routeGraphStatus;
         _options = options.Value;
         _logger = logger;
     }
@@ -53,8 +56,15 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
     {
         var edgeLimit = Math.Max(100, _options.MaxRouteGraphEdges);
         var region = ComputeShardRegion(start, end);
-        var cacheKey = BuildCacheKey(region, edgeLimit);
         var stopwatch = Stopwatch.StartNew();
+        var coverage = await _routeGraphStatus.GetStatusAsync(cancellationToken);
+        var cacheKey = BuildCacheKey(region, edgeLimit, coverage.Version);
+
+        if (!coverage.HasCoverage)
+        {
+            _metrics.CacheLookup("route_graph", hit: false, stopwatch.Elapsed.TotalMilliseconds);
+            return new RouteGraphData { ShardKey = cacheKey };
+        }
 
         if (_cache.TryGetValue(cacheKey, out RouteGraphData? cached) && cached is not null)
         {
@@ -296,9 +306,9 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             Math.Ceiling(maxLat / shardSize) * shardSize);
     }
 
-    private static string BuildCacheKey(GraphShardRegion region, int edgeLimit) =>
+    private static string BuildCacheKey(GraphShardRegion region, int edgeLimit, string graphVersion) =>
         string.Create(CultureInfo.InvariantCulture,
-            $"route_graph:v3:{edgeLimit}:{region.MinLon:F4}:{region.MinLat:F4}:{region.MaxLon:F4}:{region.MaxLat:F4}");
+            $"route_graph:v4:{graphVersion}:{edgeLimit}:{region.MinLon:F4}:{region.MinLat:F4}:{region.MaxLon:F4}:{region.MaxLat:F4}");
 
     private static void BuildSpatialBuckets(RouteGraphData graphData)
     {

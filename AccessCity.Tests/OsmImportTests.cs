@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using AccessCity.API.Data;
 using AccessCity.API.Models;
+using AccessCity.API.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 
@@ -74,6 +75,33 @@ public class OsmImportTests : IClassFixture<AccessCityApiFactory>
 
         Assert.Equal("completed", latestRun.Status);
         Assert.True(latestRun.RecordsInserted > 0);
+    }
+
+    [Fact]
+    public async Task ImportService_Rejects_Missing_Osm_File()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var importService = scope.ServiceProvider.GetRequiredService<IOsmImportService>();
+
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            importService.ImportAsync("/tmp/accesscity-missing-route-graph.osm"));
+    }
+
+    [Fact]
+    public async Task RouteGraphStatus_Reports_Coverage_After_Import()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        await _factory.ImportOsmAsync(client);
+
+        var response = await client.GetAsync("/api/v1/routing/route-graph/status");
+        response.EnsureSuccessStatusCode();
+
+        var status = await response.Content.ReadFromJsonAsync<RouteGraphCoverageStatus>();
+        Assert.NotNull(status);
+        Assert.True(status!.HasCoverage);
+        Assert.True(status.RouteNodeCount > 0);
+        Assert.True(status.RouteEdgeCount > 0);
+        Assert.Contains("osm:", status.Version, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

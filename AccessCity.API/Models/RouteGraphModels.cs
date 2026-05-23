@@ -47,3 +47,14 @@ public sealed class RouteGraphData
     public bool IsTruncated { get; init; }
     public bool HasCoverage => Nodes.Count > 0;
 }
+
+public sealed record RouteGraphCoverageStatus(
+    long RouteNodeCount,
+    long RouteEdgeCount,
+    bool HasCoverage,
+    string Version,
+    long? LatestOsmRunId,
+    string? LatestOsmRunStatus,
+    DateTime? LatestOsmRunFinishedAtUtc,
+    string? LatestOsmSourceName,
+    string? Warning);

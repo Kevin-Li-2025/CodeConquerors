@@ -39,6 +39,25 @@ public sealed class OsmImportJobService : IOsmImportJobService
             throw new InvalidOperationException("OsmImport:FilePath is not configured.");
         }
 
+        var existingJob = await _dbContext.OsmImportJobs
+            .AsNoTracking()
+            .Where(job => job.FilePath == filePath && (job.Status == "queued" || job.Status == "running"))
+            .OrderByDescending(job => job.QueuedAtUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+        if (existingJob is not null)
+        {
+            return new OsmImportJobResponse(
+                existingJob.Id,
+                existingJob.Status,
+                existingJob.FilePath,
+                existingJob.QueuedAtUtc,
+                existingJob.StartedAtUtc,
+                existingJob.FinishedAtUtc,
+                existingJob.Attempts,
+                existingJob.FeedIngestionRunId,
+                existingJob.ErrorSummary);
+        }
+
         var jobId = Guid.NewGuid();
         var queuedAt = DateTime.UtcNow;
         _dbContext.OsmImportJobs.Add(new OsmImportJob

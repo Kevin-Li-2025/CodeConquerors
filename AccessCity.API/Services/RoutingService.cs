@@ -36,6 +36,7 @@ public class RoutingService : IRoutingService
     private readonly IPredictiveRiskModel _aiRisk;
     private readonly IOsrmClient _osrmClient;
     private readonly IRouteGraphRepository _graphRepo;
+    private readonly IRouteGraphStatusService _routeGraphStatus;
     private readonly IRiskTileCacheService _tileCache;
     private readonly IRouteCacheService _routeCache;
 
@@ -58,6 +59,7 @@ public class RoutingService : IRoutingService
         IPredictiveRiskModel aiRisk,
         IOsrmClient osrmClient,
         IRouteGraphRepository graphRepo,
+        IRouteGraphStatusService routeGraphStatus,
         IRiskTileCacheService tileCache,
         IRouteCacheService routeCache)
     {
@@ -65,6 +67,7 @@ public class RoutingService : IRoutingService
         _aiRisk = aiRisk;
         _osrmClient = osrmClient;
         _graphRepo = graphRepo;
+        _routeGraphStatus = routeGraphStatus;
         _tileCache = tileCache;
         _routeCache = routeCache;
     }
@@ -83,7 +86,7 @@ public class RoutingService : IRoutingService
         var hazardList = allHazards
             .Where(h => h.Status == HazardStatus.Reported || h.Status == HazardStatus.UnderReview)
             .ToList();
-        var contextFingerprint = RouteRequestFingerprint.HazardContext(hazardList);
+        var contextFingerprint = await BuildRouteContextFingerprintAsync(hazardList, cancellationToken);
 
         // Route-level cache: return instantly for identical request + preference + risk context.
         var cacheKey = _routeCache.BuildKey(
@@ -157,6 +160,15 @@ public class RoutingService : IRoutingService
         {
             // Cache failures must never turn a successful route computation into a 5xx response.
         }
+    }
+
+    private async Task<string> BuildRouteContextFingerprintAsync(
+        IEnumerable<HazardReport> hazards,
+        CancellationToken cancellationToken)
+    {
+        var hazardContext = RouteRequestFingerprint.HazardContext(hazards);
+        var graphVersion = await _routeGraphStatus.GetVersionAsync(cancellationToken);
+        return $"{hazardContext}:graph:{graphVersion}";
     }
 
     /// <summary>

@@ -35,16 +35,19 @@ public sealed class OsmImportService : IOsmImportService
 
     private readonly AppDbContext _dbContext;
     private readonly IOptions<OsmImportOptions> _options;
+    private readonly IRouteGraphStatusService _routeGraphStatus;
     private readonly ILogger<OsmImportService> _logger;
     private readonly GeometryFactory _geometryFactory = new(new PrecisionModel(), 4326);
 
     public OsmImportService(
         AppDbContext dbContext,
         IOptions<OsmImportOptions> options,
+        IRouteGraphStatusService routeGraphStatus,
         ILogger<OsmImportService> logger)
     {
         _dbContext = dbContext;
         _options = options;
+        _routeGraphStatus = routeGraphStatus;
         _logger = logger;
     }
 
@@ -66,7 +69,14 @@ public sealed class OsmImportService : IOsmImportService
             throw new InvalidOperationException("OsmImport:FilePath is not configured.");
         }
 
-        var filePaths = filePathConfig.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var configuredFilePaths = filePathConfig.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var filePaths = ResolveExistingFiles(configuredFilePaths);
+        if (filePaths.Count == 0)
+        {
+            throw new FileNotFoundException(
+                $"No OSM import files were found. Configured paths: {string.Join(';', configuredFilePaths)}");
+        }
+
         var combinedCounters = new ImportCounters();
         var startedAt = DateTime.UtcNow;
 
@@ -86,15 +96,8 @@ public sealed class OsmImportService : IOsmImportService
             var globalSeenNodes = new HashSet<long>();
             foreach (var filePath in filePaths)
             {
-                var fullPath = Path.GetFullPath(filePath);
-                if (!File.Exists(fullPath))
-                {
-                    _logger.LogWarning("OSM import file not found: {FullPath}", fullPath);
-                    continue;
-                }
-
                 await using var transaction = await _dbContext.Database.BeginTransactionAsync(cancellationToken);
-                var fileCounters = await ImportFileAsync(_dbContext, fullPath, globalSeenNodes, cancellationToken);
+                var fileCounters = await ImportFileAsync(_dbContext, filePath, globalSeenNodes, cancellationToken);
                 await transaction.CommitAsync(cancellationToken);
 
                 // Help GC recover memory between large files
@@ -109,15 +112,19 @@ public sealed class OsmImportService : IOsmImportService
             }
 
             var finishedAt = DateTime.UtcNow;
+            var importedRouteGraph = combinedCounters.RouteNodesInserted > 0 && combinedCounters.RouteEdgesInserted > 0;
             var run = new FeedIngestionRun
             {
                 SourceType = "osm",
                 SourceName = string.Join(';', filePaths),
-                Status = "completed",
+                Status = importedRouteGraph ? "completed" : "failed",
                 StartedAt = startedAt,
                 FinishedAt = finishedAt,
                 RecordsSeen = combinedCounters.RecordsSeen,
                 RecordsInserted = combinedCounters.RouteNodesInserted + combinedCounters.RouteEdgesInserted + combinedCounters.InfrastructureAssetsInserted,
+                ErrorSummary = importedRouteGraph
+                    ? null
+                    : "OSM import completed without route graph coverage. At least one route node and route edge is required.",
                 Metadata = JsonSerializer.SerializeToDocument(new
                 {
                     filePaths = filePaths,
@@ -129,6 +136,12 @@ public sealed class OsmImportService : IOsmImportService
 
             _dbContext.FeedIngestionRuns.Add(run);
             await _dbContext.SaveChangesAsync(cancellationToken);
+            _routeGraphStatus.InvalidateLocalCache();
+
+            if (!importedRouteGraph)
+            {
+                throw new InvalidOperationException(run.ErrorSummary);
+            }
 
             return new OsmImportResult
             {
@@ -142,6 +155,24 @@ public sealed class OsmImportService : IOsmImportService
                 Duration = finishedAt - startedAt
             };
         });
+    }
+
+    private List<string> ResolveExistingFiles(IEnumerable<string> configuredFilePaths)
+    {
+        var existing = new List<string>();
+        foreach (var filePath in configuredFilePaths)
+        {
+            var fullPath = Path.GetFullPath(filePath);
+            if (!File.Exists(fullPath))
+            {
+                _logger.LogWarning("OSM import file not found: {FullPath}", fullPath);
+                continue;
+            }
+
+            existing.Add(fullPath);
+        }
+
+        return existing;
     }
 
     private async Task<ImportCounters> ImportFileAsync(

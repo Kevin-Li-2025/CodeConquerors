@@ -31,6 +31,7 @@ public class RoutingController : ControllerBase
     private readonly IRouteCacheService _routeCache;
     private readonly IRouteOptionsCacheService _routeOptionsCache;
     private readonly IRiskScoreCacheService _riskScoreCache;
+    private readonly IRouteGraphStatusService _routeGraphStatus;
     private readonly AccessCityMetrics _metrics;
     private readonly RoutingOptions _routingOptions;
 
@@ -45,6 +46,7 @@ public class RoutingController : ControllerBase
         IRouteCacheService routeCache,
         IRouteOptionsCacheService routeOptionsCache,
         IRiskScoreCacheService riskScoreCache,
+        IRouteGraphStatusService routeGraphStatus,
         AccessCityMetrics metrics,
         IOptions<RoutingOptions> routingOptions)
     {
@@ -58,6 +60,7 @@ public class RoutingController : ControllerBase
         _routeCache = routeCache;
         _routeOptionsCache = routeOptionsCache;
         _riskScoreCache = riskScoreCache;
+        _routeGraphStatus = routeGraphStatus;
         _metrics = metrics;
         _routingOptions = routingOptions.Value;
     }
@@ -89,7 +92,7 @@ public class RoutingController : ControllerBase
             if (_routingOptions.AsyncFirstForCacheMiss)
             {
                 var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
-                var contextFingerprint = RouteRequestFingerprint.HazardContext(hazards);
+                var contextFingerprint = await BuildRouteContextFingerprintAsync(hazards, cancellationToken);
                 var cacheKey = _routeCache.BuildKey(
                     request.Start.Y,
                     request.Start.X,
@@ -183,6 +186,16 @@ public class RoutingController : ControllerBase
     }
 
     /// <summary>
+    /// Reports whether imported OSM route graph coverage is available for accessibility-aware routing.
+    /// </summary>
+    [HttpGet("route-graph/status")]
+    [ProducesResponseType(typeof(RouteGraphCoverageStatus), StatusCodes.Status200OK)]
+    public async Task<ActionResult<RouteGraphCoverageStatus>> GetRouteGraphStatus(CancellationToken cancellationToken)
+    {
+        return Ok(await _routeGraphStatus.GetStatusAsync(cancellationToken));
+    }
+
+    /// <summary>
     /// Multi-objective routing: same recommendation as <c>safe-path</c> when OSRM is used, plus up to three labelled
     /// alternatives (shortest distance, lowest composite risk, fastest time) when the router returns multiple geometries.
     /// </summary>
@@ -200,7 +213,7 @@ public class RoutingController : ControllerBase
         if (_routingOptions.AsyncFirstForCacheMiss)
         {
             var asyncHazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
-            var contextFingerprint = RouteRequestFingerprint.HazardContext(asyncHazards);
+            var contextFingerprint = await BuildRouteContextFingerprintAsync(asyncHazards, cancellationToken);
             var cacheKey = _routeOptionsCache.BuildKey(
                 request.Start.Y,
                 request.Start.X,
@@ -229,6 +242,24 @@ public class RoutingController : ControllerBase
             });
         }
 
+        var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
+        var synchronousContextFingerprint = await BuildRouteContextFingerprintAsync(hazards, cancellationToken);
+        var synchronousCacheKey = _routeOptionsCache.BuildKey(
+            request.Start.Y,
+            request.Start.X,
+            request.End.Y,
+            request.End.X,
+            request.Profile ?? "standard",
+            request.SafetyWeight,
+            request.Preferences,
+            synchronousContextFingerprint);
+        var synchronousCached = await _routeOptionsCache.TryGetAsync(synchronousCacheKey);
+        if (synchronousCached is not null)
+        {
+            RecordSafePathOptions(stopwatch, "cache_hit");
+            return Ok(synchronousCached);
+        }
+
         var queueTimeout = TimeSpan.FromSeconds(Math.Max(1, _routingOptions.ComputationQueueTimeoutSeconds));
         await using var lease = await _routeLimiter.TryAcquireAsync(queueTimeout, cancellationToken);
         if (lease is null)
@@ -239,9 +270,8 @@ public class RoutingController : ControllerBase
                 Detail: "Retry shortly or use the async job endpoint for the primary route."));
         }
 
-        var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, cancellationToken);
         var result = await _routing.FindSafePathWithVariantsAsync(request, hazards, cancellationToken);
-        await CacheOptionsAsync(request, result, hazards);
+        await _routeOptionsCache.SetAsync(synchronousCacheKey, result);
         RecordSafePathOptions(stopwatch, "success");
         return Ok(result);
     }
@@ -303,6 +333,15 @@ public class RoutingController : ControllerBase
         return Ok(result);
     }
 
+    private async Task<string> BuildRouteContextFingerprintAsync(
+        IEnumerable<HazardReport> hazards,
+        CancellationToken cancellationToken)
+    {
+        var hazardContext = RouteRequestFingerprint.HazardContext(hazards);
+        var graphVersion = await _routeGraphStatus.GetVersionAsync(cancellationToken);
+        return $"{hazardContext}:graph:{graphVersion}";
+    }
+
     private void RecordSafePath(Stopwatch stopwatch, string outcome) =>
         _metrics.SafePathCompleted(
             "/api/v{version}/routing/safe-path",
@@ -314,29 +353,4 @@ public class RoutingController : ControllerBase
             "/api/v{version}/routing/safe-path/options",
             outcome,
             stopwatch.Elapsed.TotalMilliseconds);
-
-    private async Task CacheOptionsAsync(
-        RouteRequest request,
-        SafePathOptionsResponse response,
-        IEnumerable<HazardReport> hazards)
-    {
-        try
-        {
-            var contextFingerprint = RouteRequestFingerprint.HazardContext(hazards);
-            var cacheKey = _routeOptionsCache.BuildKey(
-                request.Start.Y,
-                request.Start.X,
-                request.End.Y,
-                request.End.X,
-                request.Profile ?? "standard",
-                request.SafetyWeight,
-                request.Preferences,
-                contextFingerprint);
-            await _routeOptionsCache.SetAsync(cacheKey, response);
-        }
-        catch
-        {
-            // Options cache failures must not turn a successful route computation into a 5xx response.
-        }
-    }
 }

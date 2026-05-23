@@ -22,6 +22,7 @@ using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Caching.Hybrid;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
@@ -318,7 +319,13 @@ public static class DependencyInjection
         services.AddHealthChecks()
             .AddCheck<PostgresHealthCheck>("db", tags: new[] { "ready" })
             .AddCheck<DistributedCacheHealthCheck>("cache", tags: new[] { "ready" })
-            .AddCheck<KafkaHealthCheck>("kafka", tags: new[] { "ready" });
+            .AddCheck<KafkaHealthCheck>("kafka", tags: new[] { "ready" })
+            .AddCheck<RouteGraphCoverageHealthCheck>(
+                "route_graph",
+                failureStatus: configuration.GetValue<bool>("Routing:RequireRouteGraphForReadiness")
+                    ? HealthStatus.Unhealthy
+                    : HealthStatus.Degraded,
+                tags: new[] { "ready" });
         services.AddSingleton<CachedReadinessService>();
 
         return services;

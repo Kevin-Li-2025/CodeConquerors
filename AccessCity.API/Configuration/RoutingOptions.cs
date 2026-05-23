@@ -14,6 +14,7 @@ public sealed class RoutingOptions
     public int MaxRouteGraphEdges { get; set; } = 20_000;
     public bool AsyncFirstForCacheMiss { get; set; }
     public bool DispatchJobsToWorker { get; set; }
+    public bool RequireRouteGraphForReadiness { get; set; }
     public int RouteGraphCacheTtlSeconds { get; set; } = 300;
     public double RouteGraphShardSizeDegrees { get; set; } = 0.01;
 }
