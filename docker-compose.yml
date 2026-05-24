@@ -104,6 +104,24 @@ services:
       RiskScoring__CacheFillTimeoutSeconds: ${RiskScoring__CacheFillTimeoutSeconds:-5}
       RiskScoring__ExternalSignalBudgetMilliseconds: ${RiskScoring__ExternalSignalBudgetMilliseconds:-350}
       RiskScoring__RealtimeExternalSignalsEnabled: ${RiskScoring__RealtimeExternalSignalsEnabled:-false}
+      AiEnrichment__Enabled: ${AiEnrichment__Enabled:-true}
+      AiEnrichment__Provider: ${AiEnrichment__Provider:-local-rules}
+      AiEnrichment__DuplicateRadiusMetres: ${AiEnrichment__DuplicateRadiusMetres:-25}
+      AiEnrichment__MinimumCandidateConfidence: ${AiEnrichment__MinimumCandidateConfidence:-0.35}
+      AiEnrichment__AllowRouteDecisionInfluence: "false"
+      AiEnrichment__MaxExplanationWarnings: ${AiEnrichment__MaxExplanationWarnings:-5}
+      AiEnrichment__OpenAiEndpoint: ${AiEnrichment__OpenAiEndpoint:-https://api.openai.com/v1/responses}
+      AiEnrichment__OpenAiModel: ${AiEnrichment__OpenAiModel:-gpt-5-mini}
+      AiEnrichment__OpenAiTimeoutSeconds: ${AiEnrichment__OpenAiTimeoutSeconds:-8}
+      AiEnrichment__OpenAiMaxOutputTokens: ${AiEnrichment__OpenAiMaxOutputTokens:-900}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AiEnrichment__NebiusBaseUrl: ${AiEnrichment__NebiusBaseUrl:-https://api.tokenfactory.nebius.com/v1}
+      AiEnrichment__NebiusModel: ${AiEnrichment__NebiusModel:-openai/gpt-oss-120b-fast}
+      AiEnrichment__NebiusHighQualityModel: ${AiEnrichment__NebiusHighQualityModel:-Qwen/Qwen3.5-397B-A17B-fast}
+      AiEnrichment__NebiusTimeoutSeconds: ${AiEnrichment__NebiusTimeoutSeconds:-8}
+      AiEnrichment__NebiusMaxTokens: ${AiEnrichment__NebiusMaxTokens:-700}
+      AiEnrichment__NebiusEnableImageInputs: ${AiEnrichment__NebiusEnableImageInputs:-false}
+      NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
       HotPathWarmup__Enabled: ${HotPathWarmup__Enabled:-true}
       HotPathWarmup__InitialDelaySeconds: ${HotPathWarmup__InitialDelaySeconds:-2}
       HotPathWarmup__IntervalSeconds: ${HotPathWarmup__IntervalSeconds:-300}
@@ -265,6 +283,24 @@ services:
       RiskScoring__CacheFillTimeoutSeconds: ${RiskScoring__CacheFillTimeoutSeconds:-5}
       RiskScoring__ExternalSignalBudgetMilliseconds: ${RiskScoring__ExternalSignalBudgetMilliseconds:-350}
       RiskScoring__RealtimeExternalSignalsEnabled: ${RiskScoring__RealtimeExternalSignalsEnabled:-false}
+      AiEnrichment__Enabled: ${AiEnrichment__Enabled:-true}
+      AiEnrichment__Provider: ${AiEnrichment__Provider:-local-rules}
+      AiEnrichment__DuplicateRadiusMetres: ${AiEnrichment__DuplicateRadiusMetres:-25}
+      AiEnrichment__MinimumCandidateConfidence: ${AiEnrichment__MinimumCandidateConfidence:-0.35}
+      AiEnrichment__AllowRouteDecisionInfluence: "false"
+      AiEnrichment__MaxExplanationWarnings: ${AiEnrichment__MaxExplanationWarnings:-5}
+      AiEnrichment__OpenAiEndpoint: ${AiEnrichment__OpenAiEndpoint:-https://api.openai.com/v1/responses}
+      AiEnrichment__OpenAiModel: ${AiEnrichment__OpenAiModel:-gpt-5-mini}
+      AiEnrichment__OpenAiTimeoutSeconds: ${AiEnrichment__OpenAiTimeoutSeconds:-8}
+      AiEnrichment__OpenAiMaxOutputTokens: ${AiEnrichment__OpenAiMaxOutputTokens:-900}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AiEnrichment__NebiusBaseUrl: ${AiEnrichment__NebiusBaseUrl:-https://api.tokenfactory.nebius.com/v1}
+      AiEnrichment__NebiusModel: ${AiEnrichment__NebiusModel:-openai/gpt-oss-120b-fast}
+      AiEnrichment__NebiusHighQualityModel: ${AiEnrichment__NebiusHighQualityModel:-Qwen/Qwen3.5-397B-A17B-fast}
+      AiEnrichment__NebiusTimeoutSeconds: ${AiEnrichment__NebiusTimeoutSeconds:-8}
+      AiEnrichment__NebiusMaxTokens: ${AiEnrichment__NebiusMaxTokens:-700}
+      AiEnrichment__NebiusEnableImageInputs: ${AiEnrichment__NebiusEnableImageInputs:-false}
+      NEBIUS_API_KEY: ${NEBIUS_API_KEY:-}
       HotPathWarmup__Enabled: "false"
       OsmImport__ImportOnStartup: "false"
       OsmImport__FilePath: ${OsmImport__FilePath:-/app/osm/test-network.osm}

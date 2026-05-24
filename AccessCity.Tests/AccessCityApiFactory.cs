@@ -73,6 +73,9 @@ public class AccessCityApiFactory : WebApplicationFactory<Program>
                 ["OsmImport:ImportOnStartup"] = "false",
                 ["OsmImport:ReplaceExisting"] = "true",
                 ["Routing:DispatchJobsToWorker"] = "false",
+                ["AiEnrichment:Provider"] = "local-rules",
+                ["AiEnrichment:NebiusApiKey"] = string.Empty,
+                ["AiEnrichment:OpenAiApiKey"] = string.Empty,
                 ["Workers:OsmImport:Enabled"] = "false",
                 ["Workers:Routing:Enabled"] = "false",
                 ["Workers:TileWarming:Enabled"] = "false"
