@@ -12,7 +12,7 @@ Current verified baseline:
 
 - Distributed k6 run: 6 API pods, 2 worker pods, 3 Postgres instances, 3 PgBouncer pods, 3 Kafka brokers, Redis; 145,334 requests, 440 req/s, 0 HTTP failures, safe-path p95 167.56 ms in the checked-in scenario.
 - City graph profile: Birmingham OSM extract, 661,852 nodes, 1,428,512 directed edges, 1,419 shards, 225.7 MB packed source shard artifacts.
-- Full backend test suite: 255 xUnit tests passing in Release mode on the current branch.
+- Full backend test suite: 264 xUnit tests passing in Release mode on the current branch.
 
 See [K6 load results](docs/K6_LOAD_TEST_RESULTS.md), [route graph preprocessing](docs/ROUTE_GRAPH_PREPROCESSING.md), and [distributed load testing](docs/DISTRIBUTED_LOAD_TESTING.md) for methodology and limits.
 
@@ -238,7 +238,7 @@ SLOs include safe-path p95, API 5xx rate, route computation saturation, external
 - JWT key rotation supports `Jwt__PreviousKeys`.
 - External APIs are guarded by timeout, bulkhead, circuit-breaker, and fallback paths.
 - Public Overpass, OSRM, Police, weather, and environmental APIs should not sit on hot production request paths; use background enrichment and cached signals.
-- No license file is currently checked in. Until a license is added, treat the code as not licensed for reuse.
+- Security reporting and deployment hardening expectations are documented in [Security](SECURITY.md).
 
 ## Known Limits
 
@@ -246,7 +246,7 @@ SLOs include safe-path p95, API 5xx rate, route computation saturation, external
 - Long cross-city route bundles can exceed the Redis/L2 payload budget; these are now flagged and kept out of distributed cache.
 - City-scale routing still needs stronger graph preprocessing for the next tier: route-level slicing, boundary overlays, CCH/CRP-style customization, and persistent versioned graph releases.
 - Accessibility quality is bounded by OSM/source data completeness. Missing width, kerb, surface, incline, curb ramp, and obstruction tags reduce route confidence.
-- A formal public contribution policy, code of conduct, and license have not been added yet.
+- AccessCity remains pre-production and should not be represented as an emergency service or globally proven production system.
 
 ## Project Layout
 
@@ -277,13 +277,14 @@ data/                       local OSM extracts and generated graph artifacts
 - [Soak and Chaos Testing](docs/SOAK_AND_CHAOS_TESTING.md)
 - [Stress Test Report](docs/STRESS_TEST_REPORT.md)
 - [Test Architecture](docs/TEST_ARCHITECTURE.md)
+- [Three-Minute Demo Walkthrough](docs/demo/DEMO.md)
 
 ## Contributing
 
 Open an issue or pull request with a clear problem statement, reproduction steps, and the validation commands you ran. For routing changes, include profile-specific route quality tests or benchmark fixtures whenever behavior changes.
 
-This repository does not yet have a formal `CONTRIBUTING.md` or `CODE_OF_CONDUCT.md`.
+See [Contributing](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 
-No license file is currently present. Add a project license before distributing or accepting external reuse/contributions.
+AccessCity is licensed under the [MIT License](LICENSE).
