@@ -164,7 +164,7 @@ public sealed class HazardSpatialIndexRefreshBackgroundService : BackgroundServi
 {
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly HazardSpatialIndex _index;
-    private readonly HazardRiskGrid _riskGrid;
+    private readonly H3HazardRiskGrid _riskGrid;
     private readonly AccessCityMetrics _metrics;
     private readonly ILogger<HazardSpatialIndexRefreshBackgroundService> _logger;
     private readonly TimeSpan _refreshInterval;
@@ -179,7 +179,7 @@ public sealed class HazardSpatialIndexRefreshBackgroundService : BackgroundServi
     {
         _scopeFactory = scopeFactory;
         _index = (HazardSpatialIndex)index;
-        _riskGrid = (HazardRiskGrid)riskGrid;
+        _riskGrid = (H3HazardRiskGrid)riskGrid;
         _metrics = metrics;
         _logger = logger;
         var intervalSeconds = configuration.GetValue("Routing:HazardIndexRefreshIntervalSeconds", 30);
@@ -218,7 +218,7 @@ public sealed class HazardSpatialIndexRefreshBackgroundService : BackgroundServi
     {
         var stopwatch = Stopwatch.StartNew();
         await using var scope = _scopeFactory.CreateAsyncScope();
-        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var dbContext = scope.ServiceProvider.GetRequiredService<HazardDbContext>();
 
         var hazards = await dbContext.Hazards
             .Where(h => h.Status == HazardStatus.Reported || h.Status == HazardStatus.UnderReview)

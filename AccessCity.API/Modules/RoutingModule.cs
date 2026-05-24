@@ -11,8 +11,8 @@ public static class RoutingModule
 
         services.AddSingleton<HazardSpatialIndex>();
         services.AddSingleton<IHazardSpatialIndex>(sp => sp.GetRequiredService<HazardSpatialIndex>());
-        services.AddSingleton<HazardRiskGrid>();
-        services.AddSingleton<IHazardRiskGrid>(sp => sp.GetRequiredService<HazardRiskGrid>());
+        services.AddSingleton<H3HazardRiskGrid>();
+        services.AddSingleton<IHazardRiskGrid>(sp => sp.GetRequiredService<H3HazardRiskGrid>());
         services.AddHostedService<HazardSpatialIndexRefreshBackgroundService>();
 
         services.AddSingleton<IRouteCoalescingService, RouteCoalescingService>();

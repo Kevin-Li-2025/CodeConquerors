@@ -90,6 +90,46 @@ public static class DependencyInjection
             }
         }, dbContextPoolSize);
 
+        // ── Bounded-context DbContexts (CQRS database decomposition) ──
+        // Each uses a dedicated connection string if configured; otherwise
+        // falls back to the shared DefaultConnection for single-database mode.
+
+        services.AddDbContextPool<HazardDbContext>((serviceProvider, options) =>
+        {
+            var config = serviceProvider.GetRequiredService<IConfiguration>();
+            var hazardConn = config.GetConnectionString("HazardDb");
+            if (env.IsDevelopment()
+                && string.IsNullOrEmpty(hazardConn)
+                && string.IsNullOrEmpty(PostgresConnectionStringResolver.Resolve(config))
+                && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("USE_POSTGRES")))
+            {
+                options.UseInMemoryDatabase("AccessCityMemoryDb");
+                options.ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning));
+            }
+            else
+            {
+                ConfigureNpgsqlForContext<HazardDbContext>(options, config, hazardConn);
+            }
+        }, Math.Max(1, dbContextPoolSize / 2));
+
+        services.AddDbContextPool<RoutingDbContext>((serviceProvider, options) =>
+        {
+            var config = serviceProvider.GetRequiredService<IConfiguration>();
+            var routingConn = config.GetConnectionString("RoutingDb");
+            if (env.IsDevelopment()
+                && string.IsNullOrEmpty(routingConn)
+                && string.IsNullOrEmpty(PostgresConnectionStringResolver.Resolve(config))
+                && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("USE_POSTGRES")))
+            {
+                options.UseInMemoryDatabase("AccessCityMemoryDb");
+                options.ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning));
+            }
+            else
+            {
+                ConfigureNpgsqlForContext<RoutingDbContext>(options, config, routingConn);
+            }
+        }, Math.Max(1, dbContextPoolSize / 2));
+
         services.AddScoped<IHotPathDbContextFactory, HotPathDbContextFactory>();
 
         return services;
@@ -99,6 +139,35 @@ public static class DependencyInjection
     {
         var postgresOptions = configuration.GetSection(PostgresOptions.SectionName).Get<PostgresOptions>() ?? new PostgresOptions();
         var connectionString = PostgresConnectionStringResolver.Resolve(configuration, postgresOptions);
+        var schema = PostgresConnectionStringResolver.GetPrimarySearchPath(connectionString);
+
+        options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
+
+        options.UseNpgsql(connectionString, npgsql =>
+        {
+            npgsql.UseNetTopologySuite();
+            npgsql.MapEnum<DatabaseHazardStatus>("hazard_status");
+            npgsql.CommandTimeout(Math.Max(1, postgresOptions.CommandTimeoutSeconds));
+            if (!string.IsNullOrWhiteSpace(schema))
+            {
+                npgsql.MigrationsHistoryTable("__EFMigrationsHistory", schema);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Configures a bounded-context DbContext with an optional dedicated connection string.
+    /// Falls back to the shared DefaultConnection when the dedicated string is not configured.
+    /// </summary>
+    private static void ConfigureNpgsqlForContext<TContext>(
+        DbContextOptionsBuilder options,
+        IConfiguration configuration,
+        string? dedicatedConnectionString) where TContext : DbContext
+    {
+        var postgresOptions = configuration.GetSection(PostgresOptions.SectionName).Get<PostgresOptions>() ?? new PostgresOptions();
+        var connectionString = !string.IsNullOrWhiteSpace(dedicatedConnectionString)
+            ? dedicatedConnectionString
+            : PostgresConnectionStringResolver.Resolve(configuration, postgresOptions);
         var schema = PostgresConnectionStringResolver.GetPrimarySearchPath(connectionString);
 
         options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));

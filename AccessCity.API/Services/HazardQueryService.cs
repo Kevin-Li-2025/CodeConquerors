@@ -21,12 +21,12 @@ public interface IHazardQueryService
 
 public sealed class HazardQueryService : IHazardQueryService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly HazardDbContext _dbContext;
     private readonly IHazardSpatialIndex _spatialIndex;
     private readonly RoutingOptions _routingOptions;
 
     public HazardQueryService(
-        AppDbContext dbContext,
+        HazardDbContext dbContext,
         IHazardSpatialIndex spatialIndex,
         IOptions<RoutingOptions> routingOptions)
     {

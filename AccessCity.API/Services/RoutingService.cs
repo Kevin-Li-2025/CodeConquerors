@@ -896,10 +896,10 @@ public class RoutingService : IRoutingService
             double waypointLon2 = routeCoords[closestIdx].X - offsetDegLon;
             double waypointLat2 = routeCoords[closestIdx].Y - offsetDegLat;
 
-            double dist1 = RiskScoringService.HaversineDistance(
+            double dist1 = RiskScoringService.EquirectangularDistance(
                 waypointLat1, waypointLon1,
                 hazard.Location.Y, hazard.Location.X);
-            double dist2 = RiskScoringService.HaversineDistance(
+            double dist2 = RiskScoringService.EquirectangularDistance(
                 waypointLat2, waypointLon2,
                 hazard.Location.Y, hazard.Location.X);
 
@@ -983,10 +983,15 @@ public class RoutingService : IRoutingService
                 if (segRisk > 0.5)
                     warnings.Add($"Step {stepIdx + 1}: Elevated risk area (score {segRisk:F2}).");
 
-                // Warnings from reported hazards
-                foreach (var hazard in hazards)
+                // Warnings from reported hazards — use R-Tree spatial index
+                // to avoid O(S × H) brute-force loop over all hazards per step.
+                var nearbyHazards = _hazardSpatialIndex.IsWarmedUp
+                    ? _hazardSpatialIndex.QueryNearby(midLat, midLon, 100)
+                    : (IReadOnlyList<HazardReport>)hazards;
+                foreach (var hazard in nearbyHazards)
                 {
-                    double dist = RiskScoringService.HaversineDistance(
+                    if (hazard.Location is null) continue;
+                    double dist = RiskScoringService.EquirectangularDistance(
                         midLat, midLon, hazard.Location.Y, hazard.Location.X);
                     if (dist < 100)
                     {
@@ -1492,7 +1497,11 @@ public class RoutingService : IRoutingService
 
             double midLat = (fromNode.Location.Y + toNode.Location.Y) / 2.0;
             double midLon = (fromNode.Location.X + toNode.Location.X) / 2.0;
-            double segRisk = _riskService.QuickRisk(midLat, midLon, hazards);
+            // O(1) grid lookup when the precomputed risk grid is available;
+            // falls back to the original O(N) QuickRisk linear scan otherwise.
+            double segRisk = _hazardRiskGrid.IsReady
+                ? _hazardRiskGrid.GetRisk(midLat, midLon)
+                : _riskService.QuickRisk(midLat, midLon, hazards);
             double segSafety = 1.0 - segRisk;
             safetySum += segSafety * segDist;
 

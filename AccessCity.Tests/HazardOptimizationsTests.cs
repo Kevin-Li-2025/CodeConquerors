@@ -86,4 +86,35 @@ public class HazardOptimizationsTests
         double farRisk = grid.GetRisk(52.5500, -1.9500);
         Assert.Equal(0.0, farRisk);
     }
+
+    [Fact]
+    public void H3HazardRiskGrid_ComputesCorrectRiskValues()
+    {
+        // Arrange
+        var index = new HazardSpatialIndex();
+        var hazard = new HazardReport
+        {
+            Id = Guid.NewGuid(),
+            Location = new Point(-1.8904, 52.4862) { SRID = 4326 }, // Birmingham
+            Type = "broken_sidewalk", // Severity = 0.7
+            Status = HazardStatus.Reported
+        };
+        index.Rebuild(new List<HazardReport> { hazard });
+
+        var grid = new H3HazardRiskGrid();
+
+        // Act
+        grid.Rebuild(index);
+
+        // Assert
+        Assert.True(grid.IsReady);
+
+        // At the exact coordinate of the hazard, risk should be close to severity (0.7) with slight H3 center offset decay
+        double exactRisk = grid.GetRisk(52.4862, -1.8904);
+        Assert.True(exactRisk > 0.25 && exactRisk <= 1.0, $"Exact H3 risk is {exactRisk}");
+
+        // Far away from the hazard, risk should decay to 0
+        double farRisk = grid.GetRisk(52.5500, -1.9500);
+        Assert.Equal(0.0, farRisk);
+    }
 }

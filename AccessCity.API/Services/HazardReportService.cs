@@ -25,12 +25,12 @@ public interface IHazardReportService
 
 public sealed class HazardReportService : IHazardReportService
 {
-    private readonly AppDbContext _dbContext;
+    private readonly HazardDbContext _dbContext;
     private readonly ISpatialCacheService _spatialCache;
     private readonly IRealHazardDataService _realHazardData;
 
     public HazardReportService(
-        AppDbContext dbContext,
+        HazardDbContext dbContext,
         ISpatialCacheService spatialCache,
         IRealHazardDataService realHazardData)
     {
