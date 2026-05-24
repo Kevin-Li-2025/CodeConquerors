@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.IO;
+using AccessCity.API.Data;
 using AccessCity.API.Models;
 using AccessCity.API.Services;
+using Microsoft.EntityFrameworkCore;
 using NetTopologySuite.Geometries;
 using Xunit;
 using Xunit.Abstractions;
@@ -53,8 +55,8 @@ public class RoutingLatencyBenchmarkTests
         riskGrid.Rebuild(spatialIndex);
 
         // 4. Set up mock RiskScoringService for QuickRisk comparison
-        var riskScoringService = new RiskScoringService(
-            null, null, null, null, null, null, null!);
+        using var dbContext = CreateInMemoryDbContext();
+        var riskScoringService = new RiskScoringService(dbContext);
 
         // 5. Generate query points (representing midpoints of 5,000 edges expanded during A* search)
         var queryPoints = new List<(double Lat, double Lon)>();
@@ -187,7 +189,8 @@ For a typical 5km route with 2,000 A* edge expansions and 200 OSRM scoring calls
 ";
 
         // Save report to artifacts directory
-        string artifactDir = @"C:\Users\Kevin\.gemini\antigravity\brain\27eeb1a1-08c8-4107-8524-33c50e829791";
+        string artifactDir = Path.Combine(Path.GetTempPath(), "accesscity-benchmarks");
+        Directory.CreateDirectory(artifactDir);
         string filePath = Path.Combine(artifactDir, "latency_benchmark_results.md");
         File.WriteAllText(filePath, report);
 
@@ -197,5 +200,13 @@ For a typical 5km route with 2,000 A* edge expansions and 200 OSRM scoring calls
         Assert.True(gridTimeMs < linearTimeMs / 10, "Risk Grid must be at least 10x faster than linear scan");
         Assert.True(equirectTimeMs < haversineTimeMs, "Equirectangular must be faster than Haversine");
         Assert.True(maxErrorPct < 0.5, $"Equirectangular error {maxErrorPct:F4}% exceeds 0.5% threshold");
+    }
+
+    private static AppDbContext CreateInMemoryDbContext()
+    {
+        var options = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"routing_latency_benchmark_{Guid.NewGuid():N}")
+            .Options;
+        return new AppDbContext(options);
     }
 }

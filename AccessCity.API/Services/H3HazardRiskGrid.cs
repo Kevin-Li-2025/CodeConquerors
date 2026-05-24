@@ -10,12 +10,12 @@ namespace AccessCity.API.Services;
 ///
 /// Instead of allocating a fixed double[rows, cols] array that covers a bounding box
 /// (which overflows at national/continental scale), this grid uses an
-/// H3Index → double dictionary. Only hexagonal cells near active hazards are populated.
+/// ulong H3 index → float risk dictionary. Only hexagonal cells near active hazards are populated.
 ///
 /// Memory characteristics:
-///   - City scale (100 hazards):    ~5,000 H3 cells ≈ 40KB
-///   - Metropolitan (1,000 hazards): ~50,000 H3 cells ≈ 400KB
-///   - National (10,000 hazards):   ~500,000 H3 cells ≈ 4MB
+///   - City scale (100 hazards):    ~5,000 H3 cells
+///   - Metropolitan (1,000 hazards): ~50,000 H3 cells
+///   - National (10,000 hazards):   ~500,000 H3 cells
 ///   - Dense 2D array (national):   60,000,000 cells ≈ 480MB ← eliminated
 ///
 /// H3 resolution 9 has ~174m edge length, closely matching the previous 100m grid cell size.
@@ -69,7 +69,7 @@ public sealed class H3HazardRiskGrid : IHazardRiskGrid
         if (allHazards.Count == 0)
         {
             _snapshot = new H3GridSnapshot(
-                new Dictionary<ulong, double>(), true);
+                new Dictionary<ulong, float>(), true);
             return;
         }
 
@@ -94,7 +94,7 @@ public sealed class H3HazardRiskGrid : IHazardRiskGrid
         }
 
         // Compute risk for each unique H3 cell
-        var newCells = new Dictionary<ulong, double>(cellsToCompute.Count);
+        var newCells = new Dictionary<ulong, float>(cellsToCompute.Count);
 
         foreach (var cell in cellsToCompute)
         {
@@ -107,7 +107,7 @@ public sealed class H3HazardRiskGrid : IHazardRiskGrid
             double risk = ComputeCellRisk(cellLatDeg, cellLonDeg, nearby);
             if (risk > 0.001) // Skip negligible risk cells to save memory
             {
-                newCells[cell] = risk;
+                newCells[cell] = (float)risk;
             }
         }
 
@@ -134,10 +134,10 @@ public sealed class H3HazardRiskGrid : IHazardRiskGrid
     }
 
     private sealed record H3GridSnapshot(
-        IReadOnlyDictionary<ulong, double> Cells,
+        IReadOnlyDictionary<ulong, float> Cells,
         bool IsReady)
     {
         public static readonly H3GridSnapshot Empty =
-            new(new Dictionary<ulong, double>(), false);
+            new(new Dictionary<ulong, float>(), false);
     }
 }

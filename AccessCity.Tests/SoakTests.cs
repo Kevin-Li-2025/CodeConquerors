@@ -17,7 +17,7 @@ public class SoakTests
     }
 
     [Fact]
-    public void H3Grid_HighIntensity_MultiThreaded_SoakTest()
+    public async Task H3Grid_HighIntensity_MultiThreaded_SoakTest()
     {
         _output.WriteLine("=== Starting High-Intensity Soak Test ===");
 
@@ -65,6 +65,8 @@ public class SoakTests
         // Initialize grid
         spatialIndex.Rebuild(GenerateHazards(1000));
         riskGrid.Rebuild(spatialIndex);
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true);
+        long memoryBeforeBytes = GC.GetTotalMemory(forceFullCollection: true);
 
         // 3. Soak Phase: Run 15 parallel threads performing continuous concurrent reads
         // while a background writer thread continually rebuilds the grid to simulate
@@ -91,8 +93,12 @@ public class SoakTests
                     spatialIndex.Rebuild(freshHazards);
                     riskGrid.Rebuild(spatialIndex);
                     Interlocked.Increment(ref totalRebuilds);
-                    await Task.Delay(writeIntervalMs);
+                    await Task.Delay(writeIntervalMs, cts.Token);
                 }
+            }
+            catch (OperationCanceledException) when (cts.Token.IsCancellationRequested)
+            {
+                // Normal test shutdown.
             }
             catch (Exception ex)
             {
@@ -133,14 +139,15 @@ public class SoakTests
         }
 
         // Wait for readers to finish
-        Task.WaitAll(readerTasks.ToArray());
+        await Task.WhenAll(readerTasks);
         cts.Cancel(); // Stop the writer
-        writerTask.Wait();
+        await writerTask;
         sw.Stop();
 
         // 4. Memory Profiling Check
         long memoryAfterBytes = GC.GetTotalMemory(forceFullCollection: true);
         double memoryAfterMb = memoryAfterBytes / 1024.0 / 1024.0;
+        double memoryDeltaMb = Math.Max(0.0, (memoryAfterBytes - memoryBeforeBytes) / 1024.0 / 1024.0);
 
         double durationSec = sw.Elapsed.TotalSeconds;
         double throughput = totalReads / durationSec;
@@ -155,10 +162,11 @@ public class SoakTests
         _output.WriteLine($"| **Read Throughput** | {throughput:N0} ops/sec |");
         _output.WriteLine($"| **Total Execution Errors** | {totalErrors} |");
         _output.WriteLine($"| **Heap Memory Usage** | {memoryAfterMb:F2} MB |");
+        _output.WriteLine($"| **Heap Memory Delta** | {memoryDeltaMb:F2} MB |");
 
         // Assertions for high reliability under stress
         Assert.Equal(0, totalErrors); // No null references, race exceptions, or index-out-of-bounds
         Assert.True(throughput > 100000, $"Throughput of {throughput:N0} should be > 100,000 ops/sec");
-        Assert.True(memoryAfterMb < 50.0, $"Heap memory usage ({memoryAfterMb:F2} MB) should remain tiny");
+        Assert.True(memoryDeltaMb < 50.0, $"Heap memory delta ({memoryDeltaMb:F2} MB) should remain tiny");
     }
 }

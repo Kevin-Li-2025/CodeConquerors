@@ -27,7 +27,7 @@ public static class Program
 
         Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("==========================================================");
-        Console.WriteLine("        ACCESSCITY ARCHITECTURAL ENDURACE SOAK RUN        ");
+        Console.WriteLine("        ACCESSCITY ARCHITECTURAL ENDURANCE SOAK RUN       ");
         Console.WriteLine("==========================================================");
         Console.ResetColor();
         Console.WriteLine($"* Duration: {durationMinutes} minutes");
@@ -192,7 +192,7 @@ public static class Program
 
 ## Execution Context
 - **Total Duration**: {startSw.Elapsed:c}
-- **Target Target**: H3HexagonalSparseGrid & STRtree Spatial Index
+- **Target**: H3HexagonalSparseGrid & STRtree Spatial Index
 - **Ingestion/Rebuilder Rate**: 1 Rebuild every 50ms (~20 updates/sec)
 - **Concurrency Pressure**: {numReaders} Reader Threads
 
@@ -214,8 +214,10 @@ The lock-free snapshot swap architecture kept heap memory incredibly tiny and st
 ";
         File.WriteAllText(reportPath, markdownReport);
 
-        // Copy to workspace for easy viewing
-        string workspaceReportPath = @"C:\Users\Kevin\Desktop\CodeConquerors\soak_test_20min_report.md";
+        // Copy to the invocation directory for easy viewing across macOS, Linux, and Windows.
+        string workspaceReportPath = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            $"soak_test_{durationMinutes}min_report.md");
         File.WriteAllText(workspaceReportPath, markdownReport);
 
         Console.WriteLine($"* Final Report generated: {workspaceReportPath}");

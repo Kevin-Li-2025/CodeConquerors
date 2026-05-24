@@ -102,11 +102,18 @@ public sealed class HazardQueryService : IHazardQueryService
         var limit = Math.Max(1, _routingOptions.MaxHazardsPerRequest);
 
         // Fast-path: use the in-memory R-Tree spatial index when warmed up.
+        // A warmed snapshot can still be briefly stale after a hazard write, so
+        // zero-hit point queries fall through to the authoritative store below.
         if (_spatialIndex.IsWarmedUp)
         {
-            return _spatialIndex.QueryNearby(latitude, longitude, queryRadius)
+            var indexedHazards = _spatialIndex.QueryNearby(latitude, longitude, queryRadius)
                 .Take(limit)
                 .ToList();
+
+            if (indexedHazards.Count > 0)
+            {
+                return indexedHazards;
+            }
         }
 
         if (_dbContext.Database.IsRelational())

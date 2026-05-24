@@ -65,7 +65,7 @@ public class ChaosAndAllocationTests
 
         // 2. Measure exact allocated bytes for current thread during 10,000 lookups
         long bytesBefore = GC.GetAllocatedBytesForCurrentThread();
-        
+
         const int iterations = 10000;
         for (int i = 0; i < iterations; i++)
         {
@@ -129,7 +129,8 @@ public class ChaosAndAllocationTests
         long totalRebuilds = 0;
         long recoveredReads = 0;
         int activeChaosFails = 0;
-        int totalExceptionsSilenced = 0;
+        int handledIngestionFaults = 0;
+        int readerExceptions = 0;
 
         // 1. Parallel Reader Threads simulating intensive consumer traffic
         var readerTasks = new List<Task>();
@@ -147,7 +148,7 @@ public class ChaosAndAllocationTests
                         double lat = baseLat + (localRand.NextDouble() - 0.5) * 0.05;
                         double lon = baseLon + (localRand.NextDouble() - 0.5) * 0.05;
                         double risk = riskGrid.GetRisk(lat, lon);
-                        
+
                         if (Volatile.Read(ref activeChaosFails) > 0)
                         {
                             Interlocked.Increment(ref recoveredReads);
@@ -156,7 +157,7 @@ public class ChaosAndAllocationTests
                     }
                     catch
                     {
-                        Interlocked.Increment(ref totalExceptionsSilenced);
+                        Interlocked.Increment(ref readerExceptions);
                     }
                 }
             }));
@@ -185,7 +186,7 @@ public class ChaosAndAllocationTests
                 }
                 catch (Exception ex)
                 {
-                    Interlocked.Increment(ref totalExceptionsSilenced);
+                    Interlocked.Increment(ref handledIngestionFaults);
                     // System must absorb the error: do not let database telemetry failure crash the reader threads
                     _output.WriteLine($"[Chaos Injected] Ingestion transaction failed: {ex.Message}. Resiliency layer engaged.");
                 }
@@ -205,13 +206,14 @@ public class ChaosAndAllocationTests
         _output.WriteLine($"| :--- | :--- |");
         _output.WriteLine($"| **Total Concurrent Reads Completed** | {totalReads:N0} queries |");
         _output.WriteLine($"| **Total Successful Grid Rebuilds** | {totalRebuilds} cycles |");
-        _output.WriteLine($"| **Total Injected Faults Handled** | {totalExceptionsSilenced} exceptions |");
+        _output.WriteLine($"| **Total Injected Faults Handled** | {handledIngestionFaults} exceptions |");
+        _output.WriteLine($"| **Reader Exceptions** | {readerExceptions} exceptions |");
         _output.WriteLine($"| **Reads Sustained During Database Chaos** | {recoveredReads:N0} queries |");
 
         // Hard Assertions proving Fault Tolerance:
         // A truly resilient system must sustain query availability even when the ingestion sharded database undergoes transient failures
         Assert.True(totalReads > 10000, "Throughput degraded under chaos!");
-        Assert.True(totalExceptionsSilenced > 0, "No chaos faults were injected or handled!");
-        Assert.Equal(0, totalExceptionsSilenced - totalExceptionsSilenced); // No uncaught worker crashes
+        Assert.True(handledIngestionFaults > 0, "No chaos faults were injected or handled!");
+        Assert.Equal(0, readerExceptions);
     }
 }
