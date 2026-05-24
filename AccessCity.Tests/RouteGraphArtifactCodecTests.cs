@@ -67,6 +67,8 @@ public sealed class RouteGraphArtifactCodecTests
         Assert.True(unpacked.SpatialBuckets.Count > 0);
         Assert.NotNull(unpacked.Preprocessing);
         Assert.True(unpacked.Preprocessing!.HasLandmarks);
+        Assert.IsType<float[]>(unpacked.Preprocessing.NodeDistances.Values.First().FromLandmarkSeconds);
+        Assert.IsType<float[]>(unpacked.Preprocessing.NodeDistances.Values.First().ToLandmarkSeconds);
         Assert.Equal("cell-a", unpacked.SourceShardKeys.Single());
     }
 
@@ -117,7 +119,7 @@ public sealed class RouteGraphArtifactCodecTests
         Assert.Equal(RouteGraphPreprocessor.AltAlgorithmVersion, preprocessing.AlgorithmVersion);
 
         var lowerBound = RouteGraphPreprocessor.ComputeAltLowerBoundSeconds(preprocessing, 1, 3);
-        Assert.True(lowerBound >= 100);
+        Assert.InRange(lowerBound, 99.99, 100);
         Assert.Equal(0, RouteGraphPreprocessor.ComputeAltLowerBoundSeconds(preprocessing, 3, 1));
     }
 

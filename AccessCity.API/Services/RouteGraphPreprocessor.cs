@@ -9,6 +9,7 @@ public static class RouteGraphPreprocessor
     public const int AltAlgorithmVersion = 1;
     public const string AltWeightVersion = "min-traversal-seconds-v1";
     public const double MaxLowerBoundSpeedMetresPerSecond = 2.0;
+    private const double LandmarkDistanceQuantizationSafetySeconds = 0.001;
 
     public static void TryAttachPreprocessing(RouteGraphData graphData, RoutingOptions options)
     {
@@ -50,12 +51,12 @@ public static class RouteGraphPreprocessor
         var nodeDistances = new Dictionary<long, RouteGraphNodePreprocessing>(graphData.Nodes.Count);
         foreach (var nodeId in graphData.Nodes.Keys)
         {
-            var fromLandmark = new double[landmarks.Count];
-            var toLandmark = new double[landmarks.Count];
+            var fromLandmark = new float[landmarks.Count];
+            var toLandmark = new float[landmarks.Count];
             for (var i = 0; i < landmarks.Count; i++)
             {
-                fromLandmark[i] = forward[i].GetValueOrDefault(nodeId, double.PositiveInfinity);
-                toLandmark[i] = reverse[i].GetValueOrDefault(nodeId, double.PositiveInfinity);
+                fromLandmark[i] = EncodePreprocessedSeconds(forward[i].GetValueOrDefault(nodeId, double.PositiveInfinity));
+                toLandmark[i] = EncodePreprocessedSeconds(reverse[i].GetValueOrDefault(nodeId, double.PositiveInfinity));
             }
 
             nodeDistances[nodeId] = new RouteGraphNodePreprocessing
@@ -106,14 +107,26 @@ public static class RouteGraphPreprocessor
         return lowerBound;
     }
 
-    private static double DifferenceIfFinite(double a, double b)
+    private static double DifferenceIfFinite(float a, float b)
     {
-        if (!double.IsFinite(a) || !double.IsFinite(b))
+        if (!float.IsFinite(a) || !float.IsFinite(b))
         {
             return 0;
         }
 
-        return Math.Max(0, a - b);
+        var safetyMarginSeconds = LandmarkDistanceQuantizationSafetySeconds
+                                  + FloatRoundoffSafetySeconds(a)
+                                  + FloatRoundoffSafetySeconds(b);
+        return Math.Max(0, (double)a - b - safetyMarginSeconds);
+    }
+
+    private static float EncodePreprocessedSeconds(double seconds) =>
+        double.IsFinite(seconds) && seconds >= 0 ? (float)Math.Round(seconds, 3) : float.PositiveInfinity;
+
+    private static double FloatRoundoffSafetySeconds(float seconds)
+    {
+        var next = MathF.BitIncrement(seconds);
+        return float.IsFinite(next) ? Math.Abs((double)next - seconds) : 0;
     }
 
     private static IReadOnlyList<long> SelectLandmarks(IEnumerable<GraphNode> nodes, int landmarkCount)

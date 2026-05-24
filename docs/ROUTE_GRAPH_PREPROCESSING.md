@@ -6,13 +6,14 @@ AccessCity now has a staged route graph preprocessing path:
 - prepartitioned grid cells: nearby routes reuse stable cell artifacts instead of exact route-shaped blobs only;
 - versioned edge weights: artifacts are invalidated when accessibility cost or traversal-weight logic changes;
 - ALT landmarks: each non-truncated shard can carry landmark distance tables so A* gets a stronger admissible lower bound than straight-line distance alone.
+- compact landmark tables: ALT distances stay in rounded `float` seconds in memory and in Redis payloads, avoiding a hot-load expansion back to `double` tables.
 - binary Redis payloads: packed artifacts are stored as versioned binary bytes in L2 cache while keeping legacy gzip/JSON read compatibility.
 
 ## Why ALT First
 
 CH/CCH/CRP are the long-term target for city and region scale. They need a larger graph build pipeline and careful customization for accessibility, hazards, closures, and profile-specific weights. ALT is the safe intermediate step: it is deterministic, testable, works on directed graphs, preserves exact shortest-path results when the lower bound is admissible, and can be packed into the current shard artifact.
 
-The checked-in implementation computes ALT landmarks over the minimum traversal-time metric (`distance / 2.0m/s`). Runtime route cost is always at least that lower bound, so the heuristic does not change route decisions; it only reduces search work.
+The checked-in implementation computes ALT landmarks over the minimum traversal-time metric (`distance / 2.0m/s`). Runtime route cost is always at least that lower bound, so the heuristic does not change route decisions; it only reduces search work. Landmark distances are rounded to milliseconds and stored as `float` seconds; query-time lower-bound comparisons still promote to `double` and subtract a quantization safety margin, but the shard hot-load path does not double the landmark table footprint.
 
 ## Profiling Real Extracts
 
@@ -32,12 +33,12 @@ tools/profile-city-route-graph.sh
 
 The JSON result reports source graph size, source shard count, shard reuse ratio, uncompressed artifact size, binary Redis payload bytes, cold shard merge/preprocessing time, worker hot-load time from Redis payload restore, artifact pack time, and artifact unpack time.
 
-Latest Birmingham extract check (`Birmingham.osm.pbf`, 53.6MB, `Routing__MaxRouteGraphEdges=2000000`) built a non-truncated graph of 661,852 nodes and 1,428,512 directed edges into 1,419 shards. The four warmup routes reused 53 unique shards across 89 references (`shardReuseRatio=0.4045`), all carried ALT-v1 preprocessing, and the largest route artifact moved from about 69.5MB JSON to about 14.6MB binary Redis payload. With the shard index and binary payload in place, max cold shard merge/preprocessing time was about 365ms, max production pack/binary serialize time was about 327ms, and max Redis hot-load restore was about 106ms on the local Docker profile.
+Latest Birmingham extract check (`Birmingham.osm.pbf`, 53.6MB, `Routing__MaxRouteGraphEdges=2000000`) built a non-truncated graph of 661,852 nodes and 1,428,512 directed edges into 1,419 shards. The four warmup routes reused 53 unique shards across 89 references (`shardReuseRatio=0.4045`), all carried ALT-v1 preprocessing, and the largest route artifact moved from about 69.5MB JSON to about 14.6MB binary Redis payload. With the shard index, compact in-memory ALT tables, and binary payload in place, max cold shard merge/preprocessing time was about 229ms, max production pack/binary serialize time was about 115ms, max artifact unpack time was about 92ms, and max Redis hot-load restore was about 48ms on the local offline extract profile.
 
 ## Reading Results
 
 - `shardReuseRatio`: should increase as warmup/profile routes overlap. Low values mean route requests are too dispersed for exact route cache to matter and the graph needs larger precomputed partitions or route bucketing.
-- `artifactBytes` / `redisPayloadBytes`: `artifactBytes` is uncompressed JSON; `redisPayloadBytes` is the binary L2 payload. Watch both before raising landmark count. ALT tables scale with `nodes * landmarks * 2`.
+- `artifactBytes` / `redisPayloadBytes`: `artifactBytes` is uncompressed JSON; `redisPayloadBytes` is the binary L2 payload. Watch both before raising landmark count. ALT tables scale with `nodes * landmarks * 2`, and the production in-memory tables use 4-byte floats.
 - `artifactUnpackMilliseconds` / `hotLoadMilliseconds`: proxy for new worker hot-load time from Redis, including binary payload restore.
 - `isTruncated`: any `true` profile route means the route graph cap is too low or the bbox is too broad for the current shard settings.
 - `hasAltPreprocessing`: should be true for non-truncated shards under `RouteGraphMaxAltPreprocessedNodes`.

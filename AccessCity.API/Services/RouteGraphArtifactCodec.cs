@@ -263,8 +263,8 @@ public static class RouteGraphArtifactCodec
         {
             nodeDistances[node.Id] = new RouteGraphNodePreprocessing
             {
-                FromLandmarkSeconds = new double[preprocessing.Landmarks.Length],
-                ToLandmarkSeconds = new double[preprocessing.Landmarks.Length]
+                FromLandmarkSeconds = new float[preprocessing.Landmarks.Length],
+                ToLandmarkSeconds = new float[preprocessing.Landmarks.Length]
             };
         }
 
@@ -295,11 +295,11 @@ public static class RouteGraphArtifactCodec
         };
     }
 
-    private static float EncodeDistance(double distanceSeconds) =>
-        double.IsFinite(distanceSeconds) && distanceSeconds >= 0 ? (float)Math.Round(distanceSeconds, 3) : -1;
+    private static float EncodeDistance(float distanceSeconds) =>
+        float.IsFinite(distanceSeconds) && distanceSeconds >= 0 ? (float)Math.Round(distanceSeconds, 3) : -1;
 
-    private static double DecodeDistance(float encodedSeconds) =>
-        encodedSeconds < 0 ? double.PositiveInfinity : encodedSeconds;
+    private static float DecodeDistance(float encodedSeconds) =>
+        encodedSeconds < 0 ? float.PositiveInfinity : encodedSeconds;
 
     private static GraphEdge EnsureTraversalWeights(GraphEdge edge)
     {

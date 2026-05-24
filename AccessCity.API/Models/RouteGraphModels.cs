@@ -67,8 +67,8 @@ public sealed class RouteGraphPreprocessingData
 
 public sealed class RouteGraphNodePreprocessing
 {
-    public double[] FromLandmarkSeconds { get; init; } = Array.Empty<double>();
-    public double[] ToLandmarkSeconds { get; init; } = Array.Empty<double>();
+    public float[] FromLandmarkSeconds { get; init; } = Array.Empty<float>();
+    public float[] ToLandmarkSeconds { get; init; } = Array.Empty<float>();
 }
 
 public sealed record RouteGraphCoverageStatus(
