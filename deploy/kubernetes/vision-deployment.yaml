@@ -43,9 +43,17 @@ spec:
             - "8095"
             - --device
             - auto
+            - --max-batch-images
+            - $(VISION_MAX_BATCH_IMAGES)
+            - --max-batch-wait-ms
+            - $(VISION_MAX_BATCH_WAIT_MS)
           env:
             - name: VISION_MODEL_CHECKPOINT
               value: /models/accesscity-vision/best.pt
+            - name: VISION_MAX_BATCH_IMAGES
+              value: "32"
+            - name: VISION_MAX_BATCH_WAIT_MS
+              value: "1"
           ports:
             - containerPort: 8095
               name: http

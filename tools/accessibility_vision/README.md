@@ -116,7 +116,9 @@ Serve:
 python serve_accessibility_vision.py \
   --checkpoint runs/project-sidewalk-convnext-tiny-v1/best.pt \
   --host 0.0.0.0 \
-  --port 8095
+  --port 8095 \
+  --max-batch-images 32 \
+  --max-batch-wait-ms 1
 ```
 
 The service exposes:
@@ -125,7 +127,7 @@ The service exposes:
 POST /v1/accessibility-vision/analyze
 ```
 
-It accepts image URLs or base64 images and returns review-only AccessCity candidates. It never changes route decisions or edge costs.
+It accepts image URLs or base64 images and returns review-only AccessCity candidates. It never changes route decisions or edge costs. The server uses a small micro-batch queue so concurrent requests can share one GPU forward pass; `/health` reports pending requests, observed batch sizes, and queue wait timing.
 
 ## Deployment
 

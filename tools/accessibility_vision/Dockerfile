@@ -24,11 +24,13 @@ USER accesscity
 ENV VISION_MODEL_CHECKPOINT=/models/accesscity-vision/best.pt \
     VISION_HOST=0.0.0.0 \
     VISION_PORT=8095 \
-    VISION_DEVICE=auto
+    VISION_DEVICE=auto \
+    VISION_MAX_BATCH_IMAGES=32 \
+    VISION_MAX_BATCH_WAIT_MS=1
 
 EXPOSE 8095
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
     CMD curl -fsS "http://127.0.0.1:${VISION_PORT}/health" >/dev/null || exit 1
 
-CMD ["sh", "-c", "python3 /app/serve_accessibility_vision.py --checkpoint \"$VISION_MODEL_CHECKPOINT\" --host \"$VISION_HOST\" --port \"$VISION_PORT\" --device \"$VISION_DEVICE\""]
+CMD ["sh", "-c", "python3 /app/serve_accessibility_vision.py --checkpoint \"$VISION_MODEL_CHECKPOINT\" --host \"$VISION_HOST\" --port \"$VISION_PORT\" --device \"$VISION_DEVICE\" --max-batch-images \"$VISION_MAX_BATCH_IMAGES\" --max-batch-wait-ms \"$VISION_MAX_BATCH_WAIT_MS\""]

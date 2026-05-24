@@ -2,9 +2,16 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import base64
 import io
+import os
+import queue
+import threading
 import time
+from concurrent.futures import Future
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +46,135 @@ class AnalyzeRequest(BaseModel):
     threshold_floor: float = Field(default=0.35, alias="thresholdFloor")
 
 
+@dataclass
+class BatchRequest:
+    tensors: list[torch.Tensor]
+    submitted_at: float
+    future: Future[dict[str, Any]]
+
+
+class MicroBatchPredictor:
+    def __init__(
+        self,
+        model: nn.Module,
+        device: torch.device,
+        temperature_tensor: torch.Tensor | None,
+        max_batch_images: int,
+        max_wait_ms: float,
+    ) -> None:
+        self.model = model
+        self.device = device
+        self.temperature_tensor = temperature_tensor
+        self.max_batch_images = max(1, max_batch_images)
+        self.max_wait_seconds = max(0.0, max_wait_ms / 1000.0)
+        self.requests: queue.Queue[BatchRequest | None] = queue.Queue()
+        self.closed = False
+        self.stats_lock = threading.Lock()
+        self.stats: dict[str, Any] = {
+            "totalRequests": 0,
+            "totalImages": 0,
+            "totalBatches": 0,
+            "maxObservedBatchImages": 0,
+            "lastBatchImages": 0,
+            "lastBatchRequests": 0,
+            "lastBatchLatencyMs": 0.0,
+            "lastAverageQueueWaitMs": 0.0,
+        }
+        self.worker = threading.Thread(target=self._run, name="accesscity-vision-microbatch", daemon=True)
+        self.worker.start()
+
+    def submit(self, tensors: list[torch.Tensor]) -> Future[dict[str, Any]]:
+        if self.closed:
+            future: Future[dict[str, Any]] = Future()
+            future.set_exception(RuntimeError("vision predictor is closed"))
+            return future
+        future = Future()
+        self.requests.put(BatchRequest(tensors=tensors, submitted_at=time.perf_counter(), future=future))
+        return future
+
+    def snapshot_stats(self) -> dict[str, Any]:
+        with self.stats_lock:
+            stats = dict(self.stats)
+        stats["pendingRequests"] = self.requests.qsize()
+        stats["maxBatchImages"] = self.max_batch_images
+        stats["maxWaitMs"] = round(self.max_wait_seconds * 1000, 3)
+        return stats
+
+    def close(self) -> None:
+        self.closed = True
+        self.requests.put(None)
+        self.worker.join(timeout=2)
+
+    def _run(self) -> None:
+        while True:
+            request = self.requests.get()
+            if request is None:
+                return
+
+            batch = [request]
+            image_count = len(request.tensors)
+            deadline = time.perf_counter() + self.max_wait_seconds
+            while image_count < self.max_batch_images:
+                timeout = deadline - time.perf_counter()
+                if timeout <= 0:
+                    break
+                try:
+                    next_request = self.requests.get(timeout=timeout)
+                except queue.Empty:
+                    break
+                if next_request is None:
+                    self.requests.put(None)
+                    break
+                batch.append(next_request)
+                image_count += len(next_request.tensors)
+
+            self._run_batch(batch)
+
+    def _run_batch(self, requests: list[BatchRequest]) -> None:
+        started = time.perf_counter()
+        try:
+            all_tensors = [tensor for request in requests for tensor in request.tensors]
+            image_count = len(all_tensors)
+            with torch.inference_mode():
+                batch = torch.stack(all_tensors).to(self.device)
+                logits = self.model(batch)
+                if self.temperature_tensor is not None:
+                    logits = logits / self.temperature_tensor
+                probabilities = torch.sigmoid(logits).detach().cpu()
+
+            latency_ms = (time.perf_counter() - started) * 1000
+            offset = 0
+            queue_waits = []
+            for request in requests:
+                count = len(request.tensors)
+                max_probs = probabilities[offset : offset + count].max(dim=0).values.tolist()
+                offset += count
+                queue_wait_ms = (started - request.submitted_at) * 1000
+                queue_waits.append(queue_wait_ms)
+                request.future.set_result(
+                    {
+                        "probabilities": max_probs,
+                        "batchImages": image_count,
+                        "batchRequests": len(requests),
+                        "queueWaitMs": queue_wait_ms,
+                        "inferenceLatencyMs": latency_ms,
+                    }
+                )
+
+            with self.stats_lock:
+                self.stats["totalRequests"] += len(requests)
+                self.stats["totalImages"] += image_count
+                self.stats["totalBatches"] += 1
+                self.stats["maxObservedBatchImages"] = max(self.stats["maxObservedBatchImages"], image_count)
+                self.stats["lastBatchImages"] = image_count
+                self.stats["lastBatchRequests"] = len(requests)
+                self.stats["lastBatchLatencyMs"] = round(latency_ms, 3)
+                self.stats["lastAverageQueueWaitMs"] = round(sum(queue_waits) / max(len(queue_waits), 1), 3)
+        except Exception as exc:  # noqa: BLE001
+            for request in requests:
+                request.future.set_exception(exc)
+
+
 def build_model(model_name: str, num_tasks: int) -> nn.Module:
     if model_name == "convnext_tiny":
         model = models.convnext_tiny(weights=None)
@@ -61,6 +197,14 @@ def load_image(photo: PhotoInput, timeout: float = 5.0) -> Image.Image:
         response.raise_for_status()
         return Image.open(io.BytesIO(response.content)).convert("RGB")
     raise ValueError("photo must include url or imageBase64")
+
+
+def load_and_transform_photos(photos: list[PhotoInput], transform: transforms.Compose) -> list[torch.Tensor]:
+    tensors = []
+    for photo in photos[:4]:
+        image = load_image(photo)
+        tensors.append(transform(image))
+    return tensors
 
 
 def task_candidates(tasks: list[str], probs: list[float], thresholds: dict[str, float], floor: float) -> list[dict[str, Any]]:
@@ -91,7 +235,7 @@ def task_candidates(tasks: list[str], probs: list[float], thresholds: dict[str, 
     return candidates
 
 
-def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
+def create_app(checkpoint_path: Path, device_name: str, max_batch_images: int, max_batch_wait_ms: float) -> FastAPI:
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     tasks = checkpoint.get("tasks", DEFAULT_TASKS)
     thresholds = checkpoint.get("thresholds", {})
@@ -111,6 +255,7 @@ def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
     if logit_temperatures:
         temperature_values = [max(float(logit_temperatures.get(task, 1.0)), 1e-6) for task in tasks]
         temperature_tensor = torch.tensor(temperature_values, dtype=torch.float32, device=device).view(1, -1)
+    predictor = MicroBatchPredictor(model, device, temperature_tensor, max_batch_images, max_batch_wait_ms)
 
     transform = transforms.Compose(
         [
@@ -120,7 +265,14 @@ def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
         ]
     )
 
-    app = FastAPI(title="AccessCity Accessibility Vision", version="1.0")
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        try:
+            yield
+        finally:
+            predictor.close()
+
+    app = FastAPI(title="AccessCity Accessibility Vision", version="1.0", lifespan=lifespan)
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -131,6 +283,7 @@ def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
             "device": str(device),
             "thresholds": thresholds,
             "temperatureScaled": bool(logit_temperatures),
+            "microBatching": predictor.snapshot_stats(),
             "logitTemperatures": {
                 task: round(float(logit_temperatures.get(task, 1.0)), 4)
                 for task in tasks
@@ -152,26 +305,17 @@ def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
         }
 
     @app.post("/v1/accessibility-vision/analyze")
-    @torch.inference_mode()
-    def analyze(request: AnalyzeRequest) -> dict[str, Any]:
+    async def analyze(request: AnalyzeRequest) -> dict[str, Any]:
         if not request.photos:
             raise HTTPException(status_code=400, detail="At least one photo is required.")
 
         started = time.perf_counter()
-        tensors = []
-        for photo in request.photos[:4]:
-            try:
-                image = load_image(photo)
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=400, detail=f"Could not load photo: {exc}") from exc
-            tensors.append(transform(image))
-
-        batch = torch.stack(tensors).to(device)
-        logits = model(batch)
-        if temperature_tensor is not None:
-            logits = logits / temperature_tensor
-        probs = torch.sigmoid(logits).detach().cpu()
-        max_probs = probs.max(dim=0).values.tolist()
+        try:
+            tensors = await asyncio.to_thread(load_and_transform_photos, request.photos, transform)
+            prediction = await asyncio.wrap_future(predictor.submit(tensors))
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=f"Could not analyze photo: {exc}") from exc
+        max_probs = prediction["probabilities"]
         candidates = task_candidates(tasks, max_probs, thresholds, request.threshold_floor)
         latency_ms = (time.perf_counter() - started) * 1000
         return {
@@ -183,6 +327,10 @@ def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
             "candidates": candidates,
             "forRouteDecision": False,
             "latencyMs": round(latency_ms, 3),
+            "queueWaitMs": round(float(prediction["queueWaitMs"]), 3),
+            "inferenceLatencyMs": round(float(prediction["inferenceLatencyMs"]), 3),
+            "batchImages": int(prediction["batchImages"]),
+            "batchRequests": int(prediction["batchRequests"]),
             "limitations": [
                 "Vision output is a review-only accessibility candidate signal.",
                 "Candidates require human/admin review before updating accessibility profiles.",
@@ -199,9 +347,11 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8095)
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--max-batch-images", type=int, default=int(os.getenv("VISION_MAX_BATCH_IMAGES", "32")))
+    parser.add_argument("--max-batch-wait-ms", type=float, default=float(os.getenv("VISION_MAX_BATCH_WAIT_MS", "1")))
     args = parser.parse_args()
 
-    app = create_app(args.checkpoint, args.device)
+    app = create_app(args.checkpoint, args.device, args.max_batch_images, args.max_batch_wait_ms)
     uvicorn.run(app, host=args.host, port=args.port)
 
 
