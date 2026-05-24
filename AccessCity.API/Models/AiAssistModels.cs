@@ -67,3 +67,24 @@ public sealed class AccessibilityAiReviewResult
     public List<string> VerificationChecklist { get; set; } = new();
     public List<string> Guardrails { get; set; } = new();
 }
+
+public sealed class AccessibilityAiInferenceRequest
+{
+    public string ObservationText { get; set; } = string.Empty;
+    public List<AccessibilityPhotoInput> Photos { get; set; } = new();
+    public bool IncludeDraftVerification { get; set; } = true;
+}
+
+public sealed class AccessibilityAiInferenceResult
+{
+    public long InfrastructureAssetId { get; set; }
+    public bool ForRouteDecision { get; set; }
+    public string Provider { get; set; } = "local-rules";
+    public string Model { get; set; } = string.Empty;
+    public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
+    public string AdminSummary { get; set; } = string.Empty;
+    public List<MissingOsmAttributeCandidate> AttributeCandidates { get; set; } = new();
+    public AccessibilityVerificationRequest? DraftVerification { get; set; }
+    public List<string> Guardrails { get; set; } = new();
+    public List<string> Limitations { get; set; } = new();
+}

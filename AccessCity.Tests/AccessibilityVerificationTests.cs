@@ -131,6 +131,48 @@ public sealed class AccessibilityVerificationTests : IClassFixture<AccessCityApi
     }
 
     [Fact]
+    public async Task AiAssist_AccessibilityCandidates_Generates_Draft_Without_Route_Authority()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+        await _factory.ImportOsmAsync(client);
+        var assetId = await FindAssetIdAsync("node:1002");
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/v1/ai-assist/infrastructure/{assetId}/accessibility-candidates",
+            new AccessibilityAiInferenceRequest
+            {
+                ObservationText = "Raised kerb, no ramp, narrow crossing, gravel edge and uneven broken pavement.",
+                IncludeDraftVerification = true,
+                Photos =
+                [
+                    new AccessibilityPhotoInput
+                    {
+                        Source = "field_photo",
+                        Url = "https://example.com/crossing-raised-kerb.jpg",
+                        Caption = "Raised kerb at crossing"
+                    }
+                ]
+            });
+
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<AccessibilityAiInferenceResult>();
+        Assert.NotNull(result);
+        Assert.False(result!.ForRouteDecision);
+        Assert.Equal("local-rules", result.Provider);
+        Assert.Contains(result.Guardrails, guardrail => guardrail.Contains("cannot change routing graph edge costs", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.AttributeCandidates, candidate => candidate.Attribute == "curb_ramp" && candidate.Value == "false");
+        Assert.Contains(result.AttributeCandidates, candidate => candidate.Attribute == "width_metres");
+        Assert.Contains(result.AttributeCandidates, candidate => candidate.Attribute == "surface" && candidate.Value == "gravel");
+        Assert.Contains(result.AttributeCandidates, candidate => candidate.Attribute == "photos");
+        Assert.All(result.AttributeCandidates, candidate => Assert.False(candidate.CanAutoApply));
+        Assert.NotNull(result.DraftVerification);
+        Assert.Equal("ai_candidate_review", result.DraftVerification!.Source);
+        Assert.Equal("gravel", result.DraftVerification.Path!.Surface);
+        Assert.False(result.DraftVerification.Path.HasCurbRamp);
+        Assert.Single(result.DraftVerification.Photos);
+    }
+
+    [Fact]
     public async Task Reject_Verification_Leaves_Profile_Unchanged()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();

@@ -3,6 +3,7 @@ using AccessCity.API.Configuration;
 using AccessCity.API.Models;
 using AccessCity.API.Services;
 using Asp.Versioning;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -19,17 +20,20 @@ public sealed class AiAssistController : ControllerBase
     private readonly IHazardReportService _hazards;
     private readonly IAiAssistService _aiAssist;
     private readonly IAccessibilityVerificationService _accessibilityVerifications;
+    private readonly IAccessibilityAiInferenceService _accessibilityInference;
     private readonly AiEnrichmentOptions _options;
 
     public AiAssistController(
         IHazardReportService hazards,
         IAiAssistService aiAssist,
         IAccessibilityVerificationService accessibilityVerifications,
+        IAccessibilityAiInferenceService accessibilityInference,
         IOptions<AiEnrichmentOptions> options)
     {
         _hazards = hazards;
         _aiAssist = aiAssist;
         _accessibilityVerifications = accessibilityVerifications;
+        _accessibilityInference = accessibilityInference;
         _options = options.Value;
     }
 
@@ -104,6 +108,35 @@ public sealed class AiAssistController : ControllerBase
 
         var review = await _aiAssist.ReviewAccessibilityProfileAsync(assetId, profile, cancellationToken);
         return Ok(review);
+    }
+
+    /// <summary>
+    /// Generates accessibility attribute candidates from field text/photos and current profile gaps.
+    /// This endpoint is outside routing hot paths and returns review-only suggestions.
+    /// </summary>
+    [Authorize]
+    [HttpPost("infrastructure/{assetId:long}/accessibility-candidates")]
+    [ProducesResponseType(typeof(AccessibilityAiInferenceResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<AccessibilityAiInferenceResult>> GenerateAccessibilityCandidates(
+        long assetId,
+        [FromBody] AccessibilityAiInferenceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_options.Enabled)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ApiError("AI assist is disabled."));
+        }
+
+        var profile = await _accessibilityVerifications.GetProfileAsync(assetId, cancellationToken);
+        if (profile is null)
+        {
+            return NotFound(new ApiError("Infrastructure asset not found."));
+        }
+
+        var result = await _accessibilityInference.InferAsync(assetId, profile, request, cancellationToken);
+        return Ok(result);
     }
 
     private async Task<IReadOnlyCollection<HazardReport>> GetNearbyHazardsAsync(

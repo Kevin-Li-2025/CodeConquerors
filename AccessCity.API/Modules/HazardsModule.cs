@@ -14,6 +14,9 @@ public static class HazardsModule
         services.AddScoped<IRealHazardDataService, RealHazardDataService>();
         services.AddScoped<IHazardReportService, HazardReportService>();
         services.AddScoped<IAiAssistService, AiAssistService>();
+        services.AddScoped<LocalAccessibilityAiInferenceProvider>();
+        services.AddHttpClient<OpenAiAccessibilityInferenceProvider>();
+        services.AddScoped<IAccessibilityAiInferenceService, AccessibilityAiInferenceService>();
         services.AddScoped<IDashboardQueryService, DashboardQueryService>();
 
         return services;
