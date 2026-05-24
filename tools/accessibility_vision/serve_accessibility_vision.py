@@ -95,6 +95,7 @@ def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
     tasks = checkpoint.get("tasks", DEFAULT_TASKS)
     thresholds = checkpoint.get("thresholds", {})
+    logit_temperatures = checkpoint.get("logit_temperatures") or {}
     metrics = checkpoint.get("metrics") or {}
     holdout_metrics = checkpoint.get("holdout_metrics") or {}
     dataset_summary = checkpoint.get("dataset_summary") or {}
@@ -106,6 +107,10 @@ def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
     model.load_state_dict(checkpoint["model_state"])
     model.to(device)
     model.eval()
+    temperature_tensor = None
+    if logit_temperatures:
+        temperature_values = [max(float(logit_temperatures.get(task, 1.0)), 1e-6) for task in tasks]
+        temperature_tensor = torch.tensor(temperature_values, dtype=torch.float32, device=device).view(1, -1)
 
     transform = transforms.Compose(
         [
@@ -125,6 +130,11 @@ def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
             "tasks": tasks,
             "device": str(device),
             "thresholds": thresholds,
+            "temperatureScaled": bool(logit_temperatures),
+            "logitTemperatures": {
+                task: round(float(logit_temperatures.get(task, 1.0)), 4)
+                for task in tasks
+            },
             "calibration": {
                 "split": checkpoint.get("calibration_split"),
                 "macroF1": metrics.get("macro_f1"),
@@ -157,7 +167,10 @@ def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
             tensors.append(transform(image))
 
         batch = torch.stack(tensors).to(device)
-        probs = torch.sigmoid(model(batch)).detach().cpu()
+        logits = model(batch)
+        if temperature_tensor is not None:
+            logits = logits / temperature_tensor
+        probs = torch.sigmoid(logits).detach().cpu()
         max_probs = probs.max(dim=0).values.tolist()
         candidates = task_candidates(tasks, max_probs, thresholds, request.threshold_floor)
         latency_ms = (time.perf_counter() - started) * 1000
@@ -165,6 +178,7 @@ def create_app(checkpoint_path: Path, device_name: str) -> FastAPI:
             "model": model_name,
             "tasks": tasks,
             "thresholds": {task: round(float(thresholds.get(task, 0.5)), 4) for task in tasks},
+            "temperatureScaled": bool(logit_temperatures),
             "probabilities": {task: round(float(prob), 4) for task, prob in zip(tasks, max_probs, strict=True)},
             "candidates": candidates,
             "forRouteDecision": False,

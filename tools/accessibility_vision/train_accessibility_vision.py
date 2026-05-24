@@ -91,6 +91,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--calibration-split", default="validation")
     parser.add_argument("--holdout-split", default="test")
     parser.add_argument("--calibration-bins", type=int, default=10)
+    parser.add_argument(
+        "--temperature-scale",
+        action="store_true",
+        help="Fit per-task logit temperatures on the calibration split before final threshold selection.",
+    )
+    parser.add_argument("--temperature-scale-max-iter", type=int, default=80)
     parser.add_argument("--synthetic-smoke", action="store_true", help="Use generated images to verify the training/serving pipeline without downloading data.")
     parser.add_argument("--dataset-root", type=Path, default=None, help="Use an exported JSONL/image dataset instead of Hugging Face Hub.")
     parser.add_argument(
@@ -324,6 +330,71 @@ def masked_bce_loss(
 
 
 @torch.inference_mode()
+def collect_logits_and_targets(
+    model: nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+) -> tuple[list[np.ndarray], list[np.ndarray]]:
+    model.eval()
+    per_task_logits: list[list[float]] = [[] for _ in TASKS]
+    per_task_targets: list[list[int]] = [[] for _ in TASKS]
+
+    for images, targets, mask in tqdm(loader, desc="calibrate", leave=False):
+        images = images.to(device, non_blocking=True)
+        logits = model(images).cpu()
+        targets = targets.cpu()
+        mask = mask.cpu()
+
+        for task_id in range(len(TASKS)):
+            selected = mask[:, task_id] > 0
+            if selected.any():
+                per_task_logits[task_id].extend(logits[selected, task_id].tolist())
+                per_task_targets[task_id].extend(targets[selected, task_id].int().tolist())
+
+    return (
+        [np.array(values, dtype=np.float32) for values in per_task_logits],
+        [np.array(values, dtype=np.float32) for values in per_task_targets],
+    )
+
+
+def fit_logit_temperatures(
+    per_task_logits: list[np.ndarray],
+    per_task_targets: list[np.ndarray],
+    max_iter: int,
+) -> dict[str, float]:
+    fitted: dict[str, float] = {}
+    for task_id, task_name in enumerate(TASKS):
+        logits_np = per_task_logits[task_id]
+        targets_np = per_task_targets[task_id]
+        if logits_np.size == 0 or np.unique(targets_np).size < 2:
+            fitted[task_name] = 1.0
+            continue
+
+        logits = torch.tensor(logits_np, dtype=torch.float32)
+        targets = torch.tensor(targets_np, dtype=torch.float32)
+        log_temperature = torch.zeros((), requires_grad=True)
+        optimizer = torch.optim.LBFGS([log_temperature], lr=0.1, max_iter=max_iter, line_search_fn="strong_wolfe")
+
+        def closure() -> torch.Tensor:
+            optimizer.zero_grad()
+            temperature = torch.clamp(torch.exp(log_temperature), min=0.05, max=20.0)
+            loss = nn.functional.binary_cross_entropy_with_logits(logits / temperature, targets)
+            loss.backward()
+            return loss
+
+        optimizer.step(closure)
+        fitted[task_name] = float(torch.clamp(torch.exp(log_temperature.detach()), min=0.05, max=20.0))
+    return fitted
+
+
+def temperature_tensor_for_device(logit_temperatures: dict[str, float] | None, device: torch.device) -> torch.Tensor | None:
+    if not logit_temperatures:
+        return None
+    values = [max(float(logit_temperatures.get(task, 1.0)), 1e-6) for task in TASKS]
+    return torch.tensor(values, dtype=torch.float32, device=device).view(1, -1)
+
+
+@torch.inference_mode()
 def evaluate(
     model: nn.Module,
     loader: DataLoader,
@@ -331,14 +402,19 @@ def evaluate(
     thresholds: list[float],
     calibration_bins: int,
     fixed_thresholds: dict[str, float] | None = None,
+    logit_temperatures: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     model.eval()
     per_task_scores: list[list[float]] = [[] for _ in TASKS]
     per_task_targets: list[list[int]] = [[] for _ in TASKS]
+    temperature_tensor = temperature_tensor_for_device(logit_temperatures, device)
 
     for images, targets, mask in tqdm(loader, desc="eval", leave=False):
         images = images.to(device, non_blocking=True)
-        probs = torch.sigmoid(model(images)).cpu()
+        logits = model(images)
+        if temperature_tensor is not None:
+            logits = logits / temperature_tensor
+        probs = torch.sigmoid(logits).cpu()
         targets = targets.cpu()
         mask = mask.cpu()
 
@@ -436,9 +512,19 @@ def save_checkpoint(
             "calibration_split": args.calibration_split,
             "holdout_split": args.holdout_split,
             "calibration_bins": args.calibration_bins,
+            "temperature_scaled": False,
+            "logit_temperatures": {},
         },
         path,
     )
+
+
+def thresholds_from_metrics(metrics: dict[str, Any]) -> dict[str, float]:
+    return {
+        task: values["threshold"]
+        for task, values in metrics.get("tasks", {}).items()
+        if "threshold" in values
+    }
 
 
 def main() -> None:
@@ -518,6 +604,7 @@ def main() -> None:
         "synthetic_smoke": args.synthetic_smoke,
         "weak_cross_task_negatives": args.weak_cross_task_negatives,
         "task_balanced_loss": args.task_balanced_loss,
+        "temperature_scale": args.temperature_scale,
         "task_loss_weight": {
             task: float(task_loss_weight[index].detach().cpu())
             for index, task in enumerate(TASKS)
@@ -576,10 +663,36 @@ def main() -> None:
 
         print(json.dumps({"epoch": epoch, "train_loss": metrics["train_loss"], "macro_f1": metrics["macro_f1"]}, indent=2))
 
+    best_path = args.output_dir / "best.pt"
+    best_checkpoint = torch.load(best_path, map_location=device)
+    model.load_state_dict(best_checkpoint["model_state"])
+    logit_temperatures: dict[str, float] = {}
+    if args.temperature_scale:
+        per_task_logits, per_task_targets = collect_logits_and_targets(model, val_loader, device)
+        logit_temperatures = fit_logit_temperatures(
+            per_task_logits,
+            per_task_targets,
+            args.temperature_scale_max_iter,
+        )
+        calibrated_metrics = evaluate(
+            model,
+            val_loader,
+            device,
+            thresholds,
+            args.calibration_bins,
+            logit_temperatures=logit_temperatures,
+        )
+        calibrated_metrics["epoch"] = best_epoch
+        calibrated_metrics["calibration_split"] = args.calibration_split
+        calibrated_metrics["temperature_scaled"] = True
+        calibrated_metrics["logit_temperatures"] = logit_temperatures
+        (args.output_dir / "calibrated_metrics.json").write_text(json.dumps(calibrated_metrics, indent=2), encoding="utf-8")
+        best_checkpoint["metrics"] = calibrated_metrics
+        best_checkpoint["thresholds"] = thresholds_from_metrics(calibrated_metrics)
+        best_checkpoint["temperature_scaled"] = True
+        best_checkpoint["logit_temperatures"] = logit_temperatures
+
     if holdout_loader is not None:
-        best_path = args.output_dir / "best.pt"
-        best_checkpoint = torch.load(best_path, map_location=device)
-        model.load_state_dict(best_checkpoint["model_state"])
         holdout_metrics = evaluate(
             model,
             holdout_loader,
@@ -587,13 +700,16 @@ def main() -> None:
             thresholds,
             args.calibration_bins,
             fixed_thresholds=best_checkpoint.get("thresholds", {}),
+            logit_temperatures=logit_temperatures,
         )
         holdout_metrics["best_epoch"] = best_epoch
         holdout_metrics["holdout_split"] = args.holdout_split
+        holdout_metrics["temperature_scaled"] = bool(logit_temperatures)
+        holdout_metrics["logit_temperatures"] = logit_temperatures
         (args.output_dir / "holdout_metrics.json").write_text(json.dumps(holdout_metrics, indent=2), encoding="utf-8")
         best_checkpoint["holdout_metrics"] = holdout_metrics
-        torch.save(best_checkpoint, best_path)
         print(json.dumps({"holdout_macro_f1": holdout_metrics["macro_f1"], "holdout_macro_ece": holdout_metrics["macro_ece"]}, indent=2))
+    torch.save(best_checkpoint, best_path)
 
     print(f"best_macro_f1={best_macro_f1:.4f}")
 

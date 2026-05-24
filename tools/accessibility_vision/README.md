@@ -90,11 +90,12 @@ python train_accessibility_vision.py \
   --learning-rate 1e-4 \
   --weight-decay 0.05 \
   --task-balanced-loss \
+  --temperature-scale \
   --calibration-split validation \
   --holdout-split test
 ```
 
-Training writes `latest_metrics.json` for the calibration split and `holdout_metrics.json` for the final untouched test split. The checkpoint embeds calibrated per-task thresholds, macro F1, Brier score, expected calibration error, and confusion counts. Keep `--task-balanced-loss` enabled when RampNet adds many curb-ramp rows; otherwise the model can over-optimize curb ramps and under-train obstacles, surface problems, and crosswalks.
+Training writes `latest_metrics.json` for the raw calibration split, `calibrated_metrics.json` when `--temperature-scale` is enabled, and `holdout_metrics.json` for the final untouched test split. The checkpoint embeds per-task temperatures, calibrated thresholds, macro F1, Brier score, expected calibration error, and confusion counts. Keep `--task-balanced-loss` enabled when RampNet adds many curb-ramp rows; otherwise the model can over-optimize curb ramps and under-train obstacles, surface problems, and crosswalks.
 
 Positive-only bootstrap:
 
