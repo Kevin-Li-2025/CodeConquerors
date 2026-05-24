@@ -70,9 +70,9 @@ public sealed class RouteGraphProfileService : IRouteGraphProfileService
 
             var pack = Stopwatch.StartNew();
             var artifact = RouteGraphArtifactCodec.Pack(graphData);
-            var artifactPayload = RouteGraphArtifactCodec.SerializeJsonBytes(artifact);
             var redisPayload = RouteGraphArtifactCodec.SerializeRedisPayload(artifact);
             pack.Stop();
+            var artifactPayload = RouteGraphArtifactCodec.SerializeJsonBytes(artifact);
 
             var unpack = Stopwatch.StartNew();
             if (!RouteGraphArtifactCodec.TryDeserializeRedisPayload(redisPayload, out var restoredArtifact)

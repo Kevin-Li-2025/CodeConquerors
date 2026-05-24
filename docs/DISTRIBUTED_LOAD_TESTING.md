@@ -73,7 +73,7 @@ injection checks.
 - `Routing__RouteGraphAltPreprocessingEnabled`: add ALT landmark lower-bound tables to packed
   artifacts for faster exact A* search on larger city shards.
 - `tools/profile-city-route-graph.sh`: profiles a real OSM extract through the offline graph
-  preprocessing path and prints source graph size, shard reuse, artifact size, compressed Redis
+  preprocessing path and prints source graph size, shard reuse, artifact size, binary Redis
   payload bytes, cold load, hot load, and artifact unpack timings.
 - `Routing__MaxHazardsPerRequest`: cap on active hazards loaded for one route/risk request.
 - `ExternalApis__*__MaxConcurrentRequests`: per-pod bulkhead for tail-sensitive upstream services.

@@ -156,11 +156,11 @@ public sealed class RouteGraphArtifactCodecTests
     }
 
     [Fact]
-    public void Packed_route_graph_redis_payload_compresses_and_round_trips()
+    public void Packed_route_graph_binary_redis_payload_round_trips()
     {
         var graphData = new RouteGraphData
         {
-            ShardKey = "compressed-shard",
+            ShardKey = "binary-shard",
             LoadedEdgeCount = 2,
             Nodes = new Dictionary<long, GraphNode>
             {
@@ -183,6 +183,8 @@ public sealed class RouteGraphArtifactCodecTests
         var json = RouteGraphArtifactCodec.SerializeJsonBytes(artifact);
         var payload = RouteGraphArtifactCodec.SerializeRedisPayload(artifact);
 
+        Assert.Equal((byte)'A', payload[0]);
+        Assert.Equal((byte)'C', payload[1]);
         Assert.True(payload.Length < json.Length);
         Assert.True(RouteGraphArtifactCodec.TryDeserializeRedisPayload(payload, out var restored));
         Assert.NotNull(restored);
