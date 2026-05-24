@@ -8,6 +8,7 @@ AccessCity now has a staged route graph preprocessing path:
 - ALT landmarks: each non-truncated shard can carry landmark distance tables so A* gets a stronger admissible lower bound than straight-line distance alone.
 - compact landmark tables: ALT distances stay in rounded `float` seconds in memory and in Redis payloads, avoiding a hot-load expansion back to `double` tables.
 - binary Redis payloads: packed artifacts are stored as versioned binary bytes in L2 cache while keeping legacy gzip/JSON read compatibility.
+- dense ALT preprocessing: shard preprocessing converts node ids to dense indexes and adjacency arrays before running landmark Dijkstra, avoiding repeated dictionary lookups and per-node edge allocations on city-sized bundles.
 
 ## Why ALT First
 
@@ -33,7 +34,7 @@ tools/profile-city-route-graph.sh
 
 The JSON result reports source graph size, source shard count, shard reuse ratio, uncompressed artifact size, binary Redis payload bytes, cold shard merge/preprocessing time, worker hot-load time from Redis payload restore, artifact pack time, and artifact unpack time.
 
-Latest Birmingham extract check (`Birmingham.osm.pbf`, 53.6MB, `Routing__MaxRouteGraphEdges=2000000`) built a non-truncated graph of 661,852 nodes and 1,428,512 directed edges into 1,419 shards. The four warmup routes reused 53 unique shards across 89 references (`shardReuseRatio=0.4045`), all carried ALT-v1 preprocessing, and the largest route artifact moved from about 69.5MB JSON to about 14.6MB binary Redis payload. With the shard index, compact in-memory ALT tables, and binary payload in place, max cold shard merge/preprocessing time was about 229ms, max production pack/binary serialize time was about 115ms, max artifact unpack time was about 92ms, and max Redis hot-load restore was about 48ms on the local offline extract profile.
+Latest Birmingham extract check (`Birmingham.osm.pbf`, 53.6MB, `Routing__MaxRouteGraphEdges=2000000`) built a non-truncated graph of 661,852 nodes and 1,428,512 directed edges into 1,419 shards. The four warmup routes reused 53 unique shards across 89 references (`shardReuseRatio=0.4045`), all carried ALT-v1 preprocessing, and the largest route artifact moved from about 69.5MB JSON to about 14.6MB binary Redis payload. With the shard index, compact in-memory ALT tables, dense preprocessing graph, and binary payload in place, max cold shard merge/preprocessing time was about 265ms, max production pack/binary serialize time was about 206ms, max artifact unpack time was about 35ms, and max Redis hot-load restore was about 39ms on the local offline extract profile.
 
 ## Runtime PostGIS Import Profile
 

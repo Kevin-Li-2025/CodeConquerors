@@ -12,6 +12,13 @@ public static class RouteGraphArtifactCodec
     private static readonly byte[] BinaryMagic = "ACRG"u8.ToArray();
     private const byte BinaryPayloadVersion = 1;
     private const int NullStringIndex = -1;
+    private const int MaxBinaryStringTableEntries = 16_384;
+    private const int MaxBinarySourceShardKeys = 65_536;
+    private const int MaxBinaryNodes = 2_000_000;
+    private const int MaxBinaryEdges = 5_000_000;
+    private const int MaxBinaryGeometryCoordinates = 16_384;
+    private const int MaxBinaryLandmarks = 64;
+    private const int MaxBinaryPreprocessingDistanceEntries = MaxBinaryNodes;
     private static readonly JsonSerializerOptions PackedJsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
@@ -441,7 +448,7 @@ public static class RouteGraphArtifactCodec
         var stringTable = ReadStringTable(reader);
         var preprocessing = ReadPreprocessing(reader);
 
-        var nodes = new PackedRouteGraphNode[reader.ReadInt32()];
+        var nodes = new PackedRouteGraphNode[ReadCount(reader, "route graph node count", MaxBinaryNodes)];
         for (var i = 0; i < nodes.Length; i++)
         {
             nodes[i] = new PackedRouteGraphNode(
@@ -452,7 +459,7 @@ public static class RouteGraphArtifactCodec
                 reader.ReadInt32());
         }
 
-        var edges = new PackedRouteGraphEdge[reader.ReadInt32()];
+        var edges = new PackedRouteGraphEdge[ReadCount(reader, "route graph edge count", MaxBinaryEdges)];
         for (var i = 0; i < edges.Length; i++)
         {
             edges[i] = new PackedRouteGraphEdge(
@@ -522,12 +529,7 @@ public static class RouteGraphArtifactCodec
 
     private static string[] ReadStringTable(BinaryReader reader)
     {
-        var count = reader.ReadInt32();
-        if (count < 0)
-        {
-            throw new InvalidDataException("Route graph string table length is negative.");
-        }
-
+        var count = ReadCount(reader, "route graph string table length", MaxBinaryStringTableEntries);
         var values = new string[count];
         for (var i = 0; i < values.Length; i++)
         {
@@ -602,7 +604,7 @@ public static class RouteGraphArtifactCodec
         var algorithmVersion = reader.ReadInt32();
         var weightVersion = reader.ReadString();
         var landmarkNodeIds = ReadLongArray(reader);
-        var landmarks = new PackedRouteGraphLandmark[reader.ReadInt32()];
+        var landmarks = new PackedRouteGraphLandmark[ReadCount(reader, "route graph landmark count", MaxBinaryLandmarks)];
         for (var i = 0; i < landmarks.Length; i++)
         {
             landmarks[i] = new PackedRouteGraphLandmark(
@@ -636,13 +638,13 @@ public static class RouteGraphArtifactCodec
 
     private static PackedRouteGraphCoordinate[]? ReadCoordinates(BinaryReader reader)
     {
-        var count = reader.ReadInt32();
-        if (count < 0)
+        var count = ReadNullableCount(reader, "route graph geometry coordinate count", MaxBinaryGeometryCoordinates);
+        if (!count.HasValue)
         {
             return null;
         }
 
-        var coordinates = new PackedRouteGraphCoordinate[count];
+        var coordinates = new PackedRouteGraphCoordinate[count.Value];
         for (var i = 0; i < coordinates.Length; i++)
         {
             coordinates[i] = new PackedRouteGraphCoordinate(reader.ReadDouble(), reader.ReadDouble());
@@ -662,7 +664,7 @@ public static class RouteGraphArtifactCodec
 
     private static string[] ReadStringArray(BinaryReader reader)
     {
-        var values = new string[reader.ReadInt32()];
+        var values = new string[ReadCount(reader, "route graph string array length", MaxBinarySourceShardKeys)];
         for (var i = 0; i < values.Length; i++)
         {
             values[i] = reader.ReadString();
@@ -682,7 +684,7 @@ public static class RouteGraphArtifactCodec
 
     private static long[] ReadLongArray(BinaryReader reader)
     {
-        var values = new long[reader.ReadInt32()];
+        var values = new long[ReadCount(reader, "route graph long array length", MaxBinaryLandmarks)];
         for (var i = 0; i < values.Length; i++)
         {
             values[i] = reader.ReadInt64();
@@ -702,7 +704,7 @@ public static class RouteGraphArtifactCodec
 
     private static float[] ReadFloatArray(BinaryReader reader)
     {
-        var values = new float[reader.ReadInt32()];
+        var values = new float[ReadCount(reader, "route graph preprocessing distance length", MaxBinaryPreprocessingDistanceEntries)];
         for (var i = 0; i < values.Length; i++)
         {
             values[i] = reader.ReadSingle();
@@ -738,6 +740,33 @@ public static class RouteGraphArtifactCodec
     private static bool IsBinaryPayload(IReadOnlyList<byte> payload) =>
         payload.Count > BinaryMagic.Length
         && payload.Take(BinaryMagic.Length).SequenceEqual(BinaryMagic);
+
+    private static int ReadCount(BinaryReader reader, string fieldName, int maxCount)
+    {
+        var count = reader.ReadInt32();
+        if (count < 0 || count > maxCount)
+        {
+            throw new InvalidDataException($"{fieldName} {count} is outside the supported range 0..{maxCount}.");
+        }
+
+        return count;
+    }
+
+    private static int? ReadNullableCount(BinaryReader reader, string fieldName, int maxCount)
+    {
+        var count = reader.ReadInt32();
+        if (count < 0)
+        {
+            return null;
+        }
+
+        if (count > maxCount)
+        {
+            throw new InvalidDataException($"{fieldName} {count} exceeds the supported maximum {maxCount}.");
+        }
+
+        return count;
+    }
 
     private static bool IsGzipPayload(IReadOnlyList<byte> payload) =>
         payload.Count >= 2 && payload[0] == 0x1f && payload[1] == 0x8b;

@@ -10,6 +10,7 @@ public static class RouteGraphPreprocessor
     public const string AltWeightVersion = "min-traversal-seconds-v1";
     public const double MaxLowerBoundSpeedMetresPerSecond = 2.0;
     private const double LandmarkDistanceQuantizationSafetySeconds = 0.001;
+    private const double StaleQueueDistanceToleranceSeconds = 1e-9;
 
     public static void TryAttachPreprocessing(RouteGraphData graphData, RoutingOptions options)
     {
@@ -32,34 +33,55 @@ public static class RouteGraphPreprocessor
             return null;
         }
 
-        var landmarks = SelectLandmarks(graphData.Nodes.Values, landmarkCount);
+        var nodes = graphData.Nodes.Values
+            .OrderBy(node => node.Id)
+            .ToArray();
+        var nodeIndexById = new Dictionary<long, int>(nodes.Length);
+        for (var i = 0; i < nodes.Length; i++)
+        {
+            nodeIndexById[nodes[i].Id] = i;
+        }
+
+        var landmarks = SelectLandmarks(nodes, landmarkCount);
         if (landmarks.Count == 0)
         {
             return null;
         }
 
-        var forward = new List<Dictionary<long, double>>(landmarks.Count);
-        var reverse = new List<Dictionary<long, double>>(landmarks.Count);
-        var reverseAdjacency = BuildReverseAdjacency(graphData.Nodes);
+        var forwardAdjacency = BuildForwardAdjacency(nodes, nodeIndexById);
+        var reverseAdjacency = BuildReverseAdjacency(forwardAdjacency);
+        var forward = new List<double[]>(landmarks.Count);
+        var reverse = new List<double[]>(landmarks.Count);
 
         foreach (var landmarkId in landmarks)
         {
-            forward.Add(RunDijkstra(graphData.Nodes, landmarkId, reverse: false, reverseAdjacency));
-            reverse.Add(RunDijkstra(graphData.Nodes, landmarkId, reverse: true, reverseAdjacency));
-        }
-
-        var nodeDistances = new Dictionary<long, RouteGraphNodePreprocessing>(graphData.Nodes.Count);
-        foreach (var nodeId in graphData.Nodes.Keys)
-        {
-            var fromLandmark = new float[landmarks.Count];
-            var toLandmark = new float[landmarks.Count];
-            for (var i = 0; i < landmarks.Count; i++)
+            if (!nodeIndexById.TryGetValue(landmarkId, out var landmarkIndex))
             {
-                fromLandmark[i] = EncodePreprocessedSeconds(forward[i].GetValueOrDefault(nodeId, double.PositiveInfinity));
-                toLandmark[i] = EncodePreprocessedSeconds(reverse[i].GetValueOrDefault(nodeId, double.PositiveInfinity));
+                continue;
             }
 
-            nodeDistances[nodeId] = new RouteGraphNodePreprocessing
+            forward.Add(RunDijkstra(forwardAdjacency, landmarkIndex));
+            reverse.Add(RunDijkstra(reverseAdjacency, landmarkIndex));
+        }
+
+        if (forward.Count == 0 || reverse.Count == 0)
+        {
+            return null;
+        }
+
+        var effectiveLandmarks = landmarks.Take(forward.Count).ToArray();
+        var nodeDistances = new Dictionary<long, RouteGraphNodePreprocessing>(nodes.Length);
+        for (var nodeIndex = 0; nodeIndex < nodes.Length; nodeIndex++)
+        {
+            var fromLandmark = new float[effectiveLandmarks.Length];
+            var toLandmark = new float[effectiveLandmarks.Length];
+            for (var i = 0; i < effectiveLandmarks.Length; i++)
+            {
+                fromLandmark[i] = EncodePreprocessedSeconds(forward[i][nodeIndex]);
+                toLandmark[i] = EncodePreprocessedSeconds(reverse[i][nodeIndex]);
+            }
+
+            nodeDistances[nodes[nodeIndex].Id] = new RouteGraphNodePreprocessing
             {
                 FromLandmarkSeconds = fromLandmark,
                 ToLandmarkSeconds = toLandmark
@@ -71,7 +93,7 @@ public static class RouteGraphPreprocessor
             Algorithm = "ALT",
             AlgorithmVersion = AltAlgorithmVersion,
             WeightVersion = AltWeightVersion,
-            LandmarkNodeIds = landmarks.ToArray(),
+            LandmarkNodeIds = effectiveLandmarks,
             NodeDistances = nodeDistances
         };
     }
@@ -129,12 +151,9 @@ public static class RouteGraphPreprocessor
         return float.IsFinite(next) ? Math.Abs((double)next - seconds) : 0;
     }
 
-    private static IReadOnlyList<long> SelectLandmarks(IEnumerable<GraphNode> nodes, int landmarkCount)
+    private static IReadOnlyList<long> SelectLandmarks(IReadOnlyList<GraphNode> ordered, int landmarkCount)
     {
-        var ordered = nodes
-            .OrderBy(node => node.Id)
-            .ToArray();
-        if (ordered.Length == 0)
+        if (ordered.Count == 0)
         {
             return Array.Empty<long>();
         }
@@ -169,7 +188,7 @@ public static class RouteGraphPreprocessor
             }
         }
 
-        while (selected.Count < Math.Min(landmarkCount, ordered.Length))
+        while (selected.Count < Math.Min(landmarkCount, ordered.Count))
         {
             var next = ordered
                 .Where(node => selected.All(existing => existing.Id != node.Id))
@@ -194,80 +213,88 @@ public static class RouteGraphPreprocessor
         return dx * dx + dy * dy;
     }
 
-    private static Dictionary<long, List<(long TargetNodeId, double CostSeconds)>> BuildReverseAdjacency(
-        IReadOnlyDictionary<long, GraphNode> graph)
+    private static PreprocessingEdge[][] BuildForwardAdjacency(
+        IReadOnlyList<GraphNode> nodes,
+        IReadOnlyDictionary<long, int> nodeIndexById)
     {
-        var reverse = graph.Keys.ToDictionary(nodeId => nodeId, _ => new List<(long TargetNodeId, double CostSeconds)>());
-        foreach (var node in graph.Values)
+        var adjacency = new PreprocessingEdge[nodes.Count][];
+        for (var i = 0; i < nodes.Count; i++)
         {
+            var node = nodes[i];
+            var edges = new List<PreprocessingEdge>(node.Edges.Count);
             foreach (var edge in node.Edges.Values)
             {
-                if (!graph.ContainsKey(edge.TargetNodeId))
+                if (nodeIndexById.TryGetValue(edge.TargetNodeId, out var targetIndex))
                 {
-                    continue;
+                    edges.Add(new PreprocessingEdge(targetIndex, LowerBoundTraversalSeconds(edge)));
                 }
+            }
 
-                if (!reverse.TryGetValue(edge.TargetNodeId, out var edges))
-                {
-                    edges = new List<(long TargetNodeId, double CostSeconds)>();
-                    reverse[edge.TargetNodeId] = edges;
-                }
+            adjacency[i] = edges.ToArray();
+        }
 
-                edges.Add((node.Id, LowerBoundTraversalSeconds(edge)));
+        return adjacency;
+    }
+
+    private static PreprocessingEdge[][] BuildReverseAdjacency(IReadOnlyList<PreprocessingEdge[]> forwardAdjacency)
+    {
+        var reverse = new List<PreprocessingEdge>[forwardAdjacency.Count];
+        for (var i = 0; i < reverse.Length; i++)
+        {
+            reverse[i] = new List<PreprocessingEdge>();
+        }
+
+        for (var sourceIndex = 0; sourceIndex < forwardAdjacency.Count; sourceIndex++)
+        {
+            foreach (var edge in forwardAdjacency[sourceIndex])
+            {
+                reverse[edge.TargetIndex].Add(new PreprocessingEdge(sourceIndex, edge.CostSeconds));
             }
         }
 
-        return reverse;
+        var adjacency = new PreprocessingEdge[reverse.Length][];
+        for (var i = 0; i < reverse.Length; i++)
+        {
+            adjacency[i] = reverse[i].ToArray();
+        }
+
+        return adjacency;
     }
 
-    private static Dictionary<long, double> RunDijkstra(
-        IReadOnlyDictionary<long, GraphNode> graph,
-        long startNodeId,
-        bool reverse,
-        IReadOnlyDictionary<long, List<(long TargetNodeId, double CostSeconds)>> reverseAdjacency)
+    private static double[] RunDijkstra(IReadOnlyList<PreprocessingEdge[]> adjacency, int startIndex)
     {
-        var distances = new Dictionary<long, double> { [startNodeId] = 0 };
-        var queue = new PriorityQueue<long, double>();
-        queue.Enqueue(startNodeId, 0);
+        var distances = new double[adjacency.Count];
+        Array.Fill(distances, double.PositiveInfinity);
+        distances[startIndex] = 0;
+
+        var queue = new PriorityQueue<(int NodeIndex, double Distance), double>();
+        queue.Enqueue((startIndex, 0), 0);
 
         while (queue.Count > 0)
         {
-            var current = queue.Dequeue();
-            var currentDistance = distances[current];
-            var edges = reverse
-                ? reverseAdjacency.GetValueOrDefault(current) ?? new List<(long TargetNodeId, double CostSeconds)>()
-                : EnumerateForwardEdges(graph, current);
-
-            foreach (var (targetNodeId, costSeconds) in edges)
+            var (current, currentDistance) = queue.Dequeue();
+            if (currentDistance > distances[current] + StaleQueueDistanceToleranceSeconds)
             {
-                var tentative = currentDistance + costSeconds;
-                if (tentative >= distances.GetValueOrDefault(targetNodeId, double.PositiveInfinity))
+                continue;
+            }
+
+            foreach (var edge in adjacency[current])
+            {
+                var tentative = currentDistance + edge.CostSeconds;
+                if (tentative >= distances[edge.TargetIndex])
                 {
                     continue;
                 }
 
-                distances[targetNodeId] = tentative;
-                queue.Enqueue(targetNodeId, tentative);
+                distances[edge.TargetIndex] = tentative;
+                queue.Enqueue((edge.TargetIndex, tentative), tentative);
             }
         }
 
         return distances;
     }
 
-    private static IReadOnlyList<(long TargetNodeId, double CostSeconds)> EnumerateForwardEdges(
-        IReadOnlyDictionary<long, GraphNode> graph,
-        long nodeId)
-    {
-        if (!graph.TryGetValue(nodeId, out var node))
-        {
-            return Array.Empty<(long TargetNodeId, double CostSeconds)>();
-        }
-
-        return node.Edges.Values
-            .Where(edge => graph.ContainsKey(edge.TargetNodeId))
-            .Select(edge => (edge.TargetNodeId, LowerBoundTraversalSeconds(edge)))
-            .ToArray();
-    }
+    private readonly record struct PreprocessingEdge(int TargetIndex, double CostSeconds);
 
     private static double LowerBoundTraversalSeconds(GraphEdge edge)
         => Math.Max(0.001, edge.DistanceMetres / MaxLowerBoundSpeedMetresPerSecond);

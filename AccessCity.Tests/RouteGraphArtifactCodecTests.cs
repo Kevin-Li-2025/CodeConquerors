@@ -194,4 +194,21 @@ public sealed class RouteGraphArtifactCodecTests
         Assert.Equal(3, unpacked.Nodes.Count);
         Assert.Equal(2, unpacked.LoadedEdgeCount);
     }
+
+    [Fact]
+    public void Packed_route_graph_binary_redis_payload_rejects_unbounded_lengths()
+    {
+        using var output = new MemoryStream();
+        using var writer = new BinaryWriter(output);
+        writer.Write("ACRG"u8.ToArray());
+        writer.Write((byte)1);
+        writer.Write(RouteGraphArtifactCodec.SchemaVersion);
+        writer.Write(RouteEdgeCostModel.Version);
+        writer.Write(RouteEdgeCostModel.EdgeWeightVersion);
+        writer.Write(false);
+        writer.Write(int.MaxValue);
+
+        Assert.False(RouteGraphArtifactCodec.TryDeserializeRedisPayload(output.ToArray(), out var restored));
+        Assert.Null(restored);
+    }
 }
