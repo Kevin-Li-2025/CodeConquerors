@@ -23,17 +23,20 @@ public sealed class AccessibilityAiInferenceService : IAccessibilityAiInferenceS
 {
     private readonly LocalAccessibilityAiInferenceProvider _localProvider;
     private readonly OpenAiAccessibilityInferenceProvider _openAiProvider;
+    private readonly NebiusAccessibilityInferenceProvider _nebiusProvider;
     private readonly AiEnrichmentOptions _options;
     private readonly ILogger<AccessibilityAiInferenceService> _logger;
 
     public AccessibilityAiInferenceService(
         LocalAccessibilityAiInferenceProvider localProvider,
         OpenAiAccessibilityInferenceProvider openAiProvider,
+        NebiusAccessibilityInferenceProvider nebiusProvider,
         IOptions<AiEnrichmentOptions> options,
         ILogger<AccessibilityAiInferenceService> logger)
     {
         _localProvider = localProvider;
         _openAiProvider = openAiProvider;
+        _nebiusProvider = nebiusProvider;
         _options = options.Value;
         _logger = logger;
     }
@@ -46,6 +49,23 @@ public sealed class AccessibilityAiInferenceService : IAccessibilityAiInferenceS
     {
         var normalized = NormalizeRequest(request, _options);
         var useOpenAi = string.Equals(_options.Provider, "openai", StringComparison.OrdinalIgnoreCase);
+        var useNebius = string.Equals(_options.Provider, "nebius", StringComparison.OrdinalIgnoreCase);
+        if (useNebius && _nebiusProvider.IsConfigured)
+        {
+            try
+            {
+                return await _nebiusProvider.InferAsync(assetId, profile, normalized, cancellationToken);
+            }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException or InvalidOperationException)
+            {
+                _logger.LogWarning(ex, "Nebius accessibility inference failed; falling back to local rules.");
+                var fallback = await _localProvider.InferAsync(assetId, profile, normalized, cancellationToken);
+                fallback.Provider = "nebius:fallback-local-rules";
+                fallback.Limitations.Add("Nebius inference failed or timed out; local deterministic rules generated this fallback result.");
+                return fallback;
+            }
+        }
+
         if (useOpenAi && _openAiProvider.IsConfigured)
         {
             try
@@ -67,6 +87,11 @@ public sealed class AccessibilityAiInferenceService : IAccessibilityAiInferenceS
         {
             result.Provider = "openai:unconfigured-local-rules";
             result.Limitations.Add("OpenAI provider is selected but no API key is configured; local deterministic rules generated this result.");
+        }
+        else if (useNebius && !_nebiusProvider.IsConfigured)
+        {
+            result.Provider = "nebius:unconfigured-local-rules";
+            result.Limitations.Add("Nebius provider is selected but no API key is configured; local deterministic rules generated this result.");
         }
 
         return result;
@@ -392,16 +417,14 @@ public sealed class OpenAiAccessibilityInferenceProvider
             ?? throw new InvalidOperationException("OpenAI structured output could not be parsed.");
 
         var candidates = parsed.Candidates
-            .Select(candidate => new MissingOsmAttributeCandidate
-            {
-                Attribute = NormalizeAttribute(candidate.Attribute),
-                Value = string.IsNullOrWhiteSpace(candidate.Value) ? "verify" : candidate.Value.Trim(),
-                Confidence = Math.Round(Math.Clamp(candidate.Confidence, 0, 0.95), 3),
-                Evidence = string.IsNullOrWhiteSpace(candidate.Evidence) ? "OpenAI accessibility inference candidate." : candidate.Evidence.Trim(),
-                Source = "openai_multimodal",
-                CanAutoApply = false
-            })
-            .Where(candidate => candidate.Confidence >= _options.MinimumCandidateConfidence)
+            .Select(candidate => AccessibilityCandidateNormalizer.ToCandidate(
+                candidate.Attribute,
+                candidate.Value,
+                candidate.Confidence,
+                candidate.Evidence,
+                "openai_multimodal",
+                "OpenAI accessibility inference candidate."))
+            .Where(candidate => candidate.Confidence >= _options.MinimumCandidateConfidence && candidate.Attribute != "unknown")
             .GroupBy(candidate => candidate.Attribute, StringComparer.OrdinalIgnoreCase)
             .Select(group => group.OrderByDescending(candidate => candidate.Confidence).First())
             .OrderByDescending(candidate => candidate.Confidence)
@@ -611,26 +634,6 @@ public sealed class OpenAiAccessibilityInferenceProvider
         return null;
     }
 
-    private static string NormalizeAttribute(string attribute)
-    {
-        if (string.IsNullOrWhiteSpace(attribute))
-        {
-            return "unknown";
-        }
-
-        var normalized = attribute.Trim().ToLowerInvariant().Replace(' ', '_');
-        return normalized switch
-        {
-            "curb_ramp" or "kerb_ramp" => "curb_ramp",
-            "kerb_height" => "kerb_height_metres",
-            "width" or "clear_width" => "width_metres",
-            "door_width" => "door_width_metres",
-            "toilets_grab_bar" => "toilets:grab_bar",
-            "toilets_wheelchair" => "toilets:wheelchair",
-            _ => normalized
-        };
-    }
-
     private sealed class OpenAiAccessibilityInferenceOutput
     {
         public string Summary { get; set; } = string.Empty;
@@ -644,6 +647,490 @@ public sealed class OpenAiAccessibilityInferenceProvider
         public double Confidence { get; set; }
         public string Evidence { get; set; } = string.Empty;
     }
+}
+
+public sealed class NebiusAccessibilityInferenceProvider
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
+    private readonly HttpClient _httpClient;
+    private readonly AiEnrichmentOptions _options;
+
+    public NebiusAccessibilityInferenceProvider(HttpClient httpClient, IOptions<AiEnrichmentOptions> options)
+    {
+        _httpClient = httpClient;
+        _options = options.Value;
+        _httpClient.Timeout = TimeSpan.FromSeconds(Math.Clamp(_options.NebiusTimeoutSeconds, 1, 30));
+    }
+
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(ResolveApiKey());
+
+    public async Task<AccessibilityAiInferenceResult> InferAsync(
+        long assetId,
+        InfrastructureAccessibilityProfile profile,
+        AccessibilityAiInferenceRequest request,
+        CancellationToken cancellationToken)
+    {
+        var apiKey = ResolveApiKey();
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            throw new InvalidOperationException("Nebius API key is not configured.");
+        }
+
+        using var httpRequest = new HttpRequestMessage(HttpMethod.Post, ResolveChatCompletionsEndpoint());
+        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        httpRequest.Content = JsonContent.Create(BuildRequestPayload(profile, request), options: JsonOptions);
+
+        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var content = ExtractChatMessageContent(document.RootElement);
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            throw new InvalidOperationException("Nebius response did not contain chat message content.");
+        }
+
+        var parsed = ParseCandidateOutput(content)
+            ?? throw new InvalidOperationException("Nebius candidate JSON could not be parsed.");
+        var source = _options.NebiusEnableImageInputs ? "nebius_multimodal" : "nebius_text";
+        var candidates = parsed.Candidates
+            .Select(candidate => AccessibilityCandidateNormalizer.ToCandidate(
+                candidate.Attribute,
+                candidate.Value,
+                candidate.Confidence,
+                candidate.Evidence,
+                source,
+                "Nebius accessibility inference candidate."))
+            .Where(candidate => candidate.Confidence >= _options.MinimumCandidateConfidence && candidate.Attribute != "unknown")
+            .GroupBy(candidate => candidate.Attribute, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.OrderByDescending(candidate => candidate.Confidence).First())
+            .OrderByDescending(candidate => candidate.Confidence)
+            .ThenBy(candidate => candidate.Attribute, StringComparer.Ordinal)
+            .Take(12)
+            .ToList();
+
+        return new AccessibilityAiInferenceResult
+        {
+            InfrastructureAssetId = assetId,
+            ForRouteDecision = false,
+            Provider = "nebius",
+            Model = ResolveModel(),
+            GeneratedAtUtc = DateTime.UtcNow,
+            AdminSummary = string.IsNullOrWhiteSpace(parsed.Summary)
+                ? $"Nebius generated {candidates.Count} accessibility candidate(s)."
+                : parsed.Summary.Trim(),
+            AttributeCandidates = candidates,
+            DraftVerification = request.IncludeDraftVerification
+                ? AccessibilityCandidateDraftBuilder.BuildDraftVerification(candidates, request)
+                : null,
+            Guardrails = LocalAccessibilityAiInferenceProvider.StandardGuardrails(),
+            Limitations =
+            [
+                "Nebius output is a candidate extraction result, not an authoritative accessibility measurement.",
+                "Model output is normalized into controlled AccessCity fields and still requires human/admin review.",
+                _options.NebiusEnableImageInputs
+                    ? "Image inputs require a vision-capable Nebius model and still require human/admin review."
+                    : "Default Nebius mode uses observation text and photo metadata; enable image inputs only with a vision-capable Nebius model.",
+                "This endpoint is outside routing hot paths and never influences route decisions directly."
+            ]
+        };
+    }
+
+    private object BuildRequestPayload(
+        InfrastructureAccessibilityProfile profile,
+        AccessibilityAiInferenceRequest request)
+    {
+        var content = new List<object>
+        {
+            new
+            {
+                type = "text",
+                text = BuildPrompt(profile, request)
+            }
+        };
+
+        if (_options.NebiusEnableImageInputs)
+        {
+            foreach (var photo in request.Photos)
+            {
+                content.Add(new
+                {
+                    type = "image_url",
+                    image_url = new
+                    {
+                        url = photo.Url,
+                        detail = "low"
+                    }
+                });
+            }
+        }
+
+        return new
+        {
+            model = ResolveModel(),
+            messages = new object[]
+            {
+                new
+                {
+                    role = "system",
+                    content = "You extract accessibility data-quality candidates for a pedestrian accessibility app. Return strict JSON only. Do not recommend routes, alter route costs, or make final accessibility decisions."
+                },
+                new
+                {
+                    role = "user",
+                    content
+                }
+            },
+            temperature = 0,
+            max_tokens = Math.Clamp(_options.NebiusMaxTokens, 128, 4_000),
+            response_format = new
+            {
+                type = "json_object"
+            }
+        };
+    }
+
+    private static string BuildPrompt(
+        InfrastructureAccessibilityProfile profile,
+        AccessibilityAiInferenceRequest request)
+    {
+        var profileJson = JsonSerializer.Serialize(new
+        {
+            profile.VerificationStatus,
+            profile.Confidence,
+            profile.MissingFields,
+            profile.Path,
+            entrance = profile.Entrances.FirstOrDefault(),
+            restroom = profile.Restrooms.FirstOrDefault(),
+            photoCount = profile.Photos.Count
+        }, JsonOptions);
+
+        var observation = string.IsNullOrWhiteSpace(request.ObservationText)
+            ? "No text observation supplied."
+            : request.ObservationText;
+        var photoMetadata = request.Photos.Select(photo => new
+        {
+            photo.Source,
+            photo.Caption,
+            photo.TakenAtUtc,
+            photo.Url
+        });
+        const string outputShape = "{\"summary\":\"string\",\"candidates\":[{\"attribute\":\"string\",\"value\":\"string\",\"confidence\":0.0,\"evidence\":\"string\"}]}";
+
+        return $"""
+        Return JSON only with this exact shape:
+        {outputShape}
+
+        Controlled attributes:
+        surface, smoothness, width_metres, kerb_height_metres, curb_ramp, incline, tactile_paving, wheelchair, step_free_access,
+        door_width_metres, automatic_door, toilets:wheelchair, toilets:grab_bar, changing_table, photos, last_verified_at.
+
+        Normalize values to short strings: concrete, asphalt, paving_stones, gravel, cobblestone, good, bad, true, false,
+        measure_clear_width, verify_material, >0.06.
+
+        Current profile JSON:
+        {profileJson}
+
+        Field observation:
+        {observation}
+
+        Photo metadata and URLs:
+        {JsonSerializer.Serialize(photoMetadata, JsonOptions)}
+
+        Rules:
+        - Produce review candidates only.
+        - Do not output markdown.
+        - If images are not provided to the model, use photo metadata only as weak evidence.
+        - Do not include route geometry, route recommendations, or edge-cost changes.
+        - If uncertain, lower confidence instead of inventing.
+        """;
+    }
+
+    private Uri ResolveChatCompletionsEndpoint()
+    {
+        var baseUrl = string.IsNullOrWhiteSpace(_options.NebiusBaseUrl)
+            ? "https://api.tokenfactory.nebius.com/v1"
+            : _options.NebiusBaseUrl.TrimEnd('/');
+        return new Uri($"{baseUrl}/chat/completions", UriKind.Absolute);
+    }
+
+    private string ResolveModel() =>
+        string.IsNullOrWhiteSpace(_options.NebiusModel)
+            ? "openai/gpt-oss-120b-fast"
+            : _options.NebiusModel;
+
+    private string? ResolveApiKey() =>
+        !string.IsNullOrWhiteSpace(_options.NebiusApiKey)
+            ? _options.NebiusApiKey
+            : Environment.GetEnvironmentVariable("NEBIUS_API_KEY");
+
+    private static string? ExtractChatMessageContent(JsonElement root)
+    {
+        if (!root.TryGetProperty("choices", out var choices) ||
+            choices.ValueKind != JsonValueKind.Array ||
+            choices.GetArrayLength() == 0)
+        {
+            return null;
+        }
+
+        var first = choices[0];
+        if (!first.TryGetProperty("message", out var message) ||
+            !message.TryGetProperty("content", out var content))
+        {
+            return null;
+        }
+
+        return content.ValueKind switch
+        {
+            JsonValueKind.String => content.GetString(),
+            JsonValueKind.Array => string.Join(
+                string.Empty,
+                content.EnumerateArray()
+                    .Select(item => item.TryGetProperty("text", out var text) ? text.GetString() : null)
+                    .Where(text => !string.IsNullOrWhiteSpace(text))),
+            _ => null
+        };
+    }
+
+    private static ProviderCandidateOutput? ParseCandidateOutput(string content)
+    {
+        var trimmed = content.Trim();
+        if (!trimmed.StartsWith('{'))
+        {
+            var start = trimmed.IndexOf('{', StringComparison.Ordinal);
+            var end = trimmed.LastIndexOf('}');
+            if (start >= 0 && end > start)
+            {
+                trimmed = trimmed[start..(end + 1)];
+            }
+        }
+
+        return JsonSerializer.Deserialize<ProviderCandidateOutput>(trimmed, JsonOptions);
+    }
+
+    private sealed class ProviderCandidateOutput
+    {
+        public string Summary { get; set; } = string.Empty;
+        public List<ProviderCandidate> Candidates { get; set; } = [];
+    }
+
+    private sealed class ProviderCandidate
+    {
+        public string Attribute { get; set; } = string.Empty;
+        public string Value { get; set; } = string.Empty;
+        public double Confidence { get; set; }
+        public string Evidence { get; set; } = string.Empty;
+    }
+}
+
+internal static class AccessibilityCandidateNormalizer
+{
+    private static readonly HashSet<string> BooleanAttributes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "curb_ramp",
+        "tactile_paving",
+        "step_free_access",
+        "automatic_door",
+        "toilets:wheelchair",
+        "toilets:grab_bar",
+        "changing_table"
+    };
+
+    public static MissingOsmAttributeCandidate ToCandidate(
+        string attribute,
+        string value,
+        double confidence,
+        string evidence,
+        string source,
+        string defaultEvidence)
+    {
+        var normalizedAttribute = NormalizeAttribute(attribute, value);
+        var boundedConfidence = double.IsFinite(confidence)
+            ? Math.Round(Math.Clamp(confidence, 0, 0.95), 3)
+            : 0;
+
+        return new MissingOsmAttributeCandidate
+        {
+            Attribute = normalizedAttribute,
+            Value = NormalizeValue(normalizedAttribute, value),
+            Confidence = boundedConfidence,
+            Evidence = string.IsNullOrWhiteSpace(evidence) ? defaultEvidence : evidence.Trim(),
+            Source = source,
+            CanAutoApply = false
+        };
+    }
+
+    private static string NormalizeAttribute(string attribute, string value)
+    {
+        var normalized = NormalizeToken(attribute);
+        var joined = $"{normalized} {NormalizeToken(value)}";
+
+        if (ContainsAny(joined, "toilet", "toilets", "restroom", "bathroom"))
+        {
+            if (ContainsAny(joined, "grab", "rail", "bar"))
+            {
+                return "toilets:grab_bar";
+            }
+
+            if (ContainsAny(joined, "wheelchair", "accessible"))
+            {
+                return "toilets:wheelchair";
+            }
+        }
+
+        if (ContainsAny(joined, "curb_ramp", "kerb_ramp", "curb_cut", "dropped_kerb", "lowered_kerb") ||
+            normalized == "ramp")
+        {
+            return "curb_ramp";
+        }
+
+        if (ContainsAny(joined, "kerb", "curb", "raised_kerb", "raised_curb", "high_kerb", "high_curb"))
+        {
+            return "kerb_height_metres";
+        }
+
+        if (ContainsAny(joined, "door_width"))
+        {
+            return "door_width_metres";
+        }
+
+        if (ContainsAny(joined, "width", "clear_width", "crossing_width", "narrow"))
+        {
+            return "width_metres";
+        }
+
+        if (ContainsAny(joined, "surface", "material", "concrete", "asphalt", "gravel", "cobblestone", "paving", "mud", "grass", "dirt"))
+        {
+            return "surface";
+        }
+
+        if (ContainsAny(joined, "smoothness", "condition", "uneven", "broken", "cracked", "bumpy", "pothole", "loose_surface"))
+        {
+            return "smoothness";
+        }
+
+        if (ContainsAny(joined, "incline", "slope", "grade", "gradient", "steep"))
+        {
+            return "incline";
+        }
+
+        if (ContainsAny(joined, "tactile", "truncated_domes", "blister_paving"))
+        {
+            return "tactile_paving";
+        }
+
+        if (ContainsAny(joined, "automatic_door", "powered_door"))
+        {
+            return "automatic_door";
+        }
+
+        if (ContainsAny(joined, "changing_table", "baby_change"))
+        {
+            return "changing_table";
+        }
+
+        if (ContainsAny(joined, "step_free", "stairs", "steps", "stairway"))
+        {
+            return "step_free_access";
+        }
+
+        if (ContainsAny(joined, "wheelchair"))
+        {
+            return "wheelchair";
+        }
+
+        return normalized switch
+        {
+            "kerb_height" or "curb_height" => "kerb_height_metres",
+            "door_width" => "door_width_metres",
+            "toilets_grab_bar" => "toilets:grab_bar",
+            "toilets_wheelchair" => "toilets:wheelchair",
+            "" => "unknown",
+            _ => normalized
+        };
+    }
+
+    private static string NormalizeValue(string attribute, string value)
+    {
+        var normalized = NormalizeToken(value);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return "verify";
+        }
+
+        if (BooleanAttributes.Contains(attribute))
+        {
+            if (ContainsAny(normalized, "absent", "no", "none", "false", "missing", "blocked", "not_present", "stairs", "steps"))
+            {
+                return "false";
+            }
+
+            if (ContainsAny(normalized, "present", "yes", "true", "available", "lowered", "flush", "dropped"))
+            {
+                return "true";
+            }
+        }
+
+        return attribute switch
+        {
+            "wheelchair" when ContainsAny(normalized, "no", "false", "stairs", "steps", "blocked") => "no",
+            "wheelchair" when ContainsAny(normalized, "yes", "true", "accessible") => "yes",
+            "kerb_height_metres" when ContainsAny(normalized, "raised", "high", "present", "tall") => ">0.06",
+            "kerb_height_metres" when ContainsAny(normalized, "flush", "lowered", "dropped", "zero") => "0",
+            "width_metres" or "door_width_metres" when ContainsAny(normalized, "narrow", "tight", "measure", "unknown") => "measure_clear_width",
+            "surface" => NormalizeSurfaceValue(normalized),
+            "smoothness" when ContainsAny(normalized, "uneven", "broken", "cracked", "bumpy", "pothole", "loose", "bad", "poor") => "bad",
+            "smoothness" when ContainsAny(normalized, "smooth", "flat", "even", "good") => "good",
+            _ => normalized
+        };
+    }
+
+    private static string NormalizeSurfaceValue(string normalized)
+    {
+        if (normalized.Contains("concrete", StringComparison.Ordinal)) return "concrete";
+        if (normalized.Contains("asphalt", StringComparison.Ordinal)) return "asphalt";
+        if (normalized.Contains("gravel", StringComparison.Ordinal)) return "gravel";
+        if (normalized.Contains("cobblestone", StringComparison.Ordinal)) return "cobblestone";
+        if (normalized.Contains("paving", StringComparison.Ordinal)) return "paving_stones";
+        if (normalized.Contains("mud", StringComparison.Ordinal)) return "mud";
+        if (normalized.Contains("grass", StringComparison.Ordinal)) return "grass";
+        if (normalized.Contains("dirt", StringComparison.Ordinal)) return "dirt";
+        return normalized;
+    }
+
+    private static string NormalizeToken(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(value.Length);
+        var previousSeparator = false;
+        foreach (var character in value.Trim().ToLowerInvariant())
+        {
+            if (char.IsLetterOrDigit(character) || character == ':')
+            {
+                builder.Append(character);
+                previousSeparator = false;
+            }
+            else if (!previousSeparator)
+            {
+                builder.Append('_');
+                previousSeparator = true;
+            }
+        }
+
+        return builder.ToString().Trim('_');
+    }
+
+    private static bool ContainsAny(string text, params string[] terms) =>
+        terms.Any(term => text.Contains(term, StringComparison.Ordinal));
 }
 
 internal static class AccessibilityCandidateDraftBuilder

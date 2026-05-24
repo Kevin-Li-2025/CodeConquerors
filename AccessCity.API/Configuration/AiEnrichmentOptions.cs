@@ -15,6 +15,13 @@ public sealed class AiEnrichmentOptions
     public string OpenAiModel { get; set; } = "gpt-5-mini";
     public int OpenAiTimeoutSeconds { get; set; } = 8;
     public int OpenAiMaxOutputTokens { get; set; } = 900;
+    public string NebiusApiKey { get; set; } = string.Empty;
+    public string NebiusBaseUrl { get; set; } = "https://api.tokenfactory.nebius.com/v1";
+    public string NebiusModel { get; set; } = "openai/gpt-oss-120b-fast";
+    public string NebiusHighQualityModel { get; set; } = "Qwen/Qwen3.5-397B-A17B-fast";
+    public int NebiusTimeoutSeconds { get; set; } = 8;
+    public int NebiusMaxTokens { get; set; } = 700;
+    public bool NebiusEnableImageInputs { get; set; }
     public int MaxAccessibilityObservationChars { get; set; } = 2_000;
     public int MaxAccessibilityPhotos { get; set; } = 4;
 }

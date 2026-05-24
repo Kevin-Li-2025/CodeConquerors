@@ -175,6 +175,67 @@ public sealed class AiAssistServiceTests
     }
 
     [Fact]
+    public async Task NebiusAccessibilityInference_NormalizesNaturalLanguageCandidates_AsReviewOnlyDraft()
+    {
+        var handler = new FakeOpenAiHandler("""
+            {
+              "choices": [
+                {
+                  "message": {
+                    "content": "Analysis ignored by parser. {\"summary\":\"Review crossing kerb and rough surface.\",\"candidates\":[{\"attribute\":\"raised kerb\",\"value\":\"present\",\"confidence\":0.99,\"evidence\":\"Raised kerb at crossing.\"},{\"attribute\":\"ramp\",\"value\":\"absent\",\"confidence\":0.91,\"evidence\":\"No dropped ramp visible.\"},{\"attribute\":\"crossing width\",\"value\":\"narrow\",\"confidence\":0.87,\"evidence\":\"Crossing looks too narrow.\"},{\"attribute\":\"edge surface\",\"value\":\"gravel\",\"confidence\":0.86,\"evidence\":\"Loose gravel edge.\"},{\"attribute\":\"pavement condition\",\"value\":\"uneven, broken\",\"confidence\":0.84,\"evidence\":\"Uneven broken pavement.\"}]}"
+                  }
+                }
+              ]
+            }
+            """);
+        var provider = new NebiusAccessibilityInferenceProvider(
+            new HttpClient(handler),
+            Options.Create(new AiEnrichmentOptions
+            {
+                Provider = "nebius",
+                NebiusApiKey = "test-key",
+                NebiusBaseUrl = "https://api.tokenfactory.nebius.com/v1",
+                NebiusModel = "openai/gpt-oss-120b-fast",
+                NebiusMaxTokens = 700,
+                MinimumCandidateConfidence = 0.35
+            }));
+
+        var result = await provider.InferAsync(
+            100,
+            new InfrastructureAccessibilityProfile
+            {
+                Confidence = 0.38,
+                VerificationStatus = "partial",
+                MissingFields = ["surface", "smoothness", "kerb", "width_metres"]
+            },
+            new AccessibilityAiInferenceRequest
+            {
+                ObservationText = "Raised kerb, no ramp, narrow crossing, gravel edge, uneven broken pavement.",
+                Photos = [new AccessibilityPhotoInput { Url = "https://example.com/crossing.jpg", Caption = "crossing" }]
+            },
+            CancellationToken.None);
+
+        Assert.Equal("nebius", result.Provider);
+        Assert.Equal("openai/gpt-oss-120b-fast", result.Model);
+        Assert.False(result.ForRouteDecision);
+        Assert.Contains(result.AttributeCandidates, candidate => candidate.Attribute == "kerb_height_metres" && candidate.Value == ">0.06");
+        Assert.Contains(result.AttributeCandidates, candidate => candidate.Attribute == "curb_ramp" && candidate.Value == "false");
+        Assert.Contains(result.AttributeCandidates, candidate => candidate.Attribute == "width_metres" && candidate.Value == "measure_clear_width");
+        Assert.Contains(result.AttributeCandidates, candidate => candidate.Attribute == "surface" && candidate.Value == "gravel");
+        Assert.Contains(result.AttributeCandidates, candidate => candidate.Attribute == "smoothness" && candidate.Value == "bad");
+        Assert.All(result.AttributeCandidates, candidate => Assert.False(candidate.CanAutoApply));
+        Assert.NotNull(result.DraftVerification);
+        Assert.False(result.DraftVerification!.Path!.HasCurbRamp);
+        Assert.Equal("gravel", result.DraftVerification.Path.Surface);
+        Assert.Equal("bad", result.DraftVerification.Path.Smoothness);
+        Assert.Contains("Bearer test-key", handler.AuthorizationHeader);
+        Assert.Equal("/v1/chat/completions", handler.RequestPath);
+        Assert.Contains("response_format", handler.RequestJson);
+        Assert.DoesNotContain("image_url", handler.RequestJson);
+        Assert.Contains("Photo metadata", handler.RequestJson);
+    }
+
+    [Fact]
     public void Constructor_RejectsRouteDecisionInfluence()
     {
         var options = Options.Create(new AiEnrichmentOptions
@@ -197,12 +258,14 @@ public sealed class AiAssistServiceTests
 
         public string AuthorizationHeader { get; private set; } = string.Empty;
         public string RequestJson { get; private set; } = string.Empty;
+        public string RequestPath { get; private set; } = string.Empty;
 
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
             AuthorizationHeader = request.Headers.Authorization?.ToString() ?? string.Empty;
+            RequestPath = request.RequestUri?.AbsolutePath ?? string.Empty;
             RequestJson = request.Content is null
                 ? string.Empty
                 : await request.Content.ReadAsStringAsync(cancellationToken);
