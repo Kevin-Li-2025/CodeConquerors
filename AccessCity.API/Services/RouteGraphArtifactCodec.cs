@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using AccessCity.API.Models;
@@ -169,7 +170,7 @@ public static class RouteGraphArtifactCodec
 
     public static byte[] SerializeRedisPayload(PackedRouteGraphArtifact artifact)
     {
-        using var output = new MemoryStream();
+        using var output = new MemoryStream(EstimateBinaryPayloadCapacity(artifact));
         using var writer = new BinaryWriter(output);
         WriteBinaryArtifact(writer, artifact);
         return output.ToArray();
@@ -509,11 +510,15 @@ public static class RouteGraphArtifactCodec
         IReadOnlyCollection<PackedRouteGraphEdge> edges,
         out Dictionary<string, int> stringIndexes)
     {
-        var values = edges
-            .SelectMany(edge => new[] { NormalizeRequiredString(edge.SurfaceType), edge.Smoothness, edge.Access })
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Select(value => value!)
-            .Distinct(StringComparer.Ordinal)
+        var valueSet = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var edge in edges)
+        {
+            AddStringTableValue(valueSet, NormalizeRequiredString(edge.SurfaceType));
+            AddStringTableValue(valueSet, edge.Smoothness);
+            AddStringTableValue(valueSet, edge.Access);
+        }
+
+        var values = valueSet
             .OrderBy(value => value, StringComparer.Ordinal)
             .ToArray();
         stringIndexes = values
@@ -524,6 +529,14 @@ public static class RouteGraphArtifactCodec
         foreach (var value in values)
         {
             writer.Write(value);
+        }
+    }
+
+    private static void AddStringTableValue(HashSet<string> values, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            values.Add(value);
         }
     }
 
@@ -740,6 +753,23 @@ public static class RouteGraphArtifactCodec
     private static bool IsBinaryPayload(IReadOnlyList<byte> payload) =>
         payload.Count > BinaryMagic.Length
         && payload.Take(BinaryMagic.Length).SequenceEqual(BinaryMagic);
+
+    private static int EstimateBinaryPayloadCapacity(PackedRouteGraphArtifact artifact)
+    {
+        var preprocessingBytes = artifact.Preprocessing?.Landmarks.Sum(landmark =>
+            sizeof(long)
+            + sizeof(int) * 2L
+            + (landmark.FromLandmarkSeconds.LongLength + landmark.ToLandmarkSeconds.LongLength) * sizeof(float)) ?? 0L;
+        var coordinateBytes = artifact.Edges.Sum(edge =>
+            sizeof(int) + (edge.Geometry?.LongLength ?? 0) * sizeof(double) * 2L);
+        var estimated = 512L
+                        + artifact.SourceShardKeys.Sum(value => Encoding.UTF8.GetByteCount(value) + 8)
+                        + artifact.Nodes.LongLength * 40
+                        + artifact.Edges.LongLength * 128
+                        + preprocessingBytes
+                        + coordinateBytes;
+        return (int)Math.Clamp(estimated, 1024L, int.MaxValue);
+    }
 
     private static int ReadCount(BinaryReader reader, string fieldName, int maxCount)
     {

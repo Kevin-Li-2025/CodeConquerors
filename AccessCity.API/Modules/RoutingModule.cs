@@ -25,6 +25,7 @@ public static class RoutingModule
         services.AddScoped<IRouteGraphRepository, RouteGraphRepository>();
         services.AddScoped<IRouteGraphProfileService, RouteGraphProfileService>();
         services.AddScoped<IOsmRouteGraphExtractProfileService, OsmRouteGraphExtractProfileService>();
+        services.AddSingleton<IRouteGraphArtifactStore, RouteGraphArtifactStore>();
         services.AddScoped<IRouteGraphStatusService, RouteGraphStatusService>();
         services.AddScoped<IRouteCacheService, RouteCacheService>();
         services.AddScoped<IRouteOptionsCacheService, RouteOptionsCacheService>();

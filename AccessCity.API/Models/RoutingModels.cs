@@ -106,8 +106,12 @@ namespace AccessCity.API.Models
         public long TotalArtifactBytes { get; set; }
         public long MaxArtifactBytes { get; set; }
         public long TotalRedisPayloadBytes { get; set; }
+        public int PersistedShardArtifactCount { get; set; }
+        public long PersistedShardArtifactBytes { get; set; }
+        public double PersistedShardArtifactBuildMilliseconds { get; set; }
         public double MaxColdLoadMilliseconds { get; set; }
         public double MaxHotLoadMilliseconds { get; set; }
+        public double MaxArtifactStoreReadMilliseconds { get; set; }
         public double MaxArtifactUnpackMilliseconds { get; set; }
         public List<RouteGraphProfileRouteResult> Routes { get; set; } = new();
     }
@@ -125,10 +129,14 @@ namespace AccessCity.API.Models
         public int AltPreprocessedNodeCount { get; set; }
         public long ArtifactBytes { get; set; }
         public long RedisPayloadBytes { get; set; }
+        public bool PersistedArtifact { get; set; }
+        public string? PersistedArtifactPath { get; set; }
         public double ColdLoadMilliseconds { get; set; }
         public double HotLoadMilliseconds { get; set; }
         public double PreprocessingMilliseconds { get; set; }
         public double ArtifactPackMilliseconds { get; set; }
+        public double ArtifactStoreWriteMilliseconds { get; set; }
+        public double ArtifactStoreReadMilliseconds { get; set; }
         public double ArtifactUnpackMilliseconds { get; set; }
     }
 

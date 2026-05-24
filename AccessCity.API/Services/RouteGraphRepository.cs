@@ -37,6 +37,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
     private readonly RoutingOptions _options;
     private readonly IConnectionMultiplexer? _redis;
     private readonly IHotPathDbContextFactory? _hotPathDbContextFactory;
+    private readonly IRouteGraphArtifactStore _artifactStore;
     private static readonly JsonSerializerOptions SnapshotJsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
@@ -50,6 +51,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         IRouteGraphStatusService routeGraphStatus,
         IOptions<RoutingOptions> options,
         ILogger<RouteGraphRepository> logger,
+        IRouteGraphArtifactStore artifactStore,
         IConnectionMultiplexer? redis = null,
         IHotPathDbContextFactory? hotPathDbContextFactory = null)
     {
@@ -60,6 +62,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         _routeGraphStatus = routeGraphStatus;
         _options = options.Value;
         _logger = logger;
+        _artifactStore = artifactStore;
         _redis = redis;
         _hotPathDbContextFactory = hotPathDbContextFactory;
     }
@@ -299,6 +302,12 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             var payload = await _distributedCache.GetAsync(cacheKey, cancellationToken);
             if (payload is null || payload.Length == 0)
             {
+                var artifactStoreGraphData = await TryGetFileArtifactSnapshotAsync(cacheKey, stopwatch, cancellationToken);
+                if (artifactStoreGraphData is not null)
+                {
+                    return artifactStoreGraphData;
+                }
+
                 _metrics.CacheLookup("route_graph_l2", hit: false, stopwatch.Elapsed.TotalMilliseconds);
                 return null;
             }
@@ -312,6 +321,12 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
                     if (!packedGraphData.HasCoverage)
                     {
                         await _distributedCache.RemoveAsync(cacheKey, cancellationToken);
+                        var fileArtifact = await TryGetFileArtifactSnapshotAsync(cacheKey, stopwatch, cancellationToken);
+                        if (fileArtifact is not null)
+                        {
+                            return fileArtifact;
+                        }
+
                         _metrics.CacheLookup("route_graph_l2", hit: false, stopwatch.Elapsed.TotalMilliseconds);
                         return null;
                     }
@@ -321,6 +336,12 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
                 }
 
                 await _distributedCache.RemoveAsync(cacheKey, cancellationToken);
+                var fallbackFileArtifact = await TryGetFileArtifactSnapshotAsync(cacheKey, stopwatch, cancellationToken);
+                if (fallbackFileArtifact is not null)
+                {
+                    return fallbackFileArtifact;
+                }
+
                 _metrics.CacheLookup("route_graph_l2", hit: false, stopwatch.Elapsed.TotalMilliseconds);
                 return null;
             }
@@ -330,6 +351,12 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             var snapshot = document.RootElement.Deserialize<RouteGraphSnapshot>(SnapshotJsonOptions);
             if (snapshot is null)
             {
+                var fileArtifact = await TryGetFileArtifactSnapshotAsync(cacheKey, stopwatch, cancellationToken);
+                if (fileArtifact is not null)
+                {
+                    return fileArtifact;
+                }
+
                 _metrics.CacheLookup("route_graph_l2", hit: false, stopwatch.Elapsed.TotalMilliseconds);
                 return null;
             }
@@ -338,6 +365,12 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             if (!graphData.HasCoverage)
             {
                 await _distributedCache.RemoveAsync(cacheKey, cancellationToken);
+                var fileArtifact = await TryGetFileArtifactSnapshotAsync(cacheKey, stopwatch, cancellationToken);
+                if (fileArtifact is not null)
+                {
+                    return fileArtifact;
+                }
+
                 _metrics.CacheLookup("route_graph_l2", hit: false, stopwatch.Elapsed.TotalMilliseconds);
                 return null;
             }
@@ -353,6 +386,32 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         }
     }
 
+    private async Task<RouteGraphData?> TryGetFileArtifactSnapshotAsync(
+        string cacheKey,
+        Stopwatch stopwatch,
+        CancellationToken cancellationToken)
+    {
+        var fileArtifact = await _artifactStore.TryReadAsync(cacheKey, cancellationToken);
+        if (fileArtifact is null)
+        {
+            return null;
+        }
+
+        var graphData = RouteGraphArtifactCodec.Unpack(fileArtifact.Artifact);
+        if (!graphData.HasCoverage)
+        {
+            return null;
+        }
+
+        _metrics.CacheLookup("route_graph_file", hit: true, stopwatch.Elapsed.TotalMilliseconds);
+        _logger.LogDebug(
+            "Loaded route graph shard {ShardKey} from file artifact {ArtifactPath} ({ArtifactBytes} bytes)",
+            cacheKey,
+            fileArtifact.ArtifactPath,
+            fileArtifact.PayloadBytes);
+        return graphData;
+    }
+
     private async Task TrySetDistributedSnapshotAsync(
         string cacheKey,
         RouteGraphData graphData,
@@ -366,20 +425,28 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
 
         try
         {
-            var snapshot = _options.RouteGraphPackedArtifactsEnabled
-                ? (object)RouteGraphArtifactCodec.Pack(graphData)
-                : ToSnapshot(graphData);
-            if (snapshot is PackedRouteGraphArtifact artifact)
+            if (_options.RouteGraphPackedArtifactsEnabled)
             {
+                var artifact = RouteGraphArtifactCodec.Pack(graphData);
+                var redisPayload = RouteGraphArtifactCodec.SerializeRedisPayload(artifact);
                 await _distributedCache.SetAsync(
                     cacheKey,
-                    RouteGraphArtifactCodec.SerializeRedisPayload(artifact),
+                    redisPayload,
                     new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = ttl },
                     cancellationToken);
+                if (_options.RouteGraphFileArtifactWriteThroughEnabled)
+                {
+                    await _artifactStore.WriteAsync(
+                        cacheKey,
+                        artifact,
+                        redisPayload,
+                        "route-graph-repository",
+                        cancellationToken);
+                }
             }
             else
             {
-                var json = JsonSerializer.Serialize(snapshot, SnapshotJsonOptions);
+                var json = JsonSerializer.Serialize(ToSnapshot(graphData), SnapshotJsonOptions);
                 await _distributedCache.SetStringAsync(
                     cacheKey,
                     json,

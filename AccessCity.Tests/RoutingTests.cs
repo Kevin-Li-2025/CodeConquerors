@@ -375,6 +375,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var routeGraphStatus = scope.ServiceProvider.GetRequiredService<IRouteGraphStatusService>();
         var options = scope.ServiceProvider.GetRequiredService<IOptions<RoutingOptions>>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<RouteGraphRepository>>();
+        var artifactStore = scope.ServiceProvider.GetRequiredService<IRouteGraphArtifactStore>();
         var start = new Coordinate(-1.8904, 52.4862);
         var end = new Coordinate(-1.8894, 52.4862);
 
@@ -386,7 +387,8 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             metrics,
             routeGraphStatus,
             options,
-            logger);
+            logger,
+            artifactStore);
 
         var first = await firstRepository.LoadGraphAsync(start, end);
         Assert.True(first.HasCoverage);
@@ -403,7 +405,8 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             metrics,
             routeGraphStatus,
             options,
-            logger);
+            logger,
+            artifactStore);
 
         var second = await secondRepository.LoadGraphAsync(start, end);
         Assert.True(second.HasCoverage);
@@ -425,6 +428,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var routeGraphStatus = scope.ServiceProvider.GetRequiredService<IRouteGraphStatusService>();
         var options = scope.ServiceProvider.GetRequiredService<IOptions<RoutingOptions>>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<RouteGraphRepository>>();
+        var artifactStore = scope.ServiceProvider.GetRequiredService<IRouteGraphArtifactStore>();
         var start = new Coordinate(-1.8904, 52.4862);
         var end = new Coordinate(-1.8894, 52.4862);
 
@@ -448,7 +452,8 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
                 metrics,
                 routeGraphStatus,
                 options,
-                logger);
+                logger,
+                artifactStore);
 
             var empty = await emptyRepository.LoadGraphAsync(start, end);
             Assert.False(empty.HasCoverage);
@@ -464,7 +469,8 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             metrics,
             routeGraphStatus,
             options,
-            logger);
+            logger,
+            artifactStore);
 
         var loaded = await loadedRepository.LoadGraphAsync(start, end);
         Assert.True(loaded.HasCoverage);
@@ -482,6 +488,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var metrics = scope.ServiceProvider.GetRequiredService<AccessCityMetrics>();
         var routeGraphStatus = scope.ServiceProvider.GetRequiredService<IRouteGraphStatusService>();
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<RouteGraphRepository>>();
+        var artifactStore = scope.ServiceProvider.GetRequiredService<IRouteGraphArtifactStore>();
         using var memoryCache = new MemoryCache(new MemoryCacheOptions());
         var options = Options.Create(new RoutingOptions
         {
@@ -502,7 +509,8 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             metrics,
             routeGraphStatus,
             options,
-            logger);
+            logger,
+            artifactStore);
 
         var loaded = await repository.LoadGraphAsync(
             new Coordinate(-1.8904, 52.4862),

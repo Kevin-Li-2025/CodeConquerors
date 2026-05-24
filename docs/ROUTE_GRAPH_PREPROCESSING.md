@@ -9,6 +9,7 @@ AccessCity now has a staged route graph preprocessing path:
 - compact landmark tables: ALT distances stay in rounded `float` seconds in memory and in Redis payloads, avoiding a hot-load expansion back to `double` tables.
 - binary Redis payloads: packed artifacts are stored as versioned binary bytes in L2 cache while keeping legacy gzip/JSON read compatibility.
 - dense ALT preprocessing: shard preprocessing converts node ids to dense indexes and adjacency arrays before running landmark Dijkstra, avoiding repeated dictionary lookups and per-node edge allocations on city-sized bundles.
+- file artifact store: packed `.acrg` payloads can be written through to a shared filesystem with JSON sidecar metadata, letting workers hot-load versioned graph artifacts after restart without rebuilding from PostGIS.
 
 ## Why ALT First
 
@@ -34,7 +35,9 @@ tools/profile-city-route-graph.sh
 
 The JSON result reports source graph size, source shard count, shard reuse ratio, uncompressed artifact size, binary Redis payload bytes, cold shard merge/preprocessing time, worker hot-load time from Redis payload restore, artifact pack time, and artifact unpack time.
 
-Latest Birmingham extract check (`Birmingham.osm.pbf`, 53.6MB, `Routing__MaxRouteGraphEdges=2000000`) built a non-truncated graph of 661,852 nodes and 1,428,512 directed edges into 1,419 shards. The four warmup routes reused 53 unique shards across 89 references (`shardReuseRatio=0.4045`), all carried ALT-v1 preprocessing, and the largest route artifact moved from about 69.5MB JSON to about 14.6MB binary Redis payload. With the shard index, compact in-memory ALT tables, dense preprocessing graph, and binary payload in place, max cold shard merge/preprocessing time was about 265ms, max production pack/binary serialize time was about 206ms, max artifact unpack time was about 35ms, and max Redis hot-load restore was about 39ms on the local offline extract profile.
+When `Routing__RouteGraphFileArtifactStoreEnabled=true`, the profile also persists packed artifacts under `data/route-graph-artifacts` via the compose mount. With `Routing__RouteGraphOfflineShardArtifactBuildEnabled=true`, it writes one versioned artifact per offline source shard before route-level bundle profiling. Use `Routing__RouteGraphOfflineShardArtifactBuildLimit` for quick smoke runs; `0` means all shards.
+
+Latest Birmingham extract check (`Birmingham.osm.pbf`, 53.6MB, `Routing__MaxRouteGraphEdges=2000000`) built a non-truncated graph of 661,852 nodes and 1,428,512 directed edges into 1,419 shards. The offline shard artifact build persisted all 1,419 source shard artifacts in about 7.0s, totaling about 225.7MB of binary `.acrg` payloads. The four warmup routes reused 53 unique shards across 89 references (`shardReuseRatio=0.4045`), all carried ALT-v1 preprocessing, and the largest route artifact moved from about 69.5MB JSON to about 14.6MB binary Redis payload. With the shard index, compact in-memory ALT tables, dense preprocessing graph, binary payload pre-sizing, and file artifact store in place, max cold shard merge/preprocessing time was about 170ms, max production pack/binary serialize time was about 104ms, max artifact unpack time was about 96ms, max Redis hot-load restore was about 39ms, and max file artifact hot-load was about 91ms on the local offline extract profile.
 
 ## Runtime PostGIS Import Profile
 
@@ -65,7 +68,7 @@ If runtime import regresses, check `feed_ingestion_runs` duration, Postgres WAL/
 
 For 1M+ DAU, the next substantial step is a dedicated city graph build artifact outside request workers:
 
-1. Persist the offline shard artifacts instead of rebuilding them from the OSM extract in process.
+1. Run the offline shard artifact build in CI/CD or a data pipeline, publish the `.acrg` directory to a shared volume/object store, then start API/worker pods with `RouteGraphFileArtifactStoreEnabled=true`.
 2. Store immutable graph/weight artifacts with explicit version ids and warm them in workers before traffic.
 3. Add a customization phase for accessibility costs, temporary closures, and hazard overlays.
 4. Move from ALT to CCH or CRP for larger city/region graphs once the weight customization model is stable.

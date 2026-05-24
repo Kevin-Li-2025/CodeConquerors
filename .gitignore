@@ -47,6 +47,7 @@ Thumbs.db
 *.osm
 *.pbf
 data/osm/
+data/route-graph-artifacts/
 
 # Build / Cache files
 __pycache__/

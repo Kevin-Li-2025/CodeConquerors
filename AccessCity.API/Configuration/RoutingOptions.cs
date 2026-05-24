@@ -27,6 +27,11 @@ public sealed class RoutingOptions
     public int RouteGraphMaxPrepartitionedShardCount { get; set; } = 64;
     public int RouteGraphMinEdgesPerPrepartitionedShard { get; set; } = 250;
     public bool RouteGraphPackedArtifactsEnabled { get; set; } = true;
+    public bool RouteGraphFileArtifactStoreEnabled { get; set; }
+    public string RouteGraphFileArtifactDirectory { get; set; } = "/app/route-graph-artifacts";
+    public bool RouteGraphFileArtifactWriteThroughEnabled { get; set; } = true;
+    public bool RouteGraphOfflineShardArtifactBuildEnabled { get; set; }
+    public int RouteGraphOfflineShardArtifactBuildLimit { get; set; }
     public bool RouteGraphAltPreprocessingEnabled { get; set; } = true;
     public int RouteGraphAltLandmarkCount { get; set; } = 4;
     public int RouteGraphMaxAltPreprocessedNodes { get; set; } = 25_000;

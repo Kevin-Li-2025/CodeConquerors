@@ -9,6 +9,7 @@ services:
     volumes:
       - ./AccessCity.Tests/Fixtures:/app/osm:ro
       - ./data/osm:/app/osm-import:ro
+      - ./data/route-graph-artifacts:/app/route-graph-artifacts
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Jwt__Key: ${JWT_SECRET:-AccessCity_Secret_Key_For_Dev_2026_Placeholder}
@@ -53,6 +54,11 @@ services:
       Routing__RouteGraphMaxPrepartitionedShardCount: ${Routing__RouteGraphMaxPrepartitionedShardCount:-64}
       Routing__RouteGraphMinEdgesPerPrepartitionedShard: ${Routing__RouteGraphMinEdgesPerPrepartitionedShard:-250}
       Routing__RouteGraphPackedArtifactsEnabled: ${Routing__RouteGraphPackedArtifactsEnabled:-true}
+      Routing__RouteGraphFileArtifactStoreEnabled: ${Routing__RouteGraphFileArtifactStoreEnabled:-false}
+      Routing__RouteGraphFileArtifactDirectory: ${Routing__RouteGraphFileArtifactDirectory:-/app/route-graph-artifacts}
+      Routing__RouteGraphFileArtifactWriteThroughEnabled: ${Routing__RouteGraphFileArtifactWriteThroughEnabled:-true}
+      Routing__RouteGraphOfflineShardArtifactBuildEnabled: ${Routing__RouteGraphOfflineShardArtifactBuildEnabled:-false}
+      Routing__RouteGraphOfflineShardArtifactBuildLimit: ${Routing__RouteGraphOfflineShardArtifactBuildLimit:-0}
       Routing__RouteGraphAltPreprocessingEnabled: ${Routing__RouteGraphAltPreprocessingEnabled:-true}
       Routing__RouteGraphAltLandmarkCount: ${Routing__RouteGraphAltLandmarkCount:-4}
       Routing__RouteGraphMaxAltPreprocessedNodes: ${Routing__RouteGraphMaxAltPreprocessedNodes:-25000}
@@ -139,6 +145,7 @@ services:
     volumes:
       - ./AccessCity.Tests/Fixtures:/app/osm:ro
       - ./data/osm:/app/osm-import:ro
+      - ./data/route-graph-artifacts:/app/route-graph-artifacts
     environment:
       ASPNETCORE_ENVIRONMENT: Development
       Jwt__Key: ${JWT_SECRET:-AccessCity_Secret_Key_For_Dev_2026_Placeholder}
@@ -182,6 +189,11 @@ services:
       Routing__RouteGraphMaxPrepartitionedShardCount: ${Routing__RouteGraphMaxPrepartitionedShardCount:-64}
       Routing__RouteGraphMinEdgesPerPrepartitionedShard: ${Routing__RouteGraphMinEdgesPerPrepartitionedShard:-250}
       Routing__RouteGraphPackedArtifactsEnabled: ${Routing__RouteGraphPackedArtifactsEnabled:-true}
+      Routing__RouteGraphFileArtifactStoreEnabled: ${Routing__RouteGraphFileArtifactStoreEnabled:-false}
+      Routing__RouteGraphFileArtifactDirectory: ${Routing__RouteGraphFileArtifactDirectory:-/app/route-graph-artifacts}
+      Routing__RouteGraphFileArtifactWriteThroughEnabled: ${Routing__RouteGraphFileArtifactWriteThroughEnabled:-true}
+      Routing__RouteGraphOfflineShardArtifactBuildEnabled: ${Routing__RouteGraphOfflineShardArtifactBuildEnabled:-false}
+      Routing__RouteGraphOfflineShardArtifactBuildLimit: ${Routing__RouteGraphOfflineShardArtifactBuildLimit:-0}
       Routing__RouteGraphAltPreprocessingEnabled: ${Routing__RouteGraphAltPreprocessingEnabled:-true}
       Routing__RouteGraphAltLandmarkCount: ${Routing__RouteGraphAltLandmarkCount:-4}
       Routing__RouteGraphMaxAltPreprocessedNodes: ${Routing__RouteGraphMaxAltPreprocessedNodes:-25000}

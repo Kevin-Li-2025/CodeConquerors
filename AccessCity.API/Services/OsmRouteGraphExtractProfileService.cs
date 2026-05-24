@@ -21,13 +21,16 @@ public interface IOsmRouteGraphExtractProfileService
 public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractProfileService
 {
     private readonly RoutingOptions _options;
+    private readonly IRouteGraphArtifactStore _artifactStore;
     private readonly ILogger<OsmRouteGraphExtractProfileService> _logger;
 
     public OsmRouteGraphExtractProfileService(
         IOptions<RoutingOptions> options,
+        IRouteGraphArtifactStore artifactStore,
         ILogger<OsmRouteGraphExtractProfileService> logger)
     {
         _options = options.Value;
+        _artifactStore = artifactStore;
         _logger = logger;
     }
 
@@ -42,6 +45,7 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
         var hotReads = Math.Clamp(request.HotReadsPerRoute, 0, 5);
         var results = new List<RouteGraphProfileRouteResult>(routes.Count);
         var shardReferences = new List<string>();
+        var persistedShardArtifacts = await PersistOfflineShardArtifactsAsync(build.ShardIndex, cancellationToken);
 
         foreach (var route in routes)
         {
@@ -61,6 +65,35 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
             var redisPayload = RouteGraphArtifactCodec.SerializeRedisPayload(artifact);
             pack.Stop();
             var artifactPayload = RouteGraphArtifactCodec.SerializeJsonBytes(artifact);
+            var artifactStoreWriteMilliseconds = 0.0;
+            var artifactStoreReadMilliseconds = 0.0;
+            RouteGraphArtifactStoreWriteResult? artifactStoreWrite = null;
+            if (_artifactStore.IsEnabled && graphData.ShardKey is not null)
+            {
+                var artifactStoreWriteStopwatch = Stopwatch.StartNew();
+                artifactStoreWrite = await _artifactStore.WriteAsync(
+                    graphData.ShardKey,
+                    artifact,
+                    redisPayload,
+                    "osm-extract-profile-bundle",
+                    cancellationToken);
+                artifactStoreWriteStopwatch.Stop();
+                artifactStoreWriteMilliseconds = artifactStoreWriteStopwatch.Elapsed.TotalMilliseconds;
+
+                if (artifactStoreWrite is not null)
+                {
+                    var artifactStoreReadStopwatch = Stopwatch.StartNew();
+                    var fileArtifact = await _artifactStore.TryReadAsync(graphData.ShardKey, cancellationToken);
+                    if (fileArtifact is null)
+                    {
+                        throw new InvalidOperationException("Packed route graph artifact could not be restored from the file artifact store.");
+                    }
+
+                    RouteGraphArtifactCodec.Unpack(fileArtifact.Artifact);
+                    artifactStoreReadStopwatch.Stop();
+                    artifactStoreReadMilliseconds = artifactStoreReadStopwatch.Elapsed.TotalMilliseconds;
+                }
+            }
 
             var unpack = Stopwatch.StartNew();
             if (!RouteGraphArtifactCodec.TryDeserializeRedisPayload(redisPayload, out var restoredArtifact)
@@ -107,10 +140,14 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
                 AltPreprocessedNodeCount = graphData.Preprocessing?.NodeDistances.Count ?? 0,
                 ArtifactBytes = artifactPayload.LongLength,
                 RedisPayloadBytes = redisPayload.LongLength,
+                PersistedArtifact = artifactStoreWrite is not null,
+                PersistedArtifactPath = artifactStoreWrite?.ArtifactPath,
                 ColdLoadMilliseconds = cold.Elapsed.TotalMilliseconds,
                 HotLoadMilliseconds = hotLoadMilliseconds,
                 PreprocessingMilliseconds = preprocessing.Elapsed.TotalMilliseconds,
                 ArtifactPackMilliseconds = pack.Elapsed.TotalMilliseconds,
+                ArtifactStoreWriteMilliseconds = artifactStoreWriteMilliseconds,
+                ArtifactStoreReadMilliseconds = artifactStoreReadMilliseconds,
                 ArtifactUnpackMilliseconds = unpack.Elapsed.TotalMilliseconds
             });
         }
@@ -140,11 +177,72 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
             TotalArtifactBytes = results.Sum(result => result.ArtifactBytes),
             MaxArtifactBytes = results.Count == 0 ? 0 : results.Max(result => result.ArtifactBytes),
             TotalRedisPayloadBytes = results.Sum(result => result.RedisPayloadBytes),
+            PersistedShardArtifactCount = persistedShardArtifacts.Count,
+            PersistedShardArtifactBytes = persistedShardArtifacts.Bytes,
+            PersistedShardArtifactBuildMilliseconds = persistedShardArtifacts.ElapsedMilliseconds,
             MaxColdLoadMilliseconds = results.Count == 0 ? 0 : results.Max(result => result.ColdLoadMilliseconds),
             MaxHotLoadMilliseconds = results.Count == 0 ? 0 : results.Max(result => result.HotLoadMilliseconds),
+            MaxArtifactStoreReadMilliseconds = results.Count == 0 ? 0 : results.Max(result => result.ArtifactStoreReadMilliseconds),
             MaxArtifactUnpackMilliseconds = results.Count == 0 ? 0 : results.Max(result => result.ArtifactUnpackMilliseconds),
             Routes = results
         };
+    }
+
+    private async Task<OfflineShardArtifactBuildResult> PersistOfflineShardArtifactsAsync(
+        OfflineShardIndex shardIndex,
+        CancellationToken cancellationToken)
+    {
+        if (!_artifactStore.IsEnabled || !_options.RouteGraphOfflineShardArtifactBuildEnabled)
+        {
+            return new OfflineShardArtifactBuildResult(0, 0, 0);
+        }
+
+        var limit = _options.RouteGraphOfflineShardArtifactBuildLimit <= 0
+            ? int.MaxValue
+            : _options.RouteGraphOfflineShardArtifactBuildLimit;
+        var stopwatch = Stopwatch.StartNew();
+        var count = 0;
+        var bytes = 0L;
+
+        foreach (var shardKey in shardIndex.Shards.Keys.OrderBy(key => key, StringComparer.Ordinal))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (count >= limit)
+            {
+                break;
+            }
+
+            var graphData = BuildShardGraphData(shardKey, shardIndex.Shards[shardKey]);
+            if (!graphData.HasCoverage)
+            {
+                continue;
+            }
+
+            RouteGraphPreprocessor.TryAttachPreprocessing(graphData, _options);
+            var artifact = RouteGraphArtifactCodec.Pack(graphData);
+            var redisPayload = RouteGraphArtifactCodec.SerializeRedisPayload(artifact);
+            var write = await _artifactStore.WriteAsync(
+                shardKey,
+                artifact,
+                redisPayload,
+                "osm-extract-source-shard",
+                cancellationToken);
+            if (write is null)
+            {
+                continue;
+            }
+
+            count++;
+            bytes += write.PayloadBytes;
+        }
+
+        stopwatch.Stop();
+        _logger.LogInformation(
+            "Persisted {ArtifactCount} offline route graph shard artifacts ({ArtifactBytes} bytes) in {ElapsedMilliseconds}ms",
+            count,
+            bytes,
+            stopwatch.Elapsed.TotalMilliseconds);
+        return new OfflineShardArtifactBuildResult(count, bytes, stopwatch.Elapsed.TotalMilliseconds);
     }
 
     private async Task<OsmRouteGraphBuildResult> BuildGraphFromExtractAsync(
@@ -290,6 +388,31 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
             IsTruncated = isTruncated,
             ShardKey = BuildOfflineBundleKey(filePath, regions, edgeLimit),
             SourceShardKeys = sourceShardKeys,
+            SpatialBucketSizeDegrees = 0.001
+        };
+        RouteGraphSpatialIndex.BuildSpatialBuckets(graphData);
+        return graphData;
+    }
+
+    private static RouteGraphData BuildShardGraphData(
+        string shardKey,
+        IReadOnlyList<OfflineEdgeRef> edgeRefs)
+    {
+        var nodes = new Dictionary<long, GraphNode>();
+        foreach (var edgeRef in edgeRefs)
+        {
+            var sliceFrom = GetOrAddNode(nodes, edgeRef.FromNode);
+            GetOrAddNode(nodes, edgeRef.ToNode);
+            sliceFrom.Edges[edgeRef.Edge.TargetNodeId] = CloneEdge(edgeRef.Edge);
+        }
+
+        var graphData = new RouteGraphData
+        {
+            Nodes = nodes,
+            LoadedEdgeCount = nodes.Values.Sum(node => node.Edges.Count),
+            IsTruncated = false,
+            ShardKey = shardKey,
+            SourceShardKeys = new[] { shardKey },
             SpatialBucketSizeDegrees = 0.001
         };
         RouteGraphSpatialIndex.BuildSpatialBuckets(graphData);
@@ -983,6 +1106,10 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
     private sealed record OfflineShardIndex(
         IReadOnlyDictionary<string, List<OfflineEdgeRef>> Shards,
         IReadOnlyDictionary<string, OfflineGraphShardRegion> ShardRegions);
+    private readonly record struct OfflineShardArtifactBuildResult(
+        int Count,
+        long Bytes,
+        double ElapsedMilliseconds);
     private sealed record OsmRouteGraphBuildResult(
         RouteGraphData GraphData,
         OfflineShardIndex ShardIndex,

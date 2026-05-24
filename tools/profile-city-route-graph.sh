@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 mkdir -p data/osm
+mkdir -p data/route-graph-artifacts
+chmod ugo+rwx data/route-graph-artifacts
 
 BBOX="${BBOX:-52.45,-1.94,52.53,-1.84}"
 OSM_URL="${OSM_URL:-https://download.bbbike.org/osm/bbbike/Birmingham/Birmingham.osm.pbf}"
@@ -58,6 +60,11 @@ docker compose run --rm --no-deps \
   -e Routing__RouteGraphProfileAndExit=true \
   -e Routing__RouteGraphPrepartitionedShardsEnabled=true \
   -e Routing__RouteGraphPackedArtifactsEnabled=true \
+  -e Routing__RouteGraphFileArtifactStoreEnabled="${Routing__RouteGraphFileArtifactStoreEnabled:-true}" \
+  -e Routing__RouteGraphFileArtifactDirectory="${Routing__RouteGraphFileArtifactDirectory:-/app/route-graph-artifacts}" \
+  -e Routing__RouteGraphFileArtifactWriteThroughEnabled="${Routing__RouteGraphFileArtifactWriteThroughEnabled:-true}" \
+  -e Routing__RouteGraphOfflineShardArtifactBuildEnabled="${Routing__RouteGraphOfflineShardArtifactBuildEnabled:-true}" \
+  -e Routing__RouteGraphOfflineShardArtifactBuildLimit="${Routing__RouteGraphOfflineShardArtifactBuildLimit:-0}" \
   -e Routing__RouteGraphAltPreprocessingEnabled=true \
   -e Routing__RouteGraphAltLandmarkCount="${Routing__RouteGraphAltLandmarkCount:-4}" \
   -e Routing__RouteGraphMaxAltPreprocessedNodes="${Routing__RouteGraphMaxAltPreprocessedNodes:-60000}" \
