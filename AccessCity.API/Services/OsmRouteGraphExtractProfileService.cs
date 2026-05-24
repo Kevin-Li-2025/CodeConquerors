@@ -249,7 +249,8 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
                     write.PayloadBytes,
                     write.CreatedAtUtc,
                     "osm-extract-source-shard",
-                    Path.GetFileName(write.ArtifactPath)));
+                    Path.GetFileName(write.ArtifactPath),
+                    write.PayloadSha256));
             }
         }
 

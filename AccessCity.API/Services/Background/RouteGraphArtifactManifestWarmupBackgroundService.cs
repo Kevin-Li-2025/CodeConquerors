@@ -46,10 +46,11 @@ public sealed class RouteGraphArtifactManifestWarmupBackgroundService : Backgrou
             }
 
             _logger.LogInformation(
-                "Warmed {WarmedShardCount}/{AttemptedShardCount} route graph artifact shards into distributed cache ({PayloadBytes} bytes).",
+                "Warmed {WarmedShardCount}/{AttemptedShardCount} route graph artifact shards into distributed cache ({PayloadBytes} bytes, failed={FailedShardCount}).",
                 result.WarmedShardCount,
                 result.AttemptedShardCount,
-                result.PayloadBytes);
+                result.PayloadBytes,
+                result.FailedShardCount);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -73,6 +74,7 @@ public sealed class RouteGraphArtifactManifestWarmupBackgroundService : Backgrou
         var shards = SelectWarmupShards(manifest).ToArray();
         var ttl = TimeSpan.FromSeconds(Math.Max(30, _options.RouteGraphCacheTtlSeconds));
         var warmed = 0;
+        var failed = 0;
         var bytes = 0L;
 
         foreach (var shard in shards)
@@ -81,6 +83,7 @@ public sealed class RouteGraphArtifactManifestWarmupBackgroundService : Backgrou
             var read = await _artifactStore.TryReadManifestShardAsync(shard, cancellationToken);
             if (read?.Payload is null || read.Payload.Length == 0)
             {
+                failed++;
                 continue;
             }
 
@@ -98,6 +101,7 @@ public sealed class RouteGraphArtifactManifestWarmupBackgroundService : Backgrou
             manifest.Shards.Length,
             shards.Length,
             warmed,
+            failed,
             bytes,
             SkippedReason: null);
     }
@@ -123,9 +127,10 @@ public sealed record RouteGraphArtifactManifestWarmupResult(
     int ManifestShardCount,
     int AttemptedShardCount,
     int WarmedShardCount,
+    int FailedShardCount,
     long PayloadBytes,
     string? SkippedReason)
 {
     public static RouteGraphArtifactManifestWarmupResult Skipped(string reason) =>
-        new(0, 0, 0, 0, reason);
+        new(0, 0, 0, 0, 0, reason);
 }

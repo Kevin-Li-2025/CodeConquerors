@@ -64,6 +64,7 @@ services:
       Routing__RouteGraphFileArtifactWarmupDelaySeconds: ${Routing__RouteGraphFileArtifactWarmupDelaySeconds:-5}
       Routing__RouteGraphFileArtifactWarmupShardLimit: ${Routing__RouteGraphFileArtifactWarmupShardLimit:-64}
       Routing__RouteGraphFileArtifactWarmupLargestShardsFirst: ${Routing__RouteGraphFileArtifactWarmupLargestShardsFirst:-true}
+      Routing__RouteGraphFileArtifactReadinessValidationShardLimit: ${Routing__RouteGraphFileArtifactReadinessValidationShardLimit:-8}
       Routing__RouteGraphOfflineShardArtifactBuildEnabled: ${Routing__RouteGraphOfflineShardArtifactBuildEnabled:-false}
       Routing__RouteGraphOfflineShardArtifactBuildLimit: ${Routing__RouteGraphOfflineShardArtifactBuildLimit:-0}
       Routing__RouteGraphAltPreprocessingEnabled: ${Routing__RouteGraphAltPreprocessingEnabled:-true}
@@ -206,6 +207,7 @@ services:
       Routing__RouteGraphFileArtifactWarmupDelaySeconds: ${Routing__RouteGraphFileArtifactWarmupDelaySeconds:-5}
       Routing__RouteGraphFileArtifactWarmupShardLimit: ${Routing__RouteGraphFileArtifactWarmupShardLimit:-64}
       Routing__RouteGraphFileArtifactWarmupLargestShardsFirst: ${Routing__RouteGraphFileArtifactWarmupLargestShardsFirst:-true}
+      Routing__RouteGraphFileArtifactReadinessValidationShardLimit: ${Routing__RouteGraphFileArtifactReadinessValidationShardLimit:-8}
       Routing__RouteGraphOfflineShardArtifactBuildEnabled: ${Routing__RouteGraphOfflineShardArtifactBuildEnabled:-false}
       Routing__RouteGraphOfflineShardArtifactBuildLimit: ${Routing__RouteGraphOfflineShardArtifactBuildLimit:-0}
       Routing__RouteGraphAltPreprocessingEnabled: ${Routing__RouteGraphAltPreprocessingEnabled:-true}

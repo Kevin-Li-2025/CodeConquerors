@@ -48,9 +48,42 @@ public sealed class RouteGraphArtifactManifestHealthCheck : IHealthCheck
         data["edgeWeightVersion"] = manifest.EdgeWeightVersion;
         data["altAlgorithmVersion"] = manifest.AltAlgorithmVersion;
         data["sourceName"] = manifest.SourceName;
+        data["artifactSetId"] = manifest.ArtifactSetId;
         data["shardCount"] = manifest.Shards.Length;
-        data["totalPayloadBytes"] = manifest.Shards.Sum(shard => shard.PayloadBytes);
+        data["totalPayloadBytes"] = manifest.TotalPayloadBytes;
+
+        var shardsToVerify = SelectShardsForValidation(manifest).ToArray();
+        data["verifiedShardCount"] = shardsToVerify.Length;
+        foreach (var shard in shardsToVerify)
+        {
+            var read = await _artifactStore.TryReadManifestShardAsync(shard, cancellationToken);
+            if (read is not null)
+            {
+                continue;
+            }
+
+            data["invalidShardCacheKey"] = shard.CacheKey;
+            data["invalidShardArtifactFileName"] = shard.ArtifactFileName;
+            var message = $"Route graph artifact manifest shard {shard.CacheKey} is missing, corrupt, or incompatible.";
+            return _options.RequireRouteGraphForReadiness
+                ? HealthCheckResult.Unhealthy(message, data: data)
+                : HealthCheckResult.Degraded(message, data: data);
+        }
 
         return HealthCheckResult.Healthy("Route graph artifact manifest is available.", data);
+    }
+
+    private IEnumerable<RouteGraphArtifactManifestShard> SelectShardsForValidation(RouteGraphArtifactManifest manifest)
+    {
+        var limit = Math.Max(0, _options.RouteGraphFileArtifactReadinessValidationShardLimit);
+        if (limit == 0)
+        {
+            return Array.Empty<RouteGraphArtifactManifestShard>();
+        }
+
+        return manifest.Shards
+            .OrderByDescending(shard => shard.PayloadBytes)
+            .ThenBy(shard => shard.CacheKey, StringComparer.Ordinal)
+            .Take(limit);
     }
 }

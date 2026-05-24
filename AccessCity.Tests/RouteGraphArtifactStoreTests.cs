@@ -63,6 +63,7 @@ public sealed class RouteGraphArtifactStoreTests
         var written = await store.WriteAsync("route-graph:test", artifact, payload, "unit-test");
         Assert.NotNull(written);
         Assert.True(File.Exists(written!.ArtifactPath));
+        Assert.False(string.IsNullOrWhiteSpace(written.PayloadSha256));
 
         var read = await store.TryReadAsync("route-graph:test");
         Assert.NotNull(read);
@@ -163,6 +164,32 @@ public sealed class RouteGraphArtifactStoreTests
     }
 
     [Fact]
+    public async Task File_artifact_store_rejects_payload_checksum_mismatch()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"accesscity-artifacts-{Guid.NewGuid():N}");
+        var store = new RouteGraphArtifactStore(
+            Options.Create(new RoutingOptions
+            {
+                RouteGraphPackedArtifactsEnabled = true,
+                RouteGraphFileArtifactStoreEnabled = true,
+                RouteGraphFileArtifactDirectory = directory
+            }),
+            NullLogger<RouteGraphArtifactStore>.Instance);
+
+        var graphData = CreateTinyGraph("route-graph:checksum");
+        var artifact = RouteGraphArtifactCodec.Pack(graphData);
+        var payload = RouteGraphArtifactCodec.SerializeRedisPayload(artifact);
+        var written = await store.WriteAsync(graphData.ShardKey!, artifact, payload, "unit-test");
+        Assert.NotNull(written);
+
+        var corrupted = await File.ReadAllBytesAsync(written!.ArtifactPath);
+        corrupted[^1] ^= 0x01;
+        await File.WriteAllBytesAsync(written.ArtifactPath, corrupted);
+
+        Assert.Null(await store.TryReadAsync(graphData.ShardKey!));
+    }
+
+    [Fact]
     public async Task Route_graph_artifact_manifest_health_check_reports_available_manifest()
     {
         var directory = Path.Combine(Path.GetTempPath(), $"accesscity-artifacts-{Guid.NewGuid():N}");
@@ -177,7 +204,17 @@ public sealed class RouteGraphArtifactStoreTests
             options,
             NullLogger<RouteGraphArtifactStore>.Instance);
 
-        var manifest = CreateManifest("route-graph:test", "unit-test.acrg", payloadBytes: 128);
+        var graphData = CreateTinyGraph("route-graph:test");
+        var artifact = RouteGraphArtifactCodec.Pack(graphData);
+        var payload = RouteGraphArtifactCodec.SerializeRedisPayload(artifact);
+        var written = await store.WriteAsync(graphData.ShardKey!, artifact, payload, "unit-test");
+        Assert.NotNull(written);
+
+        var manifest = CreateManifest(
+            graphData.ShardKey!,
+            Path.GetFileName(written!.ArtifactPath),
+            written.PayloadBytes,
+            written.PayloadSha256);
         Assert.NotNull(await store.WriteManifestAsync(manifest));
 
         var healthCheck = new RouteGraphArtifactManifestHealthCheck(store, options);
@@ -185,7 +222,9 @@ public sealed class RouteGraphArtifactStoreTests
 
         Assert.Equal(HealthStatus.Healthy, result.Status);
         Assert.Equal(1, result.Data["shardCount"]);
-        Assert.Equal(128L, result.Data["totalPayloadBytes"]);
+        Assert.Equal(1, result.Data["verifiedShardCount"]);
+        Assert.Equal(written.PayloadBytes, result.Data["totalPayloadBytes"]);
+        Assert.False(string.IsNullOrWhiteSpace((string)result.Data["artifactSetId"]));
     }
 
     [Fact]
@@ -209,6 +248,45 @@ public sealed class RouteGraphArtifactStoreTests
 
         Assert.Equal(HealthStatus.Degraded, result.Status);
         Assert.Equal(0, result.Data["shardCount"]);
+    }
+
+    [Fact]
+    public async Task Route_graph_artifact_manifest_health_check_degrades_corrupt_manifest_shard()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"accesscity-artifacts-{Guid.NewGuid():N}");
+        var options = Options.Create(new RoutingOptions
+        {
+            RouteGraphPackedArtifactsEnabled = true,
+            RouteGraphFileArtifactStoreEnabled = true,
+            RouteGraphFileArtifactDirectory = directory,
+            RouteGraphFileArtifactManifestEnabled = true,
+            RouteGraphFileArtifactReadinessValidationShardLimit = 1,
+            RequireRouteGraphForReadiness = false
+        });
+        var store = new RouteGraphArtifactStore(
+            options,
+            NullLogger<RouteGraphArtifactStore>.Instance);
+
+        var graphData = CreateTinyGraph("route-graph:corrupt");
+        var artifact = RouteGraphArtifactCodec.Pack(graphData);
+        var payload = RouteGraphArtifactCodec.SerializeRedisPayload(artifact);
+        var written = await store.WriteAsync(graphData.ShardKey!, artifact, payload, "unit-test");
+        Assert.NotNull(written);
+        Assert.NotNull(await store.WriteManifestAsync(CreateManifest(
+            graphData.ShardKey!,
+            Path.GetFileName(written!.ArtifactPath),
+            written.PayloadBytes,
+            written.PayloadSha256)));
+
+        var corrupted = await File.ReadAllBytesAsync(written.ArtifactPath);
+        corrupted[^1] ^= 0x01;
+        await File.WriteAllBytesAsync(written.ArtifactPath, corrupted);
+
+        var healthCheck = new RouteGraphArtifactManifestHealthCheck(store, options);
+        var result = await healthCheck.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Degraded, result.Status);
+        Assert.Equal(graphData.ShardKey, result.Data["invalidShardCacheKey"]);
     }
 
     [Fact]
@@ -237,7 +315,8 @@ public sealed class RouteGraphArtifactStoreTests
         Assert.NotNull(await store.WriteManifestAsync(CreateManifest(
             graphData.ShardKey!,
             Path.GetFileName(written!.ArtifactPath),
-            written.PayloadBytes)));
+            written.PayloadBytes,
+            written.PayloadSha256)));
 
         var distributedCache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
         var warmup = new RouteGraphArtifactManifestWarmupBackgroundService(
@@ -251,13 +330,15 @@ public sealed class RouteGraphArtifactStoreTests
 
         Assert.Equal(1, result.ManifestShardCount);
         Assert.Equal(1, result.WarmedShardCount);
+        Assert.Equal(0, result.FailedShardCount);
         Assert.Equal(payload, cached);
     }
 
     private static RouteGraphArtifactManifest CreateManifest(
         string cacheKey,
         string artifactFileName,
-        long payloadBytes) =>
+        long payloadBytes,
+        string payloadSha256 = "") =>
         new(
             RouteGraphArtifactCodec.SchemaVersion,
             RouteEdgeCostModel.Version,
@@ -279,7 +360,8 @@ public sealed class RouteGraphArtifactStoreTests
                     payloadBytes,
                     DateTime.UtcNow,
                     "unit-test",
-                    artifactFileName)
+                    artifactFileName,
+                    payloadSha256)
             });
 
     private static RouteGraphData CreateTinyGraph(string shardKey) =>

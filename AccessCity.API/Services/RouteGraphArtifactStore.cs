@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -102,6 +103,7 @@ public sealed class RouteGraphArtifactStore : IRouteGraphArtifactStore
                     return null;
                 }
 
+                manifest = NormalizeManifest(manifest);
                 _cachedManifest = manifest;
                 _cachedManifestWriteUtc = lastWriteUtc;
                 return manifest;
@@ -152,6 +154,13 @@ public sealed class RouteGraphArtifactStore : IRouteGraphArtifactStore
                     cacheKey,
                     payload.LongLength,
                     metadata.PayloadBytes);
+                return null;
+            }
+            if (!PayloadHashMatches(payload, metadata.PayloadSha256))
+            {
+                _logger.LogDebug(
+                    "Route graph artifact {CacheKey} file checksum did not match metadata",
+                    cacheKey);
                 return null;
             }
 
@@ -205,6 +214,13 @@ public sealed class RouteGraphArtifactStore : IRouteGraphArtifactStore
                     shard.PayloadBytes);
                 return null;
             }
+            if (!PayloadHashMatches(payload, shard.PayloadSha256))
+            {
+                _logger.LogDebug(
+                    "Route graph manifest shard {CacheKey} file checksum did not match manifest",
+                    shard.CacheKey);
+                return null;
+            }
 
             if (!RouteGraphArtifactCodec.TryDeserializeRedisPayload(payload, out var artifact)
                 || artifact is null
@@ -247,6 +263,7 @@ public sealed class RouteGraphArtifactStore : IRouteGraphArtifactStore
         try
         {
             Directory.CreateDirectory(paths.Directory);
+            var payloadSha256 = ComputeSha256Hex(redisPayload);
             await WriteAtomicBytesAsync(paths.ArtifactPath, redisPayload, cancellationToken);
 
             var metadata = new RouteGraphArtifactFileMetadata(
@@ -261,7 +278,8 @@ public sealed class RouteGraphArtifactStore : IRouteGraphArtifactStore
                 redisPayload.LongLength,
                 DateTime.UtcNow,
                 sourceType,
-                Path.GetFileName(paths.ArtifactPath));
+                Path.GetFileName(paths.ArtifactPath),
+                payloadSha256);
             await WriteAtomicTextAsync(
                 paths.MetadataPath,
                 JsonSerializer.Serialize(metadata, MetadataJsonOptions),
@@ -270,7 +288,8 @@ public sealed class RouteGraphArtifactStore : IRouteGraphArtifactStore
             return new RouteGraphArtifactStoreWriteResult(
                 paths.ArtifactPath,
                 redisPayload.LongLength,
-                metadata.CreatedAtUtc);
+                metadata.CreatedAtUtc,
+                payloadSha256);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or NotSupportedException)
         {
@@ -283,6 +302,7 @@ public sealed class RouteGraphArtifactStore : IRouteGraphArtifactStore
         RouteGraphArtifactManifest manifest,
         CancellationToken cancellationToken = default)
     {
+        manifest = NormalizeManifest(manifest);
         if (!IsEnabled || !_options.RouteGraphFileArtifactManifestEnabled || !IsCompatible(manifest))
         {
             return null;
@@ -344,6 +364,51 @@ public sealed class RouteGraphArtifactStore : IRouteGraphArtifactStore
         && manifest.EdgeWeightVersion == RouteEdgeCostModel.EdgeWeightVersion
         && manifest.AltAlgorithmVersion == RouteGraphPreprocessor.AltAlgorithmVersion;
 
+    private static RouteGraphArtifactManifest NormalizeManifest(RouteGraphArtifactManifest manifest)
+    {
+        var totalPayloadBytes = manifest.Shards.Sum(shard => shard.PayloadBytes);
+        var artifactSetId = string.IsNullOrWhiteSpace(manifest.ArtifactSetId)
+            ? BuildArtifactSetId(manifest)
+            : manifest.ArtifactSetId;
+
+        return manifest with
+        {
+            ArtifactSetId = artifactSetId,
+            TotalPayloadBytes = totalPayloadBytes
+        };
+    }
+
+    private static string BuildArtifactSetId(RouteGraphArtifactManifest manifest)
+    {
+        var builder = new StringBuilder();
+        builder
+            .Append(manifest.SchemaVersion).Append('|')
+            .Append(manifest.EdgeCostVersion).Append('|')
+            .Append(manifest.EdgeWeightVersion).Append('|')
+            .Append(manifest.AltAlgorithmVersion).Append('|')
+            .Append(manifest.ShardSizeDegrees.ToString("R", CultureInfo.InvariantCulture)).Append('|')
+            .Append(manifest.SourceName);
+
+        foreach (var shard in manifest.Shards.OrderBy(shard => shard.CacheKey, StringComparer.Ordinal))
+        {
+            builder
+                .Append('\n')
+                .Append(shard.CacheKey).Append('|')
+                .Append(shard.ArtifactFileName).Append('|')
+                .Append(shard.PayloadBytes).Append('|')
+                .Append(shard.PayloadSha256);
+        }
+
+        return ComputeSha256Hex(Encoding.UTF8.GetBytes(builder.ToString()));
+    }
+
+    private static bool PayloadHashMatches(byte[] payload, string? expectedSha256) =>
+        string.IsNullOrWhiteSpace(expectedSha256)
+        || string.Equals(ComputeSha256Hex(payload), expectedSha256, StringComparison.OrdinalIgnoreCase);
+
+    private static string ComputeSha256Hex(byte[] payload) =>
+        Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
+
     private static async Task WriteAtomicBytesAsync(
         string path,
         byte[] payload,
@@ -381,7 +446,8 @@ public sealed class RouteGraphArtifactStore : IRouteGraphArtifactStore
         long PayloadBytes,
         DateTime CreatedAtUtc,
         string SourceType,
-        string ArtifactFileName);
+        string ArtifactFileName,
+        string PayloadSha256 = "");
 }
 
 public sealed record RouteGraphArtifactStoreReadResult(
@@ -395,7 +461,8 @@ public sealed record RouteGraphArtifactStoreReadResult(
 public sealed record RouteGraphArtifactStoreWriteResult(
     string ArtifactPath,
     long PayloadBytes,
-    DateTime CreatedAtUtc);
+    DateTime CreatedAtUtc,
+    string PayloadSha256 = "");
 
 public sealed record RouteGraphArtifactManifest(
     string SchemaVersion,
@@ -405,7 +472,9 @@ public sealed record RouteGraphArtifactManifest(
     double ShardSizeDegrees,
     string SourceName,
     DateTime CreatedAtUtc,
-    RouteGraphArtifactManifestShard[] Shards);
+    RouteGraphArtifactManifestShard[] Shards,
+    string ArtifactSetId = "",
+    long TotalPayloadBytes = 0);
 
 public sealed record RouteGraphArtifactManifestShard(
     string CacheKey,
@@ -418,4 +487,5 @@ public sealed record RouteGraphArtifactManifestShard(
     long PayloadBytes,
     DateTime CreatedAtUtc,
     string SourceType,
-    string ArtifactFileName);
+    string ArtifactFileName,
+    string PayloadSha256 = "");

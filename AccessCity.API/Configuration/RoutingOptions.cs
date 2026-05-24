@@ -37,6 +37,7 @@ public sealed class RoutingOptions
     public int RouteGraphFileArtifactWarmupDelaySeconds { get; set; } = 5;
     public int RouteGraphFileArtifactWarmupShardLimit { get; set; } = 64;
     public bool RouteGraphFileArtifactWarmupLargestShardsFirst { get; set; } = true;
+    public int RouteGraphFileArtifactReadinessValidationShardLimit { get; set; } = 8;
     public bool RouteGraphOfflineShardArtifactBuildEnabled { get; set; }
     public int RouteGraphOfflineShardArtifactBuildLimit { get; set; }
     public bool RouteGraphAltPreprocessingEnabled { get; set; } = true;

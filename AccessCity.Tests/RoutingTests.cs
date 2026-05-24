@@ -599,7 +599,8 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
                     written!.PayloadBytes,
                     written.CreatedAtUtc,
                     "unit-test-manifest",
-                    Path.GetFileName(written.ArtifactPath))
+                    Path.GetFileName(written.ArtifactPath),
+                    written.PayloadSha256)
             });
         Assert.NotNull(await artifactStore.WriteManifestAsync(manifest));
         await distributedCache.RemoveAsync(first.ShardKey!);
