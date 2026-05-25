@@ -3,6 +3,7 @@ using AccessCity.API.Hubs;
 using AccessCity.API.Models;
 using AccessCity.API.Models.DTOs;
 using AccessCity.API.Services;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Moq;
@@ -73,7 +74,10 @@ public sealed class HazardAlertHubTests
         var hubContext = new Mock<IHubContext<HazardAlertHub>>();
         hubContext.Setup(c => c.Clients).Returns(clients.Object);
 
-        var controller = new HazardsController(hazards.Object, hubContext.Object);
+        var environment = new Mock<IWebHostEnvironment>();
+        environment.SetupGet(e => e.ContentRootPath).Returns(AppContext.BaseDirectory);
+
+        var controller = new HazardsController(hazards.Object, hubContext.Object, environment.Object);
 
         var result = await controller.ReportHazard(
             new CreateHazardRequest

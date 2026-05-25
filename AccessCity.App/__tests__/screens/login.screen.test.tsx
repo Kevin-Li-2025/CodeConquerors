@@ -14,6 +14,7 @@ jest.mock('@/services/auth.service', () => ({
     resetPassword: jest.fn(() => Promise.resolve({ message: 'ok' })),
     login: jest.fn(),
     register: jest.fn(),
+    createOAuthAuthorizeUrl: jest.fn(),
   },
 }));
 

@@ -47,6 +47,20 @@ public sealed class ApiEdgeCoverageTests : IClassFixture<AccessCityApiFactory>
     }
 
     [Fact]
+    public async Task Hazards_page_returns_bounded_cursor_response()
+    {
+        var client = _factory.CreateClient();
+        var response = await client.GetAsync("/api/v1/hazards/page?status=Reported&limit=5");
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        Assert.True(json.TryGetProperty("items", out var items) || json.TryGetProperty("Items", out items));
+        Assert.Equal(JsonValueKind.Array, items.ValueKind);
+        Assert.True(json.TryGetProperty("limit", out var limit) || json.TryGetProperty("Limit", out limit));
+        Assert.True(limit.GetInt32() <= 5);
+    }
+
+    [Fact]
     public async Task Hazards_getById_non_guid_segment_returns_404()
     {
         var client = _factory.CreateClient();

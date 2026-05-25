@@ -19,6 +19,17 @@ type StoredUser = {
   fullName?: string;
 };
 
+export type OAuthProvider = {
+  provider: string;
+  displayName: string;
+  configured: boolean;
+};
+
+export type OAuthAuthorizeResponse = {
+  provider: string;
+  authorizationUrl: string;
+};
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
@@ -60,6 +71,12 @@ export const authService = {
     };
 
     await setItemAsync(USER_KEY, JSON.stringify(userData));
+  },
+
+  async updateStoredUser(userData: StoredUser) {
+    const current = await getItemAsync(USER_KEY);
+    const stored = current ? JSON.parse(current) : {};
+    await setItemAsync(USER_KEY, JSON.stringify({ ...stored, ...userData }));
   },
 
   async getSession() {
@@ -126,6 +143,17 @@ export const authService = {
     return api.post<{ message: string }>(
       '/auth/reset-password',
       request,
+      { skipAuth: true }
+    );
+  },
+
+  async getOAuthProviders(): Promise<OAuthProvider[]> {
+    return api.get<OAuthProvider[]>('/auth/oauth/providers', { skipAuth: true });
+  },
+
+  async createOAuthAuthorizeUrl(provider: string, redirectUri: string): Promise<OAuthAuthorizeResponse> {
+    return api.get<OAuthAuthorizeResponse>(
+      `/auth/oauth/${encodeURIComponent(provider)}/authorize?redirectUri=${encodeURIComponent(redirectUri)}`,
       { skipAuth: true }
     );
   },

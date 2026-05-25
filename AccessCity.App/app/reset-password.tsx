@@ -19,6 +19,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { authService } from "@/services/auth.service";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { useFormAnimation } from "@/hooks/use-form-animation";
+import { AppTheme } from "@/constants/theme";
 
 export default function ResetPasswordScreen() {
   const params = useLocalSearchParams();
@@ -86,7 +87,7 @@ export default function ResetPasswordScreen() {
             style={styles.headerBack} 
             onPress={() => router.back()}
           >
-            <Ionicons name="arrow-back" size={24} color="#1E293B" />
+            <Ionicons name="arrow-back" size={24} color={AppTheme.color.text} />
           </TouchableOpacity>
 
           <View style={styles.content}>
@@ -101,7 +102,7 @@ export default function ResetPasswordScreen() {
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Email</Text>
                 <View style={[styles.inputWrapper, styles.disabledInput]}>
-                  <Ionicons name="mail-outline" size={20} color="#94A3B8" style={styles.inputIcon} />
+                  <Ionicons name="mail-outline" size={20} color={AppTheme.color.textSubtle} style={styles.inputIcon} />
                   <TextInput
                     style={[styles.input, styles.disabledText]}
                     value={email}
@@ -115,7 +116,7 @@ export default function ResetPasswordScreen() {
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Reset Token</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="key-outline" size={20} color="#64748B" style={styles.inputIcon} />
+                  <Ionicons name="key-outline" size={20} color={AppTheme.color.textMuted} style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     placeholder="Paste token here"
@@ -129,7 +130,7 @@ export default function ResetPasswordScreen() {
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>New Password</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="lock-closed-outline" size={20} color="#64748B" style={styles.inputIcon} />
+                  <Ionicons name="lock-closed-outline" size={20} color={AppTheme.color.textMuted} style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     placeholder="••••••••"
@@ -143,7 +144,7 @@ export default function ResetPasswordScreen() {
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Confirm New Password</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="shield-checkmark-outline" size={20} color="#64748B" style={styles.inputIcon} />
+                  <Ionicons name="shield-checkmark-outline" size={20} color={AppTheme.color.textMuted} style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     placeholder="••••••••"
@@ -162,11 +163,11 @@ export default function ResetPasswordScreen() {
                 disabled={isSubmitting}
               >
                 <LinearGradient
-                  colors={["#2563EB", "#1D4ED8"]}
+                  colors={[AppTheme.color.primary, AppTheme.color.primaryDark]}
                   style={styles.mainButton}
                 >
                   {isSubmitting ? (
-                    <ActivityIndicator color="#FFF" />
+                    <ActivityIndicator color={AppTheme.color.textInverse} />
                   ) : (
                     <Text style={styles.mainButtonText}>Save & Log In</Text>
                   )}
@@ -183,7 +184,7 @@ export default function ResetPasswordScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: AppTheme.color.background,
   },
   flex: {
     flex: 1,
@@ -200,77 +201,69 @@ const styles = StyleSheet.create({
     paddingTop: 10,
   },
   title: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#1E293B",
+    color: AppTheme.color.text,
     marginBottom: 8,
-    letterSpacing: -0.5,
+    ...AppTheme.type.screenTitle,
   },
   subtitle: {
-    fontSize: 16,
-    color: "#64748B",
+    color: AppTheme.color.textMuted,
     marginBottom: 24,
-    lineHeight: 24,
+    ...AppTheme.type.body,
   },
   formCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 10,
+    backgroundColor: AppTheme.color.surface,
+    borderRadius: AppTheme.radius.xl,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    padding: AppTheme.space.xl,
+    ...AppTheme.shadow.card,
     marginBottom: 40,
   },
   inputGroup: {
     marginBottom: 20,
   },
   inputLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#475569",
+    color: AppTheme.color.textMuted,
     marginBottom: 8,
     marginLeft: 4,
+    ...AppTheme.type.meta,
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F1F5F9",
-    borderRadius: 16,
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    borderRadius: AppTheme.radius.md,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: AppTheme.color.border,
     paddingHorizontal: 16,
     height: 56,
   },
   disabledInput: {
-    backgroundColor: "#F8FAFC",
-    borderColor: "#F1F5F9",
+    backgroundColor: AppTheme.color.background,
+    borderColor: AppTheme.color.surfaceMuted,
   },
   disabledText: {
-    color: "#94A3B8",
+    color: AppTheme.color.textSubtle,
   },
   inputIcon: {
     marginRight: 12,
   },
   input: {
     flex: 1,
-    fontSize: 16,
-    color: "#1E293B",
+    color: AppTheme.color.text,
+    ...AppTheme.type.body,
   },
   mainButtonContainer: {
     marginTop: 12,
   },
   mainButton: {
     height: 56,
-    borderRadius: 16,
+    borderRadius: AppTheme.radius.md,
     justifyContent: "center",
     alignItems: "center",
   },
   mainButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    color: AppTheme.color.textInverse,
+    ...AppTheme.type.cardTitle,
   },
 });

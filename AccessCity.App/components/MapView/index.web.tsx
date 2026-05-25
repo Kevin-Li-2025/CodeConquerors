@@ -7,6 +7,7 @@ import { Hazard } from '../../models/spatial';
 import { API_BASE_URL } from '../../services/api';
 
 const TILE_URL = `${API_BASE_URL}/api/v1/tiles/{z}/{x}/{y}.pbf`;
+const EMPTY_ROUTE_DATA = { type: 'FeatureCollection', features: [] };
 
 interface MapViewProps {
   centerCoordinate?: [number, number];
@@ -32,6 +33,8 @@ export default function WebMapView({
   const onMapPressRef = useRef(onMapPress);
   const onMarkerPressRef = useRef(onMarkerPress);
   const showHazardsRef = useRef(showHazards);
+  const pendingRouteDataRef = useRef(routeGeoJSON ?? EMPTY_ROUTE_DATA);
+  const hasCenteredRef = useRef(false);
 
   useEffect(() => {
     onMapPressRef.current = onMapPress;
@@ -43,6 +46,13 @@ export default function WebMapView({
 
   useEffect(() => {
     showHazardsRef.current = showHazards;
+    if (map.current?.getLayer('hazard-layer')) {
+      map.current.setLayoutProperty(
+        'hazard-layer',
+        'visibility',
+        showHazards ? 'visible' : 'none'
+      );
+    }
   }, [showHazards]);
 
   useEffect(() => {
@@ -106,7 +116,7 @@ export default function WebMapView({
       // Add Route Source
       map.current.addSource('route', {
         type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] }
+        data: pendingRouteDataRef.current
       });
 
       map.current.addLayer({
@@ -136,44 +146,70 @@ export default function WebMapView({
 
   // Update Route
   useEffect(() => {
+    pendingRouteDataRef.current = routeGeoJSON ?? EMPTY_ROUTE_DATA;
     if (!map.current?.isStyleLoaded()) return;
 
     const source = map.current.getSource('route') as MapLibreGL.GeoJSONSource;
-    source?.setData(routeGeoJSON ?? { type: 'FeatureCollection', features: [] });
+    source?.setData(pendingRouteDataRef.current);
   }, [routeGeoJSON]);
 
   // Update Markers
   useEffect(() => {
     if (!map.current) return;
 
-    // Clear old markers
-    Object.values(markerObjects.current).forEach(m => m.remove());
-    markerObjects.current = {};
+    const visibleMarkerIds = new Set(showHazards ? markers.map((hazard) => String(hazard.id)) : []);
 
-    // Add new markers
+    Object.entries(markerObjects.current).forEach(([id, marker]) => {
+      if (!visibleMarkerIds.has(id)) {
+        marker.remove();
+        delete markerObjects.current[id];
+      }
+    });
+
+    if (!showHazards) {
+      return;
+    }
+
     markers.forEach(hazard => {
+      const id = String(hazard.id);
+      const existingMarker = markerObjects.current[id];
+      if (existingMarker) {
+        existingMarker.setLngLat([hazard.longitude, hazard.latitude]);
+        return;
+      }
+
       const el = document.createElement('div');
       el.className = 'custom-marker';
+      el.title = hazard.title;
       el.style.width = '20px';
       el.style.height = '20px';
       el.style.borderRadius = '50%';
       el.style.backgroundColor = hazard.type === 'wheelchair' ? '#2563EB' : '#D97706';
       el.style.border = '3px solid white';
       el.style.cursor = 'pointer';
-      el.onclick = () => onMarkerPressRef.current?.(hazard);
+      el.onclick = (event) => {
+        event.stopPropagation();
+        onMarkerPressRef.current?.(hazard);
+      };
 
       const marker = new MapLibreGL.Marker(el)
         .setLngLat([hazard.longitude, hazard.latitude])
         .addTo(map.current!);
 
-      markerObjects.current[String(hazard.id)] = marker;
+      markerObjects.current[id] = marker;
     });
-  }, [markers]);
+  }, [markers, showHazards]);
 
   // Update Center
   useEffect(() => {
     if (map.current) {
-      map.current.flyTo({ center: centerCoordinate as [number, number] });
+      if (!hasCenteredRef.current) {
+        map.current.jumpTo({ center: centerCoordinate as [number, number] });
+        hasCenteredRef.current = true;
+        return;
+      }
+
+      map.current.easeTo({ center: centerCoordinate as [number, number], duration: 250 });
     }
   }, [centerCoordinate]);
 

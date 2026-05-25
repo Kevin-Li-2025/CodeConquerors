@@ -1,4 +1,5 @@
 import { DEFAULT_CITY_NAME } from '../../constants/defaultMapRegion';
+import { AppTheme } from '../../constants/theme';
 import { Hazard, ReportHazardOption, ReportHazardType } from './MapTypes';
 
 export const hazards: Hazard[] = [
@@ -32,48 +33,48 @@ export const reportHazardOptions: ReportHazardOption[] = [
     label: 'Broken street light',
     iconType: 'ionicons',
     iconName: 'bulb-outline',
-    iconColor: '#EAB308',
-    iconBg: '#FEF3C7',
+    iconColor: AppTheme.color.warning,
+    iconBg: AppTheme.color.warningSoft,
   },
   {
     key: 'blocked_pavement',
     label: 'Blocked pavement',
     iconType: 'ionicons',
     iconName: 'warning-outline',
-    iconColor: '#F97316',
-    iconBg: '#FEE2E2',
+    iconColor: AppTheme.color.danger,
+    iconBg: AppTheme.color.dangerSoft,
   },
   {
     key: 'parked_car_blocking_dropped_kerb',
     label: 'Parked car blocking dropped kerb',
     iconType: 'ionicons',
     iconName: 'car-outline',
-    iconColor: '#2563EB',
-    iconBg: '#DBEAFE',
+    iconColor: AppTheme.color.primary,
+    iconBg: AppTheme.color.primarySoft,
   },
   {
     key: 'road_obstruction',
     label: 'Road obstruction',
     iconType: 'ionicons',
     iconName: 'warning-outline',
-    iconColor: '#EF4444',
-    iconBg: '#FCE7F3',
+    iconColor: AppTheme.color.danger,
+    iconBg: AppTheme.color.dangerSoft,
   },
   {
     key: 'unsafe_crossing',
     label: 'Unsafe crossing',
     iconType: 'material',
     iconName: 'walk',
-    iconColor: '#14B8A6',
-    iconBg: '#DCFCE7',
+    iconColor: AppTheme.color.accent,
+    iconBg: AppTheme.color.accentSoft,
   },
   {
     key: 'other',
     label: 'Other',
     iconType: 'ionicons',
     iconName: 'document-text-outline',
-    iconColor: '#4B5563',
-    iconBg: '#E5E7EB',
+    iconColor: AppTheme.color.textMuted,
+    iconBg: AppTheme.color.surfaceMuted,
   },
 ];
 

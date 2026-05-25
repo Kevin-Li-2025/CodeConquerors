@@ -2,17 +2,20 @@ import React from 'react';
 import { Modal, StyleSheet, View, Text, TouchableOpacity, Pressable } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Hazard } from './MapTypes';
+import { AppTheme } from '@/constants/theme';
 
 type HazardDetailsModalProps = {
   visible: boolean;
   hazard: Hazard | null;
   onClose: () => void;
+  onAvoidRoute?: () => void;
 };
 
 export default function HazardDetailsModal({
   visible,
   hazard,
   onClose,
+  onAvoidRoute,
 }: HazardDetailsModalProps) {
   return (
     <Modal
@@ -38,10 +41,10 @@ export default function HazardDetailsModal({
                 <MaterialCommunityIcons
                   name="wheelchair-accessibility"
                   size={28}
-                  color="#2563EB"
+                  color={AppTheme.color.primary}
                 />
               ) : (
-                <Ionicons name="bulb-outline" size={28} color="#D97706" />
+                <Ionicons name="bulb-outline" size={28} color={AppTheme.color.warning} />
               )}
             </View>
 
@@ -65,26 +68,32 @@ export default function HazardDetailsModal({
 
           <View style={styles.hazardMetaRow}>
             <View style={styles.hazardMetaItem}>
-              <Ionicons name="location-outline" size={20} color="#EF4444" />
+              <Ionicons name="location-outline" size={20} color={AppTheme.color.danger} />
               <Text style={styles.hazardMetaTitle}>Location</Text>
               <Text style={styles.hazardMetaText}>{hazard?.locationText}</Text>
             </View>
 
             <View style={styles.hazardMetaItem}>
-              <Ionicons name="time-outline" size={20} color="#9CA3AF" />
+              <Ionicons name="time-outline" size={20} color={AppTheme.color.textSubtle} />
               <Text style={styles.hazardMetaTitle}>Reported</Text>
               <Text style={styles.hazardMetaText}>{hazard?.reportedTime}</Text>
             </View>
           </View>
 
           <View style={styles.hazardActionRow}>
-            <TouchableOpacity style={styles.avoidRouteButton}>
-              <Ionicons name="navigate-outline" size={18} color="#FFFFFF" />
+            <TouchableOpacity
+              style={[styles.avoidRouteButton, !onAvoidRoute && styles.avoidRouteButtonDisabled]}
+              onPress={onAvoidRoute}
+              disabled={!onAvoidRoute}
+              accessibilityRole="button"
+              accessibilityLabel="Avoid this hazard in route"
+            >
+              <Ionicons name="navigate-outline" size={18} color={AppTheme.color.textInverse} />
               <Text style={styles.avoidRouteButtonText}>Avoid in Route</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.detailSecondaryButton} onPress={onClose}>
-              <Ionicons name="chevron-forward" size={18} color="#4B5563" />
+              <Ionicons name="chevron-forward" size={18} color={AppTheme.color.textMuted} />
               <Text style={styles.detailSecondaryButtonText}>Close</Text>
             </TouchableOpacity>
           </View>
@@ -103,19 +112,18 @@ const styles = StyleSheet.create({
   },
   detailOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: 'rgba(15,23,42,0.32)',
   },
   hazardDetailCard: {
     width: '100%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    paddingHorizontal: 22,
-    paddingVertical: 22,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 12,
+    maxWidth: AppTheme.layout.maxFormWidth,
+    backgroundColor: AppTheme.color.surface,
+    borderRadius: AppTheme.radius.xl,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    paddingHorizontal: AppTheme.space.xl,
+    paddingVertical: AppTheme.space.xl,
+    ...AppTheme.shadow.floating,
   },
   hazardDetailHeader: {
     flexDirection: 'row',
@@ -124,106 +132,107 @@ const styles = StyleSheet.create({
   hazardDetailIconBox: {
     width: 68,
     height: 68,
-    borderRadius: 18,
+    borderRadius: AppTheme.radius.lg,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,
   },
   hazardDetailIconYellow: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: AppTheme.color.warningSoft,
   },
   hazardDetailIconBlue: {
-    backgroundColor: '#DBEAFE',
+    backgroundColor: AppTheme.color.primarySoft,
   },
   hazardDetailHeaderText: {
     flex: 1,
   },
   hazardDetailTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#111827',
-    marginBottom: 8,
+    color: AppTheme.color.text,
+    marginBottom: AppTheme.space.sm,
+    ...AppTheme.type.sectionTitle,
   },
   hazardStatusBadge: {
     alignSelf: 'flex-start',
-    backgroundColor: '#FEF3C7',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
+    backgroundColor: AppTheme.color.warningSoft,
+    borderRadius: AppTheme.radius.pill,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    paddingHorizontal: AppTheme.space.md,
+    paddingVertical: 6,
   },
   hazardStatusText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#D97706',
+    color: AppTheme.color.warning,
+    ...AppTheme.type.meta,
   },
   hazardDetailDivider: {
     height: 1,
-    backgroundColor: '#E5E7EB',
-    marginVertical: 18,
+    backgroundColor: AppTheme.color.border,
+    marginVertical: AppTheme.space.lg,
   },
   hazardDetailSectionLabel: {
-    fontSize: 15,
-    color: '#6B7280',
-    marginBottom: 8,
+    color: AppTheme.color.textMuted,
+    marginBottom: AppTheme.space.sm,
+    ...AppTheme.type.cardTitle,
   },
   hazardDetailDescription: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#111827',
-    marginBottom: 22,
+    color: AppTheme.color.text,
+    marginBottom: AppTheme.space.xl,
+    ...AppTheme.type.body,
   },
   hazardMetaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 24,
-    gap: 16,
+    marginBottom: AppTheme.space.xl,
+    gap: AppTheme.space.lg,
   },
   hazardMetaItem: {
     flex: 1,
   },
   hazardMetaTitle: {
-    fontSize: 15,
-    color: '#9CA3AF',
+    color: AppTheme.color.textSubtle,
     marginTop: 6,
-    marginBottom: 6,
+    marginBottom: AppTheme.space.xs,
+    ...AppTheme.type.meta,
   },
   hazardMetaText: {
-    fontSize: 15,
-    color: '#111827',
-    lineHeight: 22,
+    color: AppTheme.color.text,
+    ...AppTheme.type.body,
   },
   hazardActionRow: {
     flexDirection: 'row',
-    gap: 12,
+    gap: AppTheme.space.md,
   },
   avoidRouteButton: {
     flex: 1,
     height: 54,
-    borderRadius: 16,
-    backgroundColor: '#1D4ED8',
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: AppTheme.color.primary,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 8,
   },
+  avoidRouteButtonDisabled: {
+    opacity: 0.5,
+  },
   avoidRouteButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    color: AppTheme.color.textInverse,
+    ...AppTheme.type.cardTitle,
   },
   detailSecondaryButton: {
     flex: 1,
     height: 54,
-    borderRadius: 16,
-    backgroundColor: '#F3F4F6',
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     gap: 6,
   },
   detailSecondaryButtonText: {
-    color: '#4B5563',
-    fontSize: 16,
-    fontWeight: '600',
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.cardTitle,
   },
 });

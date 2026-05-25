@@ -3,11 +3,13 @@ using System.Globalization;
 using AccessCity.API.Models;
 using AccessCity.API.Models.External;
 using AccessCity.API.Services.External;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Caching.Memory;
 using NetTopologySuite.Geometries;
 using System.Linq;
 using Microsoft.EntityFrameworkCore;
 using System.Threading;
+using System.Text.Json;
 
 namespace AccessCity.API.Services;
 
@@ -26,6 +28,7 @@ public class RealHazardDataService : IRealHazardDataService
 {
     private readonly IOpenStreetMapClient _openStreetMapClient;
     private readonly IMemoryCache _cache;
+    private readonly IDistributedCache _distributedCache;
     private readonly Data.AppDbContext _dbContext;
     private readonly ILogger<RealHazardDataService> _logger;
     private readonly bool _realtimeOverpassEnabled;
@@ -35,6 +38,10 @@ public class RealHazardDataService : IRealHazardDataService
     private const string CacheKeyPrefix = "real_hazards:";
     /// <summary>Overpass is slow; longer cache reduces cold-cache storms on /hazards.</summary>
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan FailureCacheExpiration = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan StaleCacheExpiration = TimeSpan.FromHours(12);
+
+    private static readonly JsonSerializerOptions DistributedCacheJsonOptions = new(JsonSerializerDefaults.Web);
 
     /// <summary>Hard cap on OSM-derived rows merged into one response (serialization + mobile memory).</summary>
     private const int MaxOsmHazardsPerResponse = 2500;
@@ -52,12 +59,14 @@ public class RealHazardDataService : IRealHazardDataService
     public RealHazardDataService(
         IOpenStreetMapClient openStreetMapClient,
         IMemoryCache cache,
+        IDistributedCache distributedCache,
         Data.AppDbContext dbContext,
         ILogger<RealHazardDataService> logger,
         IConfiguration configuration)
     {
         _openStreetMapClient = openStreetMapClient;
         _cache = cache;
+        _distributedCache = distributedCache;
         _dbContext = dbContext;
         _logger = logger;
         _realtimeOverpassEnabled = configuration.GetValue("ExternalApis:Overpass:RealtimeHazardsEnabled", true);
@@ -85,6 +94,13 @@ public class RealHazardDataService : IRealHazardDataService
 
         if (_cache.TryGetValue(cacheKey, out List<HazardReport>? cached))
             return cached ?? new List<HazardReport>();
+
+        var distributedCached = await TryGetDistributedHazardsAsync(cacheKey).ConfigureAwait(false);
+        if (distributedCached is not null)
+        {
+            _cache.Set(cacheKey, distributedCached, CacheExpiration);
+            return distributedCached;
+        }
 
         var lazyLoad = InFlightLoads.GetOrAdd(
             cacheKey,
@@ -123,22 +139,101 @@ public class RealHazardDataService : IRealHazardDataService
         if (_cache.TryGetValue(cacheKey, out List<HazardReport>? cached))
             return cached ?? new List<HazardReport>();
 
+        var distributedCached = await TryGetDistributedHazardsAsync(cacheKey).ConfigureAwait(false);
+        if (distributedCached is not null)
+        {
+            _cache.Set(cacheKey, distributedCached, CacheExpiration);
+            return distributedCached;
+        }
+
         var includeOsm = _realtimeOverpassEnabled && (status == null || status == HazardStatus.Reported);
         var osmTask = includeOsm
             ? FetchAndMapHazardsAsync(minLatVal, minLngVal, maxLatVal, maxLngVal, DateTime.UtcNow)
-            : Task.FromResult(new List<HazardReport>());
+            : Task.FromResult(new OsmHazardFetchResult(new List<HazardReport>(), Completed: true));
 
         var dbTask = FetchDbHazardsInBBoxAsync(minLatVal, minLngVal, maxLatVal, maxLngVal, status);
 
         await Task.WhenAll(osmTask, dbTask).ConfigureAwait(false);
 
+        var osmResult = await osmTask.ConfigureAwait(false);
         var list = new List<HazardReport>();
-        list.AddRange(await osmTask.ConfigureAwait(false));
+        list.AddRange(osmResult.Hazards);
         list.AddRange(await dbTask.ConfigureAwait(false));
 
-        _cache.Set(cacheKey, list, CacheExpiration);
+        if (includeOsm && !osmResult.Completed && list.Count == 0)
+        {
+            var stale = await TryGetDistributedHazardsAsync(StaleCacheKey(cacheKey)).ConfigureAwait(false);
+            if (stale is { Count: > 0 })
+            {
+                _cache.Set(cacheKey, stale, FailureCacheExpiration);
+                return stale;
+            }
+        }
+
+        var cacheTtl = includeOsm && !osmResult.Completed
+            ? FailureCacheExpiration
+            : CacheExpiration;
+        _cache.Set(cacheKey, list, cacheTtl);
+        await TrySetDistributedHazardsAsync(cacheKey, list, cacheTtl).ConfigureAwait(false);
+
+        if (list.Count > 0)
+        {
+            await TrySetDistributedHazardsAsync(StaleCacheKey(cacheKey), list, StaleCacheExpiration).ConfigureAwait(false);
+        }
 
         return list;
+    }
+
+    private async Task<List<HazardReport>?> TryGetDistributedHazardsAsync(string cacheKey)
+    {
+        try
+        {
+            var payload = await _distributedCache.GetStringAsync(cacheKey).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                return null;
+            }
+
+            var cached = JsonSerializer.Deserialize<List<CachedHazardReport>>(
+                payload,
+                DistributedCacheJsonOptions);
+
+            return cached?
+                .Select(ToHazardReport)
+                .Where(hazard => hazard.Location is not null)
+                .ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Distributed hazard cache read failed for key {CacheKey}.", cacheKey);
+            return null;
+        }
+    }
+
+    private async Task TrySetDistributedHazardsAsync(
+        string cacheKey,
+        IReadOnlyCollection<HazardReport> hazards,
+        TimeSpan cacheTtl)
+    {
+        try
+        {
+            var payload = JsonSerializer.Serialize(
+                hazards
+                    .Where(hazard => hazard.Location is not null)
+                    .Select(ToCachedHazardReport),
+                DistributedCacheJsonOptions);
+
+            await _distributedCache
+                .SetStringAsync(
+                    cacheKey,
+                    payload,
+                    new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = cacheTtl })
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogDebug(ex, "Distributed hazard cache write failed for key {CacheKey}.", cacheKey);
+        }
     }
 
     private async Task<List<HazardReport>> FetchDbHazardsInBBoxAsync(
@@ -179,7 +274,7 @@ public class RealHazardDataService : IRealHazardDataService
         }
     }
 
-    private async Task<List<HazardReport>> FetchAndMapHazardsAsync(
+    private async Task<OsmHazardFetchResult> FetchAndMapHazardsAsync(
         double minLatVal, double minLngVal, double maxLatVal, double maxLngVal,
         DateTime snapshotUtc)
     {
@@ -196,17 +291,17 @@ public class RealHazardDataService : IRealHazardDataService
             _logger.LogWarning(ex,
                 "Overpass hazard fetch timed out after {Budget}s; returning DB hazards only for bbox.",
                 _osmFetchBudget.TotalSeconds);
-            return new List<HazardReport>();
+            return new OsmHazardFetchResult(new List<HazardReport>(), Completed: false);
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex,
                 "Overpass hazard fetch failed; returning DB hazards only for bbox.");
-            return new List<HazardReport>();
+            return new OsmHazardFetchResult(new List<HazardReport>(), Completed: false);
         }
 
         if (elements == null || elements.Count == 0)
-            return new List<HazardReport>();
+            return new OsmHazardFetchResult(new List<HazardReport>(), Completed: true);
 
         var list = new List<HazardReport>(Math.Min(elements.Count, MaxOsmHazardsPerResponse));
         foreach (var el in elements)
@@ -237,7 +332,7 @@ public class RealHazardDataService : IRealHazardDataService
             });
         }
 
-        return list;
+        return new OsmHazardFetchResult(list, Completed: true);
     }
 
     /// <summary>
@@ -313,4 +408,51 @@ public class RealHazardDataService : IRealHazardDataService
         Array.Copy(idBytes, 0, bytes, 8, 8);
         return new Guid(bytes);
     }
+
+    private static string StaleCacheKey(string cacheKey) => $"{cacheKey}:stale";
+
+    private static CachedHazardReport ToCachedHazardReport(HazardReport hazard)
+    {
+        return new CachedHazardReport(
+            hazard.Id,
+            hazard.Location.X,
+            hazard.Location.Y,
+            hazard.Type,
+            hazard.Description,
+            hazard.PhotoUrl,
+            hazard.ReportedAt,
+            hazard.Status,
+            hazard.Source,
+            hazard.ReporterUserId);
+    }
+
+    private static HazardReport ToHazardReport(CachedHazardReport cached)
+    {
+        return new HazardReport
+        {
+            Id = cached.Id,
+            Location = Wgs84.CreatePoint(new Coordinate(cached.Longitude, cached.Latitude)),
+            Type = cached.Type,
+            Description = cached.Description,
+            PhotoUrl = cached.PhotoUrl,
+            ReportedAt = cached.ReportedAt,
+            Status = cached.Status,
+            Source = cached.Source,
+            ReporterUserId = cached.ReporterUserId
+        };
+    }
+
+    private sealed record CachedHazardReport(
+        Guid Id,
+        double Longitude,
+        double Latitude,
+        string Type,
+        string Description,
+        string PhotoUrl,
+        DateTime ReportedAt,
+        HazardStatus Status,
+        string Source,
+        string? ReporterUserId);
+
+    private sealed record OsmHazardFetchResult(List<HazardReport> Hazards, bool Completed);
 }

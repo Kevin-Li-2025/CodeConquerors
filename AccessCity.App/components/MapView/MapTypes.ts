@@ -27,6 +27,15 @@ export type Hazard = {
   reportedTime: string;
 };
 
+export type ContextMapPoint = {
+  id: string;
+  title: string;
+  subtitle?: string;
+  latitude: number;
+  longitude: number;
+  kind: 'safe-haven' | 'poi';
+};
+
 export type ReportHazardType =
   | 'broken_street_light'
   | 'blocked_pavement'

@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Hazard } from './MapTypes';
+import { AppTheme } from '@/constants/theme';
 
 type HazardPreviewCardProps = {
   visible: boolean;
@@ -25,7 +26,7 @@ export default function HazardPreviewCard({
   return (
     <View style={styles.hazardPreviewCard}>
       <Pressable style={styles.hazardPreviewClose} onPress={onClose}>
-        <Ionicons name="close" size={18} color="#6B7280" />
+        <Ionicons name="close" size={18} color={AppTheme.color.textMuted} />
       </Pressable>
 
       <Text style={styles.hazardPreviewLabel}>{hazardTypeLabel}</Text>
@@ -44,18 +45,16 @@ export default function HazardPreviewCard({
 const styles = StyleSheet.create({
   hazardPreviewCard: {
     position: 'absolute',
-    left: 16,
+    left: AppTheme.space.lg,
     top: 160,
     width: 210,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    backgroundColor: AppTheme.color.surface,
+    borderRadius: AppTheme.radius.lg,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    paddingHorizontal: AppTheme.space.lg,
+    paddingVertical: AppTheme.space.lg,
+    ...AppTheme.shadow.floating,
   },
   hazardPreviewClose: {
     position: 'absolute',
@@ -65,32 +64,30 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: AppTheme.color.surfaceSubtle,
     justifyContent: 'center',
     alignItems: 'center',
   },
   hazardPreviewLabel: {
-    fontSize: 13,
-    color: '#9CA3AF',
+    color: AppTheme.color.textSubtle,
     marginBottom: 6,
+    ...AppTheme.type.label,
   },
   hazardPreviewTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#111827',
+    color: AppTheme.color.text,
     marginBottom: 14,
     paddingRight: 24,
+    ...AppTheme.type.sectionTitle,
   },
   hazardPreviewDetailsButton: {
     alignSelf: 'flex-start',
-    backgroundColor: '#EFF6FF',
-    borderRadius: 12,
+    backgroundColor: AppTheme.color.primarySoft,
+    borderRadius: AppTheme.radius.md,
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
   hazardPreviewDetailsText: {
-    color: '#1D4ED8',
-    fontSize: 14,
-    fontWeight: '700',
+    color: AppTheme.color.primary,
+    ...AppTheme.type.meta,
   },
 });

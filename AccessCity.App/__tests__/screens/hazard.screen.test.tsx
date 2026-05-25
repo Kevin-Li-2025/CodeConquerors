@@ -5,7 +5,12 @@ import { hazardsService } from '@/services/hazards.service';
 
 jest.mock('@/services/hazards.service', () => ({
   hazardsService: {
-    getHazards: jest.fn(() => Promise.resolve([])),
+    getHazardsPage: jest.fn(() => Promise.resolve({
+      items: [],
+      nextCursor: null,
+      limit: 25,
+      hasMore: false,
+    })),
     getHazardById: jest.fn(() => Promise.resolve(null)),
   },
 }));
@@ -21,26 +26,31 @@ describe('HazardScreen', () => {
     expect(getByText('Hazards')).toBeTruthy();
 
     await waitFor(() => {
-      expect(hazardsService.getHazards).toHaveBeenCalled();
+      expect(hazardsService.getHazardsPage).toHaveBeenCalled();
     });
 
     expect(await findByText('No hazards found for this status.')).toBeTruthy();
   });
 
   it('renders hazard cards when API returns data', async () => {
-    jest.mocked(hazardsService.getHazards).mockResolvedValueOnce([
-      {
-        id: '1',
-        title: 'Broken pavement',
-        type: 'broken_pavement',
-        latitude: 52.48,
-        longitude: -1.89,
-        description: 'Crack near curb.',
-        status: 'Reported',
-        locationText: 'Somewhere',
-        reportedTime: 'Today',
-      },
-    ]);
+    jest.mocked(hazardsService.getHazardsPage).mockResolvedValueOnce({
+      items: [
+        {
+          id: '1',
+          title: 'Broken pavement',
+          type: 'broken_pavement',
+          latitude: 52.48,
+          longitude: -1.89,
+          description: 'Crack near curb.',
+          status: 'Reported',
+          locationText: 'Somewhere',
+          reportedTime: 'Today',
+        },
+      ],
+      nextCursor: null,
+      limit: 25,
+      hasMore: false,
+    });
 
     const { findByText } = render(<HazardScreen />);
 
@@ -50,12 +60,12 @@ describe('HazardScreen', () => {
   it('filter pills switch reported / acknowledged / resolved', async () => {
     const { getByText } = render(<HazardScreen />);
 
-    await waitFor(() => expect(hazardsService.getHazards).toHaveBeenCalled());
+    await waitFor(() => expect(hazardsService.getHazardsPage).toHaveBeenCalled());
 
     fireEvent.press(getByText('Resolved'));
 
     await waitFor(() => {
-      expect(hazardsService.getHazards).toHaveBeenCalledTimes(2);
+      expect(hazardsService.getHazardsPage).toHaveBeenCalledTimes(2);
     });
   });
 });

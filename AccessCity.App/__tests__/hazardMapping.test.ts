@@ -18,8 +18,10 @@ describe('formatHazardTypeLabel', () => {
 describe('formatHazardStatus', () => {
   it('maps numeric enum values', () => {
     expect(formatHazardStatus(0)).toBe('Reported');
-    expect(formatHazardStatus(1)).toBe('UnderReview');
-    expect(formatHazardStatus(2)).toBe('Resolved');
+    expect(formatHazardStatus(1)).toBe('Acknowledged');
+    expect(formatHazardStatus(2)).toBe('UnderReview');
+    expect(formatHazardStatus(3)).toBe('Resolved');
+    expect(formatHazardStatus(4)).toBe('Dismissed');
   });
 
   it('passes through non-empty string', () => {

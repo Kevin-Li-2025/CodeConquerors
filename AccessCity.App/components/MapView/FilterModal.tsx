@@ -2,6 +2,7 @@ import React from 'react';
 import { Modal, StyleSheet, View, Text, TouchableOpacity, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { RouteFilters } from './MapTypes';
+import { AppTheme } from '@/constants/theme';
 
 type FilterModalProps = {
   visible: boolean;
@@ -61,7 +62,7 @@ export default function FilterModal({
                     activeOpacity={0.8}
                   >
                     <View style={[styles.checkbox, checked && styles.checkboxChecked]}>
-                      {checked && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                      {checked && <Ionicons name="checkmark" size={14} color={AppTheme.color.textInverse} />}
                     </View>
                     <Text style={styles.checkboxLabel}>{label}</Text>
                   </TouchableOpacity>
@@ -157,67 +158,60 @@ const styles = StyleSheet.create({
   modalRoot: { flex: 1, justifyContent: 'flex-end' },
   overlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.18)',
+    backgroundColor: 'rgba(15,23,42,0.24)',
   },
   sheetWrapper: { width: '100%', justifyContent: 'flex-end' },
   filterSheet: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
+    backgroundColor: AppTheme.color.surface,
+    borderTopLeftRadius: AppTheme.radius.xl,
+    borderTopRightRadius: AppTheme.radius.xl,
     paddingTop: 10,
-    paddingHorizontal: 20,
-    paddingBottom: 28,
+    paddingHorizontal: AppTheme.space.xl,
+    paddingBottom: AppTheme.space.xxl,
     minHeight: '62%',
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 12,
+    ...AppTheme.shadow.floating,
   },
   dragHandle: {
     width: 48,
     height: 5,
     borderRadius: 999,
-    backgroundColor: '#D1D5DB',
+    backgroundColor: AppTheme.color.borderStrong,
     alignSelf: 'center',
     marginBottom: 14,
   },
   filterTitle: {
-    fontSize: 22,
-    fontWeight: '500',
-    color: '#4B5563',
+    color: AppTheme.color.text,
     marginBottom: 4,
+    ...AppTheme.type.headline,
   },
   pilotHint: {
-    fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 18,
+    color: AppTheme.color.textMuted,
     marginBottom: 4,
+    ...AppTheme.type.meta,
   },
   sheetDivider: {
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: AppTheme.color.border,
     marginTop: 14,
     marginBottom: 16,
   },
   filterSectionHeading: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#111827',
+    color: AppTheme.color.text,
     marginBottom: 14,
+    ...AppTheme.type.sectionTitle,
   },
   filterCard: {
-    borderWidth: 1.5,
-    borderColor: '#E5E7EB',
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    borderRadius: AppTheme.radius.lg,
+    backgroundColor: AppTheme.color.surface,
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
   filterCardTitle: {
-    fontSize: 15,
-    color: '#9CA3AF',
+    color: AppTheme.color.textSubtle,
     marginBottom: 14,
+    ...AppTheme.type.body,
   },
   checkboxRow: {
     flexDirection: 'row',
@@ -228,21 +222,21 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 8,
-    borderWidth: 1.5,
-    borderColor: '#9CA3AF',
-    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: AppTheme.color.textSubtle,
+    backgroundColor: AppTheme.color.surface,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,
   },
   checkboxChecked: {
-    backgroundColor: '#1D4ED8',
-    borderColor: '#1D4ED8',
+    backgroundColor: AppTheme.color.primary,
+    borderColor: AppTheme.color.primary,
   },
   checkboxLabel: {
-    fontSize: 16,
-    color: '#374151',
+    color: AppTheme.color.text,
     flexShrink: 1,
+    ...AppTheme.type.body,
   },
   filterButtonRow: {
     flexDirection: 'row',
@@ -253,32 +247,32 @@ const styles = StyleSheet.create({
   applyButton: {
     flex: 1,
     height: 50,
-    borderRadius: 14,
-    backgroundColor: '#1D4ED8',
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: AppTheme.color.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   applyButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    color: AppTheme.color.textInverse,
+    ...AppTheme.type.cardTitle,
   },
   resetButton: {
     flex: 1,
     height: 50,
-    borderRadius: 14,
-    backgroundColor: '#F3F4F6',
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
   resetButtonText: {
-    color: '#6B7280',
-    fontSize: 16,
-    fontWeight: '500',
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.cardTitle,
   },
   sheetDividerLarge: {
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: AppTheme.color.border,
     marginVertical: 22,
   },
   safetyPanel: { paddingTop: 4 },
@@ -289,9 +283,8 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   safetyAdjustLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#111827',
+    color: AppTheme.color.text,
+    ...AppTheme.type.body,
   },
   safetyStepper: {
     flexDirection: 'row',
@@ -301,22 +294,21 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: AppTheme.color.surfaceMuted,
     justifyContent: 'center',
     alignItems: 'center',
   },
   stepperButtonText: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#374151',
+    color: AppTheme.color.text,
     lineHeight: 22,
   },
   safetyValue: {
     width: 44,
     textAlign: 'center',
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#111827',
+    color: AppTheme.color.text,
+    ...AppTheme.type.cardTitle,
   },
   fakeSliderWrap: {
     position: 'relative',
@@ -327,14 +319,14 @@ const styles = StyleSheet.create({
   fakeSliderTrack: {
     height: 6,
     borderRadius: 999,
-    backgroundColor: '#D1D5DB',
+    backgroundColor: AppTheme.color.borderStrong,
     width: '100%',
   },
   fakeSliderActive: {
     position: 'absolute',
     height: 6,
     borderRadius: 999,
-    backgroundColor: '#1D4ED8',
+    backgroundColor: AppTheme.color.primary,
   },
   fakeSliderThumb: {
     position: 'absolute',
@@ -342,9 +334,9 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: '#1D4ED8',
+    backgroundColor: AppTheme.color.primary,
     borderWidth: 3,
-    borderColor: '#FFFFFF',
+    borderColor: AppTheme.color.surface,
     top: 6,
   },
   safetyRangeLabels: {
@@ -353,7 +345,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   safetyRangeText: {
-    fontSize: 15,
-    color: '#111827',
+    color: AppTheme.color.text,
+    ...AppTheme.type.body,
   },
 });

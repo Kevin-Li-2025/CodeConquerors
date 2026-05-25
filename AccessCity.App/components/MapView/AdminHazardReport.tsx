@@ -12,11 +12,12 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../../services/api';
 import {
   aiAssistService,
   type HazardAiEnrichment,
 } from '../../services/aiAssist.service';
+import { hazardsService } from '../../services/hazards.service';
+import { dashboardService } from '../../services/system.service';
 
 type ReviewStatus = 'pending' | 'approved' | 'rejected';
 
@@ -268,9 +269,12 @@ export default function AdminHazardReport({ onClose }: AdminHazardReportProps) {
         setLoadingList(true);
       }
 
-      const response = await api.get<any[]>('/hazards');
+      const pages = await Promise.all([
+        hazardsService.getHazardsPage({ status: 'Reported', limit: 100 }),
+        hazardsService.getHazardsPage({ status: 'UnderReview', limit: 100 }),
+      ]);
 
-      const allItems = Array.isArray(response) ? response : [];
+      const allItems = pages.flatMap((page) => page.items);
 
       const pendingItems = allItems.filter((item) => isPendingStatus(item.status));
 
@@ -299,13 +303,19 @@ export default function AdminHazardReport({ onClose }: AdminHazardReportProps) {
       setAiEnrichmentError(null);
 
       const [response, enrichment] = await Promise.all([
-        api.get<any>(`/hazards/${reportId}`),
+        hazardsService.getHazardById(reportId),
         aiAssistService.getHazardEnrichment(reportId).catch((error) => {
           console.warn('AI enrichment unavailable:', error);
           setAiEnrichmentError('Review signals unavailable');
           return null;
         }),
       ]);
+
+      if (!response) {
+        Alert.alert('Error', 'Report no longer exists.');
+        return;
+      }
+
       const mapped = mapHazardDetails(response);
 
       setSelectedReportId(reportId);
@@ -327,8 +337,8 @@ export default function AdminHazardReport({ onClose }: AdminHazardReportProps) {
     try {
       setSubmittingDecision(true);
 
-      await api.patch(
-        `/hazards/${selectedReportId}`,
+      await hazardsService.updateHazardStatus(
+        selectedReportId,
         status === 'approved' ? HAZARD_STATUS.Acknowledged : HAZARD_STATUS.Dismissed
       );
 
@@ -360,13 +370,11 @@ export default function AdminHazardReport({ onClose }: AdminHazardReportProps) {
 
   async function fetchReviewStats() {
     try {
-      const response = await api.get<any>('/dashboard/summary');
+      const response = await dashboardService.getSummary();
 
       setReviewStats((prev) => ({
         reviewedToday: prev.reviewedToday, 
-        waitingForReview: Number(
-          response?.pendingAlerts ?? response?.PendingAlerts ?? prev.waitingForReview ?? 0
-        ),
+        waitingForReview: Number(response?.pendingAlerts ?? prev.waitingForReview ?? 0),
       }));
     } catch (error) {
       console.error('Failed to fetch review stats:', error);

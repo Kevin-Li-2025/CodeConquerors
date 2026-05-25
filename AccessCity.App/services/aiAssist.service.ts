@@ -34,10 +34,76 @@ export type HazardAiEnrichment = {
   guardrails: string[];
 };
 
+export type RouteExplanationResponse = {
+  forRouteDecision: boolean;
+  provider: string;
+  explanation: string;
+  reasons: string[];
+  limitations: string[];
+  generatedAtUtc: string;
+};
+
+export type AccessibilityAiReviewResult = {
+  infrastructureAssetId: number;
+  forRouteDecision: boolean;
+  provider: string;
+  generatedAtUtc: string;
+  adminSummary: string;
+  missingAttributeCandidates: MissingOsmAttributeCandidate[];
+  verificationChecklist: string[];
+  guardrails: string[];
+};
+
+export type AccessibilityAiInferenceRequest = {
+  observationText: string;
+  photos?: Array<Record<string, unknown>>;
+  includeDraftVerification?: boolean;
+};
+
+export type AccessibilityAiInferenceResult = {
+  infrastructureAssetId: number;
+  forRouteDecision: boolean;
+  provider: string;
+  model: string;
+  generatedAtUtc: string;
+  adminSummary: string;
+  attributeCandidates: MissingOsmAttributeCandidate[];
+  draftVerification?: Record<string, unknown> | null;
+  guardrails: string[];
+  limitations: string[];
+};
+
 export const aiAssistService = {
   async getHazardEnrichment(hazardId: string): Promise<HazardAiEnrichment> {
     return api.get<HazardAiEnrichment>(
       `/ai-assist/hazards/${encodeURIComponent(hazardId)}/enrichment`
+    );
+  },
+
+  async explainRoute(routeRequest: unknown, route: unknown): Promise<RouteExplanationResponse> {
+    return api.post<RouteExplanationResponse>(
+      '/ai-assist/route-explanation',
+      {
+        routeRequest,
+        route,
+      },
+      { skipAuth: true }
+    );
+  },
+
+  async getAccessibilityReview(assetId: number): Promise<AccessibilityAiReviewResult> {
+    return api.get<AccessibilityAiReviewResult>(
+      `/ai-assist/infrastructure/${encodeURIComponent(String(assetId))}/accessibility-review`
+    );
+  },
+
+  async generateAccessibilityCandidates(
+    assetId: number,
+    request: AccessibilityAiInferenceRequest
+  ): Promise<AccessibilityAiInferenceResult> {
+    return api.post<AccessibilityAiInferenceResult>(
+      `/ai-assist/infrastructure/${encodeURIComponent(String(assetId))}/accessibility-candidates`,
+      request
     );
   },
 };

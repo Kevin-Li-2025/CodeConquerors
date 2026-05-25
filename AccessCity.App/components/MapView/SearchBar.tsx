@@ -8,6 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { AppTheme } from '@/constants/theme';
 
 export type SearchSuggestion = {
   id: string;
@@ -37,12 +38,12 @@ export default function SearchBar({
   return (
     <View style={styles.wrapper}>
       <View style={styles.container}>
-        <Ionicons name="search-outline" size={22} color="#9CA3AF" />
+        <Ionicons name="search-outline" size={22} color={AppTheme.color.textSubtle} />
 
         <TextInput
           style={styles.input}
           placeholder="Search destination in Birmingham…"
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={AppTheme.color.textSubtle}
           value={value}
           onChangeText={onChangeText}
           onSubmitEditing={onSubmitEditing}
@@ -51,7 +52,7 @@ export default function SearchBar({
 
         {value.trim().length > 0 && (
           <TouchableOpacity onPress={onClear} style={styles.clearButton}>
-            <Ionicons name="close-circle" size={22} color="#9CA3AF" />
+            <Ionicons name="close-circle" size={22} color={AppTheme.color.textSubtle} />
           </TouchableOpacity>
         )}
       </View>
@@ -71,7 +72,7 @@ export default function SearchBar({
               ]}
               onPress={() => onSuggestionPress(suggestion)}
             >
-              <Ionicons name="location-outline" size={18} color="#0F3D91" />
+              <Ionicons name="location-outline" size={18} color={AppTheme.color.primary} />
 
               <View style={styles.suggestionTextContainer}>
                 <Text style={styles.suggestionTitle} numberOfLines={1}>
@@ -96,26 +97,28 @@ const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
     top: 58,
-    left: 16,
+    left: AppTheme.space.lg,
     right: 84,
     zIndex: 20,
   },
 
   container: {
     height: 56,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 28,
+    backgroundColor: AppTheme.color.surface,
+    borderRadius: AppTheme.radius.pill,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    elevation: 4,
+    paddingHorizontal: AppTheme.space.lg,
+    ...AppTheme.shadow.card,
   },
 
   input: {
     flex: 1,
     marginLeft: 10,
-    fontSize: 18,
-    color: '#111827',
+    color: AppTheme.color.text,
+    ...AppTheme.type.body,
   },
 
   clearButton: {
@@ -126,9 +129,11 @@ const styles = StyleSheet.create({
   suggestionsContainer: {
     marginTop: 8,
     maxHeight: 260,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    elevation: 5,
+    backgroundColor: AppTheme.color.surface,
+    borderRadius: AppTheme.radius.lg,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    ...AppTheme.shadow.floating,
   },
 
   suggestionsContent: {
@@ -138,10 +143,10 @@ const styles = StyleSheet.create({
   suggestionItem: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingHorizontal: 16,
+    paddingHorizontal: AppTheme.space.lg,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: AppTheme.color.border,
   },
 
   suggestionItemLast: {
@@ -154,15 +159,13 @@ const styles = StyleSheet.create({
   },
 
   suggestionTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#111827',
+    color: AppTheme.color.text,
+    ...AppTheme.type.cardTitle,
   },
 
   suggestionSubtitle: {
     marginTop: 2,
-    fontSize: 13,
-    color: '#6B7280',
-    lineHeight: 18,
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.meta,
   },
 });

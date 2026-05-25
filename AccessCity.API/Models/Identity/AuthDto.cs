@@ -29,4 +29,20 @@ namespace AccessCity.API.Models.Identity
         [Required] string Token,
         [Required, MinLength(8)] string NewPassword
     );
+
+    public record OAuthProviderResponse(
+        string Provider,
+        string DisplayName,
+        bool Configured
+    );
+
+    public record OAuthAuthorizeResponse(
+        string Provider,
+        string AuthorizationUrl
+    );
+
+    public record OAuthCodeExchangeRequest(
+        [Required] string Code,
+        [Required] string RedirectUri
+    );
 }

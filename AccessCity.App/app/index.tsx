@@ -10,10 +10,10 @@ import {
   SafeAreaView,
   KeyboardAvoidingView,
   Platform,
-  Dimensions,
   StatusBar,
   ActivityIndicator,
   Pressable,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AntDesign, FontAwesome, Ionicons } from "@expo/vector-icons";
@@ -30,8 +30,7 @@ import { useAuth } from "@/context/AuthContext";
 import { authService } from "@/services/auth.service";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { useFormAnimation } from "@/hooks/use-form-animation";
-
-const { width, height } = Dimensions.get("window");
+import { AppTheme } from "@/constants/theme";
 
 export default function AuthScreen() {
   const [isSignup, setIsSignup] = useState(false);
@@ -48,7 +47,6 @@ export default function AuthScreen() {
   
   const { signIn, signUp, isAuthenticated } = useAuth();
   const { shake, shakeStyle } = useFormAnimation();
-  const animation = useSharedValue(0);
   const contentOpacity = useSharedValue(0);
   const headerTranslateY = useSharedValue(-50);
 
@@ -61,13 +59,27 @@ export default function AuthScreen() {
   }, [contentOpacity, headerTranslateY, isAuthenticated]);
 
   useEffect(() => {
-    animation.value = withSpring(isSignup ? 1 : 0, {
-      damping: 20,
-      stiffness: 90,
-    });
     setError(null);
     setSuccessMsg(null);
-  }, [isSignup, animation]);
+  }, [isSignup]);
+
+  const handleSocialAuth = (provider: string) => {
+    void (async () => {
+      try {
+        const redirectUri = Platform.OS === 'web' && typeof window !== 'undefined'
+          ? `${window.location.origin}/login`
+          : 'accesscity://auth/callback';
+        const response = await authService.createOAuthAuthorizeUrl(provider.toLowerCase(), redirectUri);
+        const WebBrowser = await import('expo-web-browser');
+        await WebBrowser.openBrowserAsync(response.authorizationUrl);
+      } catch (error: any) {
+        Alert.alert(
+          `${provider} auth`,
+          error?.message || "OAuth is not configured for this build yet. Use email and password for this demo."
+        );
+      }
+    })();
+  };
 
   const handleSubmit = async () => {
     setError(null);
@@ -113,16 +125,6 @@ export default function AuthScreen() {
     }
   };
 
-  const animatedSwitchStyle = useAnimatedStyle(() => {
-    // Total horizontal padding: Outer(20*2) + Card(24*2) + TabContainer(4*2) = 88 + 8 = 96
-    const availableWidth = width - 88 - 8;
-    const tabWidth = availableWidth / 2;
-    const translateX = interpolate(animation.value, [0, 1], [4, tabWidth + 4]);
-    return {
-      transform: [{ translateX }],
-    };
-  });
-
   const animatedHeaderStyle = useAnimatedStyle(() => {
     return {
       opacity: contentOpacity.value,
@@ -139,14 +141,7 @@ export default function AuthScreen() {
 
   return (
     <View style={styles.mainContainer}>
-      <StatusBar barStyle="light-content" />
-      <LinearGradient
-        colors={["#0F172A", "#111827"]}
-        style={StyleSheet.absoluteFill}
-      />
-      
-      {/* Subtle Background Glow */}
-      <View style={[styles.blurCircle, { top: -100, right: -100, backgroundColor: "#3B82F615", width: 400, height: 400 }]} />
+      <StatusBar barStyle="dark-content" />
 
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
@@ -179,15 +174,14 @@ export default function AuthScreen() {
               {!isForgot ? (
                 <>
                   <View style={styles.tabContainer}>
-                    <Animated.View style={[styles.tabSlider, animatedSwitchStyle]} />
                     <Pressable
-                      style={styles.tab}
+                      style={[styles.tab, !isSignup && styles.tabActive]}
                       onPress={() => setIsSignup(false)}
                     >
                       <Text style={[styles.tabText, !isSignup && styles.tabTextActive]}>Log In</Text>
                     </Pressable>
                     <Pressable
-                      style={styles.tab}
+                      style={[styles.tab, isSignup && styles.tabActive]}
                       onPress={() => setIsSignup(true)}
                     >
                       <Text style={[styles.tabText, isSignup && styles.tabTextActive]}>Sign Up</Text>
@@ -196,47 +190,56 @@ export default function AuthScreen() {
 
                   <View style={styles.form}>
                     {isSignup && (
-                      <View style={[styles.inputWrapper, isNameFocused && styles.inputWrapperFocused]}>
-                        <Ionicons name="person-outline" size={20} color={isNameFocused ? "#3B82F6" : "#64748B"} />
-                        <TextInput
-                          placeholder="Full Name"
-                          placeholderTextColor="#64748B"
-                          style={styles.input}
-                          value={fullName}
-                          onChangeText={setFullName}
-                          onFocus={() => setIsNameFocused(true)}
-                          onBlur={() => setIsNameFocused(false)}
-                        />
+                      <View style={styles.fieldGroup}>
+                        <Text style={styles.inputLabel}>Full name</Text>
+                        <View style={[styles.inputWrapper, isNameFocused && styles.inputWrapperFocused]}>
+                          <Ionicons name="person-outline" size={20} color={isNameFocused ? AppTheme.color.primary : AppTheme.color.textMuted} />
+                          <TextInput
+                            placeholder="Full Name"
+                            placeholderTextColor={AppTheme.color.textSubtle}
+                            style={styles.input}
+                            value={fullName}
+                            onChangeText={setFullName}
+                            onFocus={() => setIsNameFocused(true)}
+                            onBlur={() => setIsNameFocused(false)}
+                          />
+                        </View>
                       </View>
                     )}
 
-                    <View style={[styles.inputWrapper, isEmailFocused && styles.inputWrapperFocused]}>
-                      <Ionicons name="mail-outline" size={20} color={isEmailFocused ? "#3B82F6" : "#64748B"} />
-                      <TextInput
-                        placeholder="Email Address"
-                        placeholderTextColor="#64748B"
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        style={styles.input}
-                        value={email}
-                        onChangeText={setEmail}
-                        onFocus={() => setIsEmailFocused(true)}
-                        onBlur={() => setIsEmailFocused(false)}
-                      />
+                    <View style={styles.fieldGroup}>
+                      <Text style={styles.inputLabel}>Email address</Text>
+                      <View style={[styles.inputWrapper, isEmailFocused && styles.inputWrapperFocused]}>
+                        <Ionicons name="mail-outline" size={20} color={isEmailFocused ? AppTheme.color.primary : AppTheme.color.textMuted} />
+                        <TextInput
+                          placeholder="Email Address"
+                          placeholderTextColor={AppTheme.color.textSubtle}
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                          style={styles.input}
+                          value={email}
+                          onChangeText={setEmail}
+                          onFocus={() => setIsEmailFocused(true)}
+                          onBlur={() => setIsEmailFocused(false)}
+                        />
+                      </View>
                     </View>
 
-                    <View style={[styles.inputWrapper, isPasswordFocused && styles.inputWrapperFocused]}>
-                      <Ionicons name="lock-closed-outline" size={20} color={isPasswordFocused ? "#3B82F6" : "#64748B"} />
-                      <TextInput
-                        placeholder="Password"
-                        placeholderTextColor="#64748B"
-                        secureTextEntry
-                        style={styles.input}
-                        value={password}
-                        onChangeText={setPassword}
-                        onFocus={() => setIsPasswordFocused(true)}
-                        onBlur={() => setIsPasswordFocused(false)}
-                      />
+                    <View style={styles.fieldGroup}>
+                      <Text style={styles.inputLabel}>Password</Text>
+                      <View style={[styles.inputWrapper, isPasswordFocused && styles.inputWrapperFocused]}>
+                        <Ionicons name="lock-closed-outline" size={20} color={isPasswordFocused ? AppTheme.color.primary : AppTheme.color.textMuted} />
+                        <TextInput
+                          placeholder="Password"
+                          placeholderTextColor={AppTheme.color.textSubtle}
+                          secureTextEntry
+                          style={styles.input}
+                          value={password}
+                          onChangeText={setPassword}
+                          onFocus={() => setIsPasswordFocused(true)}
+                          onBlur={() => setIsPasswordFocused(false)}
+                        />
+                      </View>
                     </View>
 
                     <ErrorMessage visible={!!error} message={error ?? undefined} />
@@ -260,19 +263,19 @@ export default function AuthScreen() {
                       style={styles.mainBtnContainer}
                     >
                       <LinearGradient
-                        colors={["#3B82F6", "#2563EB"]}
+                        colors={[AppTheme.color.primary, AppTheme.color.primaryDark]}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
                         style={styles.mainBtn}
                       >
                         {isSubmitting ? (
-                          <ActivityIndicator color="#FFF" />
+                          <ActivityIndicator color={AppTheme.color.textInverse} />
                         ) : (
                           <>
                             <Text style={styles.mainBtnText}>
                               {isSignup ? "Create Account" : "Sign In"}
                             </Text>
-                            <Ionicons name="arrow-forward" size={18} color="#FFF" style={{ marginLeft: 6 }} />
+                            <Ionicons name="arrow-forward" size={18} color={AppTheme.color.textInverse} style={{ marginLeft: 6 }} />
                           </>
                         )}
                       </LinearGradient>
@@ -285,11 +288,11 @@ export default function AuthScreen() {
                     </View>
 
                     <View style={styles.socialRow}>
-                      <TouchableOpacity style={styles.socialBtn}>
-                        <AntDesign name="google" size={22} color="#FFF" />
+                      <TouchableOpacity style={styles.socialBtn} onPress={() => handleSocialAuth("Google")}>
+                        <AntDesign name="google" size={22} color="#EA4335" />
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.socialBtn}>
-                        <FontAwesome name="apple" size={24} color="#FFF" />
+                      <TouchableOpacity style={styles.socialBtn} onPress={() => handleSocialAuth("Apple")}>
+                        <FontAwesome name="apple" size={24} color={AppTheme.color.text} />
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -302,24 +305,27 @@ export default function AuthScreen() {
                     reset your password.
                   </Text>
                   
-                  <View style={[styles.inputWrapper, isEmailFocused && styles.inputWrapperFocused]}>
-                    <Ionicons name="mail-outline" size={20} color={isEmailFocused ? "#3B82F6" : "#64748B"} />
-                    <TextInput
-                      placeholder="Email Address"
-                      placeholderTextColor="#64748B"
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      style={styles.input}
-                      value={email}
-                      onChangeText={setEmail}
-                      onFocus={() => setIsEmailFocused(true)}
-                      onBlur={() => setIsEmailFocused(false)}
-                    />
+                  <View style={styles.fieldGroup}>
+                    <Text style={styles.inputLabel}>Email address</Text>
+                    <View style={[styles.inputWrapper, isEmailFocused && styles.inputWrapperFocused]}>
+                      <Ionicons name="mail-outline" size={20} color={isEmailFocused ? AppTheme.color.primary : AppTheme.color.textMuted} />
+                      <TextInput
+                        placeholder="Email Address"
+                        placeholderTextColor={AppTheme.color.textSubtle}
+                        keyboardType="email-address"
+                        autoCapitalize="none"
+                        style={styles.input}
+                        value={email}
+                        onChangeText={setEmail}
+                        onFocus={() => setIsEmailFocused(true)}
+                        onBlur={() => setIsEmailFocused(false)}
+                      />
+                    </View>
                   </View>
 
                   {successMsg && (
                     <View style={styles.successContainer}>
-                      <Ionicons name="checkmark-circle" size={18} color="#10B981" />
+                      <Ionicons name="checkmark-circle" size={18} color={AppTheme.color.accent} />
                       <Text style={styles.successText}>{successMsg}</Text>
                     </View>
                   )}
@@ -333,13 +339,13 @@ export default function AuthScreen() {
                     style={styles.mainBtnContainer}
                   >
                     <LinearGradient
-                      colors={["#3B82F6", "#2563EB"]}
+                      colors={[AppTheme.color.primary, AppTheme.color.primaryDark]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                       style={styles.mainBtn}
                     >
                       {isSubmitting ? (
-                        <ActivityIndicator color="#FFF" />
+                        <ActivityIndicator color={AppTheme.color.textInverse} />
                       ) : (
                         <Text style={styles.mainBtnText}>Send Reset Link</Text>
                       )}
@@ -354,7 +360,7 @@ export default function AuthScreen() {
                     }}
                     style={styles.backBtn}
                   >
-                    <Ionicons name="arrow-back" size={16} color="#64748B" />
+                    <Ionicons name="arrow-back" size={16} color={AppTheme.color.textMuted} />
                     <Text style={styles.backBtnText}>Back to Login</Text>
                   </TouchableOpacity>
                 </View>
@@ -376,25 +382,23 @@ export default function AuthScreen() {
 const styles = StyleSheet.create({
   mainContainer: {
     flex: 1,
-    backgroundColor: "#0F172A",
+    backgroundColor: AppTheme.color.background,
   },
   safeArea: {
     flex: 1,
-  },
-  blurCircle: {
-    position: "absolute",
-    borderRadius: 200,
-    opacity: 0.4,
   },
   scrollContent: {
     flexGrow: 1,
     paddingHorizontal: 20,
     paddingBottom: 40,
+    alignItems: "center",
   },
   header: {
     alignItems: "center",
-    marginTop: height * 0.06,
-    marginBottom: 32,
+    width: "100%",
+    maxWidth: AppTheme.layout.maxFormWidth,
+    marginTop: 36,
+    marginBottom: 24,
   },
   logoContainer: {
     position: "relative",
@@ -411,104 +415,110 @@ const styles = StyleSheet.create({
     left: 5,
     right: 5,
     bottom: 5,
-    backgroundColor: "#3B82F6",
+    backgroundColor: AppTheme.color.primarySoft,
     borderRadius: 40,
-    opacity: 0.2,
+    opacity: 1,
     transform: [{ scale: 1.3 }],
   },
   title: {
     fontSize: 32,
     fontWeight: "900",
-    color: "#FFFFFF",
-    letterSpacing: -1,
+    color: AppTheme.color.text,
+    letterSpacing: 0,
   },
   cityText: {
-    color: "#3B82F6",
+    color: AppTheme.color.primary,
   },
   subtitle: {
     fontSize: 15,
-    color: "#64748B",
+    color: AppTheme.color.textMuted,
     marginTop: 6,
     fontWeight: "500",
     textAlign: "center",
   },
   authCard: {
-    backgroundColor: "rgba(30, 41, 59, 0.4)",
-    borderRadius: 28,
+    width: "100%",
+    maxWidth: AppTheme.layout.maxFormWidth,
+    backgroundColor: AppTheme.color.surface,
+    borderRadius: AppTheme.radius.xl,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.08)",
+    borderColor: AppTheme.color.border,
     padding: 24,
-    shadowColor: "#000",
+    shadowColor: AppTheme.color.shadow,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.08,
     shadowRadius: 20,
     elevation: 5,
   },
   tabContainer: {
     flexDirection: "row",
-    backgroundColor: "rgba(15, 23, 42, 0.6)",
-    borderRadius: 14,
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    borderRadius: AppTheme.radius.md,
     padding: 4,
     marginBottom: 24,
     position: "relative",
   },
-  tabSlider: {
-    position: "absolute",
-    top: 4,
-    bottom: 4,
-    left: 4,
-    width: (width - 88 - 8) / 2,
-    backgroundColor: "#3B82F6",
-    borderRadius: 10,
-  },
   tab: {
     flex: 1,
-    paddingVertical: 10,
+    minHeight: AppTheme.layout.minTouchTarget,
     alignItems: "center",
+    justifyContent: "center",
     zIndex: 1,
+    borderRadius: AppTheme.radius.sm,
+  },
+  tabActive: {
+    backgroundColor: AppTheme.color.primary,
   },
   tabText: {
     fontSize: 14,
     fontWeight: "700",
-    color: "#64748B",
+    color: AppTheme.color.textMuted,
   },
   tabTextActive: {
-    color: "#FFFFFF",
+    color: AppTheme.color.textInverse,
   },
   form: {
-    gap: 12,
+    gap: 14,
   },
   forgotHeaderTitle: {
     fontSize: 24,
     fontWeight: "800",
-    color: "#FFFFFF",
+    color: AppTheme.color.text,
     marginBottom: 8,
   },
   forgotSubtitle: {
     fontSize: 14,
-    color: "#64748B",
+    color: AppTheme.color.textMuted,
     lineHeight: 20,
     marginBottom: 12,
+  },
+  fieldGroup: {
+    gap: 8,
+  },
+  inputLabel: {
+    color: AppTheme.color.text,
+    fontSize: 13,
+    fontWeight: "700",
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(15, 23, 42, 0.5)",
-    borderRadius: 14,
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    borderRadius: AppTheme.radius.md,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.03)",
+    borderColor: AppTheme.color.border,
     paddingHorizontal: 16,
-    height: 56,
+    minHeight: 56,
   },
   inputWrapperFocused: {
-    borderColor: "rgba(59, 130, 246, 0.5)",
-    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    borderColor: AppTheme.color.primary,
+    backgroundColor: AppTheme.color.surface,
   },
   input: {
     flex: 1,
     marginLeft: 12,
     fontSize: 15,
-    color: "#FFFFFF",
+    color: AppTheme.color.text,
     fontWeight: "500",
   },
   forgotBtn: {
@@ -516,13 +526,13 @@ const styles = StyleSheet.create({
     marginTop: -2,
   },
   forgotText: {
-    color: "#3B82F6",
+    color: AppTheme.color.primary,
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   mainBtnContainer: {
     marginTop: 8,
-    borderRadius: 14,
+    borderRadius: AppTheme.radius.md,
     overflow: "hidden",
   },
   mainBtn: {
@@ -532,10 +542,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   mainBtnText: {
-    color: "#FFFFFF",
+    color: AppTheme.color.surface,
     fontSize: 16,
     fontWeight: "800",
-    letterSpacing: 0.5,
+    letterSpacing: 0,
   },
   backBtn: {
     flexDirection: "row",
@@ -545,14 +555,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   backBtnText: {
-    color: "#64748B",
+    color: AppTheme.color.textMuted,
     fontSize: 14,
     fontWeight: "600",
   },
   successContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "rgba(16, 185, 129, 0.1)",
+    backgroundColor: AppTheme.color.accentSoft,
     padding: 12,
     borderRadius: 12,
     gap: 10,
@@ -560,7 +570,7 @@ const styles = StyleSheet.create({
   },
   successText: {
     flex: 1,
-    color: "#10B981",
+    color: AppTheme.color.accent,
     fontSize: 13,
     fontWeight: "600",
     lineHeight: 18,
@@ -573,14 +583,14 @@ const styles = StyleSheet.create({
   line: {
     flex: 1,
     height: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    backgroundColor: AppTheme.color.border,
   },
   dividerText: {
     marginHorizontal: 12,
     fontSize: 11,
-    color: "#475569",
+    color: AppTheme.color.textSubtle,
     fontWeight: "800",
-    letterSpacing: 1.5,
+    letterSpacing: 0,
   },
   socialRow: {
     flexDirection: "row",
@@ -590,10 +600,10 @@ const styles = StyleSheet.create({
   socialBtn: {
     width: 52,
     height: 52,
-    borderRadius: 14,
-    backgroundColor: "rgba(255, 255, 255, 0.03)",
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: AppTheme.color.surfaceSubtle,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.05)",
+    borderColor: AppTheme.color.border,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -602,12 +612,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   footerText: {
-    color: "#475569",
+    color: AppTheme.color.textMuted,
     fontSize: 13,
     fontWeight: "500",
   },
   footerLink: {
-    color: "#64748B",
+    color: AppTheme.color.primary,
     fontWeight: "700",
   },
 });

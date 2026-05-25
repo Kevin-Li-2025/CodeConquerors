@@ -1,12 +1,16 @@
 import React from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, type DimensionValue } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { AppTheme } from '@/constants/theme';
 
 type RouteInfoCardProps = {
   visible: boolean;
   travelTime: string;
   distance: string;
   safetyScore: string;
+  optionCount?: number;
+  warnings?: string[];
+  explanation?: string | null;
   onPressRoute: () => void;
   onStartNavigation: () => void;
 };
@@ -16,6 +20,9 @@ export default function RouteInfoCard({
   travelTime,
   distance,
   safetyScore,
+  optionCount = 0,
+  warnings = [],
+  explanation,
   onPressRoute,
   onStartNavigation,
 }: RouteInfoCardProps) {
@@ -50,7 +57,7 @@ export default function RouteInfoCard({
     return (
       <View style={styles.compactCard}>
         <View style={styles.leftIconCircle}>
-          <Ionicons name="navigate-outline" size={24} color="#FFFFFF" />
+          <Ionicons name="navigate-outline" size={24} color={AppTheme.color.textInverse} />
         </View>
 
         <View style={styles.textSection}>
@@ -71,13 +78,15 @@ export default function RouteInfoCard({
     <View style={styles.expandedCard}>
       <View style={styles.handleBar} />
 
-      <Text style={styles.recommendedText}>Recommended route</Text>
+      <Text style={styles.recommendedText}>
+        {optionCount > 0 ? `Recommended from ${optionCount + 1} options` : 'Recommended route'}
+      </Text>
       <Text style={styles.destinationTitle}>User&apos;s destination</Text>
 
       <View style={styles.scoreCard}>
         <View style={styles.scoreHeaderRow}>
           <View style={styles.scoreLabelRow}>
-            <Ionicons name="shield-outline" size={20} color="#FFFFFF" />
+            <Ionicons name="shield-outline" size={20} color={AppTheme.color.textInverse} />
             <Text style={styles.scoreLabel}>Safety Score</Text>
           </View>
 
@@ -112,26 +121,28 @@ export default function RouteInfoCard({
         </View>
 
         <View style={styles.warningBanner}>
-          <Ionicons name="warning-outline" size={16} color="#FFFFFF" />
-          <Text style={styles.warningText}>2 minor hazards on this route</Text>
+          <Ionicons name="warning-outline" size={16} color={AppTheme.color.textInverse} />
+          <Text style={styles.warningText} numberOfLines={2}>
+            {warnings[0] || 'Route checked against current hazards and accessibility preferences'}
+          </Text>
         </View>
       </View>
 
       <View style={styles.statsRow}>
         <View style={styles.statItem}>
-          <Ionicons name="time-outline" size={22} color="#184A8C" />
+          <Ionicons name="time-outline" size={22} color={AppTheme.color.primary} />
           <Text style={styles.statValue}>{travelTime || '--'}</Text>
           <Text style={styles.statLabel}>Est. Time</Text>
         </View>
 
         <View style={styles.statItem}>
-          <Ionicons name="walk-outline" size={22} color="#184A8C" />
+          <Ionicons name="walk-outline" size={22} color={AppTheme.color.primary} />
           <Text style={styles.statValue}>{distance || '--'}</Text>
           <Text style={styles.statLabel}>Distance</Text>
         </View>
 
         <View style={styles.statItem}>
-          <Ionicons name="people-outline" size={22} color="#184A8C" />
+          <Ionicons name="people-outline" size={22} color={AppTheme.color.primary} />
           <Text style={styles.statValue}>{riskLevel}</Text>
           <Text style={styles.statLabel}>Risk Level</Text>
         </View>
@@ -139,13 +150,13 @@ export default function RouteInfoCard({
 
       <View style={styles.accessibilityBox}>
         <View style={styles.accessibilityIconBox}>
-          <Ionicons name="accessibility-outline" size={22} color="#2563EB" />
+          <Ionicons name="accessibility-outline" size={22} color={AppTheme.color.primary} />
         </View>
 
         <View style={styles.accessibilityTextWrap}>
           <Text style={styles.accessibilityTitle}>Wheelchair Accessible Route</Text>
           <Text style={styles.accessibilitySubtitle}>
-            This route includes step-free access and accessible crossings.
+            {explanation || 'This route uses backend routing preferences, live hazards, and accessibility weights.'}
           </Text>
         </View>
       </View>
@@ -154,7 +165,7 @@ export default function RouteInfoCard({
         style={styles.startNavigationButton}
         onPress={onStartNavigation}
       >
-        <Ionicons name="paper-plane-outline" size={20} color="#FFFFFF" />
+        <Ionicons name="paper-plane-outline" size={20} color={AppTheme.color.textInverse} />
         <Text style={styles.startNavigationText}>Start Navigation</Text>
       </TouchableOpacity>
     </View>
@@ -163,55 +174,51 @@ export default function RouteInfoCard({
 
 const styles = StyleSheet.create({
   compactCard: {
-    backgroundColor: '#184A8C',
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    elevation: 6,
+    backgroundColor: AppTheme.color.primaryDark,
+    borderRadius: AppTheme.radius.xl,
+    paddingHorizontal: AppTheme.space.lg,
+    paddingVertical: AppTheme.space.lg,
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: 100,
+    ...AppTheme.shadow.floating,
   },
 
   expandedCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 28,
-    padding: 18,
-    elevation: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
+    backgroundColor: AppTheme.color.surface,
+    borderRadius: AppTheme.radius.xl,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    padding: AppTheme.space.lg,
+    ...AppTheme.shadow.floating,
   },
 
   handleBar: {
     width: 56,
     height: 5,
     borderRadius: 999,
-    backgroundColor: '#CBD5E1',
+    backgroundColor: AppTheme.color.borderStrong,
     alignSelf: 'center',
     marginBottom: 14,
   },
 
   recommendedText: {
-    color: '#64748B',
-    fontSize: 15,
+    color: AppTheme.color.textMuted,
     marginBottom: 6,
-    fontWeight: '500',
+    ...AppTheme.type.body,
   },
 
   destinationTitle: {
-    color: '#0F172A',
-    fontSize: 20,
-    fontWeight: '800',
+    color: AppTheme.color.text,
     marginBottom: 14,
+    ...AppTheme.type.sectionTitle,
   },
 
   leftIconCircle: {
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.14)',
+    backgroundColor: 'rgba(255,255,255,0.16)',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 14,
@@ -223,16 +230,14 @@ const styles = StyleSheet.create({
   },
 
   routeTitle: {
-    color: '#FFFFFF',
-    fontSize: 21,
-    fontWeight: '800',
+    color: AppTheme.color.textInverse,
+    ...AppTheme.type.sectionTitle,
   },
 
   routeSubtitle: {
-    color: '#DCE8FF',
-    fontSize: 15,
+    color: AppTheme.color.primaryMuted,
     marginTop: 4,
-    lineHeight: 21,
+    ...AppTheme.type.body,
   },
 
   routeActionButton: {
@@ -240,23 +245,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.16)',
     paddingHorizontal: 18,
     paddingVertical: 13,
-    borderRadius: 18,
-    elevation: 4,
+    borderRadius: AppTheme.radius.lg,
     justifyContent: 'center',
     alignItems: 'center',
   },
 
   routeActionText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    color: AppTheme.color.textInverse,
+    ...AppTheme.type.cardTitle,
   },
 
   scoreCard: {
-    backgroundColor: '#14B8A6',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 18,
+    backgroundColor: AppTheme.color.accent,
+    borderRadius: AppTheme.radius.lg,
+    padding: AppTheme.space.lg,
+    marginBottom: AppTheme.space.lg,
     overflow: 'hidden',
   },
 
@@ -272,23 +275,21 @@ const styles = StyleSheet.create({
   },
 
   scoreLabel: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    color: AppTheme.color.textInverse,
     marginLeft: 8,
+    ...AppTheme.type.cardTitle,
   },
 
   optionsChip: {
     backgroundColor: 'rgba(255,255,255,0.18)',
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 16,
+    borderRadius: AppTheme.radius.md,
   },
 
   optionsChipText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '600',
+    color: AppTheme.color.textInverse,
+    ...AppTheme.type.meta,
   },
 
   scoreMainRow: {
@@ -298,14 +299,14 @@ const styles = StyleSheet.create({
   },
 
   scoreValue: {
-    color: '#FFFFFF',
+    color: AppTheme.color.textInverse,
     fontSize: 50,
     fontWeight: '800',
     lineHeight: 54,
   },
 
   scoreOutOf: {
-    color: '#FFFFFF',
+    color: AppTheme.color.textInverse,
     fontSize: 18,
     fontWeight: '700',
     marginLeft: 4,
@@ -313,11 +314,10 @@ const styles = StyleSheet.create({
   },
 
   scoreStatus: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    color: AppTheme.color.textInverse,
     marginTop: 6,
     marginBottom: 10,
+    ...AppTheme.type.cardTitle,
   },
 
   metricRow: {
@@ -327,15 +327,13 @@ const styles = StyleSheet.create({
   },
 
   metricLabel: {
-    color: '#E6FFFB',
-    fontSize: 14,
-    fontWeight: '500',
+    color: AppTheme.color.accentSoft,
+    ...AppTheme.type.meta,
   },
 
   metricValue: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
+    color: AppTheme.color.textInverse,
+    ...AppTheme.type.meta,
   },
 
   progressTrack: {
@@ -348,7 +346,7 @@ const styles = StyleSheet.create({
 
   progressFill: {
     height: '100%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: AppTheme.color.textInverse,
     borderRadius: 999,
   },
 
@@ -362,16 +360,15 @@ const styles = StyleSheet.create({
   },
 
   warningText: {
-    color: '#FFFFFF',
-    fontSize: 14,
+    color: AppTheme.color.textInverse,
     marginLeft: 8,
-    fontWeight: '500',
+    ...AppTheme.type.meta,
   },
 
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 18,
+    marginBottom: AppTheme.space.lg,
   },
 
   statItem: {
@@ -381,31 +378,30 @@ const styles = StyleSheet.create({
 
   statValue: {
     marginTop: 8,
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#0F172A',
+    color: AppTheme.color.text,
+    ...AppTheme.type.cardTitle,
   },
 
   statLabel: {
     marginTop: 4,
-    fontSize: 13,
-    color: '#64748B',
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.meta,
   },
 
   accessibilityBox: {
-    backgroundColor: '#EFF6FF',
-    borderRadius: 18,
-    padding: 14,
+    backgroundColor: AppTheme.color.primarySoft,
+    borderRadius: AppTheme.radius.lg,
+    padding: AppTheme.space.lg,
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 18,
+    marginBottom: AppTheme.space.lg,
   },
 
   accessibilityIconBox: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    backgroundColor: '#DBEAFE',
+    backgroundColor: AppTheme.color.surface,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -416,21 +412,19 @@ const styles = StyleSheet.create({
   },
 
   accessibilityTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#1E293B',
+    color: AppTheme.color.text,
     marginBottom: 4,
+    ...AppTheme.type.cardTitle,
   },
 
   accessibilitySubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: '#475569',
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.meta,
   },
 
   startNavigationButton: {
-    backgroundColor: '#184A8C',
-    borderRadius: 18,
+    backgroundColor: AppTheme.color.primary,
+    borderRadius: AppTheme.radius.lg,
     minHeight: 58,
     flexDirection: 'row',
     justifyContent: 'center',
@@ -438,9 +432,8 @@ const styles = StyleSheet.create({
   },
 
   startNavigationText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
+    color: AppTheme.color.textInverse,
     marginLeft: 8,
+    ...AppTheme.type.sectionTitle,
   },
 });

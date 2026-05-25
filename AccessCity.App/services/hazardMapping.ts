@@ -35,8 +35,10 @@ export function formatHazardTypeLabel(type?: string): string {
 
 export function formatHazardStatus(status?: number | string): string {
   if (status === 0) return 'Reported';
-  if (status === 1) return 'UnderReview';
-  if (status === 2) return 'Resolved';
+  if (status === 1) return 'Acknowledged';
+  if (status === 2) return 'UnderReview';
+  if (status === 3) return 'Resolved';
+  if (status === 4) return 'Dismissed';
   if (typeof status === 'string' && status.trim()) return status;
   return 'Reported';
 }

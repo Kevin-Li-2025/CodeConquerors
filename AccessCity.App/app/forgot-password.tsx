@@ -18,6 +18,7 @@ import { router } from "expo-router";
 import { authService } from "@/services/auth.service";
 import { ErrorMessage } from "@/components/ErrorMessage";
 import { useFormAnimation } from "@/hooks/use-form-animation";
+import { AppTheme } from "@/constants/theme";
 
 export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState("");
@@ -58,7 +59,7 @@ export default function ForgotPasswordScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.successContent}>
-          <Ionicons name="mail-unread-outline" size={80} color="#2563EB" />
+          <Ionicons name="mail-unread-outline" size={80} color={AppTheme.color.primary} />
           <Text style={styles.successTitle}>Check your email</Text>
           <Text style={styles.successText}>
             If an account exists for {email}, we&apos;ve sent a password reset
@@ -92,7 +93,7 @@ export default function ForgotPasswordScreen() {
             style={styles.headerBack} 
             onPress={() => router.back()}
           >
-            <Ionicons name="arrow-back" size={24} color="#1E293B" />
+            <Ionicons name="arrow-back" size={24} color={AppTheme.color.text} />
           </TouchableOpacity>
 
           <View style={styles.content}>
@@ -108,7 +109,7 @@ export default function ForgotPasswordScreen() {
               <View style={styles.inputGroup}>
                 <Text style={styles.inputLabel}>Email Address</Text>
                 <View style={styles.inputWrapper}>
-                  <Ionicons name="mail-outline" size={20} color="#64748B" style={styles.inputIcon} />
+                  <Ionicons name="mail-outline" size={20} color={AppTheme.color.textMuted} style={styles.inputIcon} />
                   <TextInput
                     style={styles.input}
                     placeholder="name@example.com"
@@ -129,11 +130,11 @@ export default function ForgotPasswordScreen() {
                 disabled={isSubmitting}
               >
                 <LinearGradient
-                  colors={["#2563EB", "#1D4ED8"]}
+                  colors={[AppTheme.color.primary, AppTheme.color.primaryDark]}
                   style={styles.mainButton}
                 >
                   {isSubmitting ? (
-                    <ActivityIndicator color="#FFF" />
+                    <ActivityIndicator color={AppTheme.color.textInverse} />
                   ) : (
                     <Text style={styles.mainButtonText}>Send Reset Link</Text>
                   )}
@@ -150,7 +151,7 @@ export default function ForgotPasswordScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: AppTheme.color.background,
   },
   flex: {
     flex: 1,
@@ -167,45 +168,39 @@ const styles = StyleSheet.create({
     paddingTop: 20,
   },
   title: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: "#1E293B",
+    color: AppTheme.color.text,
     marginBottom: 8,
-    letterSpacing: -0.5,
+    ...AppTheme.type.screenTitle,
   },
   subtitle: {
-    fontSize: 16,
-    color: "#64748B",
+    color: AppTheme.color.textMuted,
     marginBottom: 32,
-    lineHeight: 24,
+    ...AppTheme.type.body,
   },
   formCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    padding: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 10,
+    backgroundColor: AppTheme.color.surface,
+    borderRadius: AppTheme.radius.xl,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    padding: AppTheme.space.xl,
+    ...AppTheme.shadow.card,
   },
   inputGroup: {
     marginBottom: 24,
   },
   inputLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#475569",
+    color: AppTheme.color.textMuted,
     marginBottom: 8,
     marginLeft: 4,
+    ...AppTheme.type.meta,
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F1F5F9",
-    borderRadius: 16,
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    borderRadius: AppTheme.radius.md,
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: AppTheme.color.border,
     paddingHorizontal: 16,
     height: 56,
   },
@@ -214,23 +209,21 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontSize: 16,
-    color: "#1E293B",
+    color: AppTheme.color.text,
+    ...AppTheme.type.body,
   },
   mainButtonContainer: {
     marginTop: 8,
   },
   mainButton: {
     height: 56,
-    borderRadius: 16,
+    borderRadius: AppTheme.radius.md,
     justifyContent: "center",
     alignItems: "center",
   },
   mainButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+    color: AppTheme.color.textInverse,
+    ...AppTheme.type.cardTitle,
   },
   successContent: {
     flex: 1,
@@ -239,26 +232,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 40,
   },
   successTitle: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#1E293B",
+    color: AppTheme.color.text,
     marginTop: 24,
     marginBottom: 12,
+    ...AppTheme.type.headline,
   },
   successText: {
-    fontSize: 16,
-    color: "#64748B",
+    color: AppTheme.color.textMuted,
     textAlign: "center",
-    lineHeight: 24,
     marginBottom: 32,
+    ...AppTheme.type.body,
   },
   backButton: {
     marginTop: 16,
     padding: 12,
   },
   backButtonText: {
-    color: "#64748B",
-    fontSize: 15,
-    fontWeight: "600",
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.body,
   },
 });

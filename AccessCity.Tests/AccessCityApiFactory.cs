@@ -198,6 +198,7 @@ public class AccessCityApiFactory : WebApplicationFactory<Program>
                         'processed_integration_messages',
                         'osm_import_jobs',
                         'feed_ingestion_runs',
+                        'support_contact_submissions',
                         'AspNetUsers'
                     ]
                     LOOP

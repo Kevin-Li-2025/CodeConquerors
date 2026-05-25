@@ -17,15 +17,26 @@ namespace AccessCity.API.Controllers;
 [Route("api/v{version:apiVersion}/[controller]")]
 public class HazardsController : ControllerBase
 {
+    private const long MaxHazardPhotoBytes = 8 * 1024 * 1024;
+    private static readonly HashSet<string> AllowedPhotoContentTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+    };
+
     private readonly IHazardReportService _hazards;
     private readonly IHubContext<HazardAlertHub> _alertHub;
+    private readonly IWebHostEnvironment _environment;
 
     public HazardsController(
         IHazardReportService hazards,
-        IHubContext<HazardAlertHub> alertHub)
+        IHubContext<HazardAlertHub> alertHub,
+        IWebHostEnvironment environment)
     {
         _hazards = hazards;
         _alertHub = alertHub;
+        _environment = environment;
     }
 
     /// <summary>
@@ -43,6 +54,35 @@ public class HazardsController : ControllerBase
     {
         var hazards = await _hazards.GetHazardsAsync(minLat, minLng, maxLat, maxLng, status, cancellationToken);
         return Ok(hazards);
+    }
+
+    /// <summary>
+    /// Lists persisted hazard reports with bounded keyset pagination for interactive clients.
+    /// </summary>
+    [HttpGet("page")]
+    [ProducesResponseType(typeof(HazardPageResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<HazardPageResponse>> GetHazardsPage(
+        [FromQuery] double? minLat,
+        [FromQuery] double? minLng,
+        [FromQuery] double? maxLat,
+        [FromQuery] double? maxLng,
+        [FromQuery] HazardStatus? status,
+        [FromQuery] int? limit,
+        [FromQuery] string? cursor,
+        CancellationToken cancellationToken = default)
+    {
+        var page = await _hazards.GetHazardsPageAsync(
+            minLat,
+            minLng,
+            maxLat,
+            maxLng,
+            status,
+            limit,
+            cursor,
+            cancellationToken);
+
+        return Ok(page);
     }
 
     /// <summary>
@@ -91,4 +131,99 @@ public class HazardsController : ControllerBase
 
         return NoContent();
     }
+
+    /// <summary>
+    /// Attaches an uploaded image to a persisted hazard report.
+    /// </summary>
+    [HttpPost("{id:guid}/photo")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(MaxHazardPhotoBytes)]
+    [ProducesResponseType(typeof(HazardPhotoUploadResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<HazardPhotoUploadResponse>> UploadHazardPhoto(
+        Guid id,
+        [FromForm] IFormFile file,
+        CancellationToken cancellationToken = default)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(new ApiError("Photo file is required."));
+        }
+
+        if (file.Length > MaxHazardPhotoBytes)
+        {
+            return BadRequest(new ApiError("Photo file must be 8 MB or smaller."));
+        }
+
+        if (!AllowedPhotoContentTypes.Contains(file.ContentType))
+        {
+            return BadRequest(new ApiError("Photo must be JPEG, PNG, or WebP."));
+        }
+
+        var extension = file.ContentType.Equals("image/png", StringComparison.OrdinalIgnoreCase)
+            ? ".png"
+            : file.ContentType.Equals("image/webp", StringComparison.OrdinalIgnoreCase)
+                ? ".webp"
+                : ".jpg";
+
+        var uploadRoot = ResolvePhotoUploadRoot();
+        Directory.CreateDirectory(uploadRoot);
+
+        var fileName = $"{id:N}-{Guid.NewGuid():N}{extension}";
+        var filePath = Path.Combine(uploadRoot, fileName);
+        await using (var stream = System.IO.File.Create(filePath))
+        {
+            await file.CopyToAsync(stream, cancellationToken);
+        }
+
+        var photoUrl = $"/api/v1/hazards/photos/{Uri.EscapeDataString(fileName)}";
+        var hazard = await _hazards.UpdatePhotoAsync(id, photoUrl, cancellationToken);
+        if (hazard is null)
+        {
+            System.IO.File.Delete(filePath);
+            return NotFound();
+        }
+
+        return Ok(new HazardPhotoUploadResponse(id, photoUrl, file.Length, file.ContentType));
+    }
+
+    /// <summary>
+    /// Serves hazard images uploaded through the API.
+    /// </summary>
+    [HttpGet("photos/{fileName}")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public IActionResult GetHazardPhoto(string fileName)
+    {
+        var safeFileName = Path.GetFileName(fileName);
+        if (string.IsNullOrWhiteSpace(safeFileName))
+        {
+            return NotFound();
+        }
+
+        var filePath = Path.Combine(ResolvePhotoUploadRoot(), safeFileName);
+        if (!System.IO.File.Exists(filePath))
+        {
+            return NotFound();
+        }
+
+        return PhysicalFile(filePath, ResolvePhotoContentType(filePath));
+    }
+
+    private string ResolvePhotoUploadRoot()
+    {
+        var root = string.IsNullOrWhiteSpace(_environment.ContentRootPath)
+            ? AppContext.BaseDirectory
+            : _environment.ContentRootPath;
+        return Path.Combine(root, "uploads", "hazard-photos");
+    }
+
+    private static string ResolvePhotoContentType(string filePath) =>
+        Path.GetExtension(filePath).ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".webp" => "image/webp",
+            _ => "image/jpeg"
+        };
 }

@@ -20,6 +20,7 @@ jest.mock('@/services/auth.service', () => ({
     forgotPassword: jest.fn(() => Promise.resolve()),
     login: jest.fn(),
     register: jest.fn(),
+    createOAuthAuthorizeUrl: jest.fn(),
   },
 }));
 

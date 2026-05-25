@@ -22,11 +22,22 @@ import {
   stepsFromCoordinates,
   type VoiceStep,
 } from './voiceGuidance';
-import { api } from '../../services/api';
 import { hazardsService } from '../../services/hazards.service';
+import {
+  geocodingService,
+  type GeocodingResult,
+} from '../../services/geocoding.service';
+import {
+  routingService,
+  type RouteRequest,
+  type RouteResponse,
+} from '../../services/routing.service';
+import { spatialService, type PointOfInterest } from '../../services/spatial.service';
+import { aiAssistService } from '../../services/aiAssist.service';
 
 import {
   Coordinate,
+  ContextMapPoint,
   Hazard,
   RouteFilters,
 } from './MapTypes';
@@ -63,11 +74,11 @@ function buildRouteRequestOptions(routeFilters: RouteFilters): {
 async function fetchHazardsApi() {
   try {
     const [reported, acknowledged] = await Promise.all([
-      api.get<any[]>('/hazards?status=Reported', { skipAuth: true }),
-      api.get<any[]>('/hazards?status=Acknowledged', { skipAuth: true })
+      hazardsService.getHazardsPage({ status: 'Reported', limit: 100 }),
+      hazardsService.getHazardsPage({ status: 'Acknowledged', limit: 100 })
     ]);
-    const arr1 = Array.isArray(reported) ? reported : [];
-    const arr2 = Array.isArray(acknowledged) ? acknowledged : [];
+    const arr1 = Array.isArray(reported.items) ? reported.items : [];
+    const arr2 = Array.isArray(acknowledged.items) ? acknowledged.items : [];
     return [...arr1, ...arr2];
   } catch (error) {
     console.error('Failed to fetch map hazards:', error);
@@ -76,27 +87,9 @@ async function fetchHazardsApi() {
 }
 
 export default function MapScreen() {
-  type GeocodingResult = {
-    place_id?: number | string;
-    lat?: string | number;
-    lon?: string | number;
-    latitude?: string | number;
-    longitude?: string | number;
-    lng?: string | number;
-    x?: string | number;
-    y?: string | number;
-    display_name?: string;
-    name?: string;
-  };
-
   type AutocompleteSuggestion = SearchSuggestion & {
     result: GeocodingResult;
   };
-
-  /** Geocoding search may return a bare array or a wrapped payload depending on the API. */
-  type GeocodingSearchResponse =
-    | GeocodingResult[]
-    | { data?: GeocodingResult[]; results?: GeocodingResult[] };
 
   const mapRef = useRef<MapView | null>(null);
   const locationSubscriptionRef = useRef<Location.LocationSubscription | null>(null);
@@ -118,8 +111,13 @@ export default function MapScreen() {
   const [travelTime, setTravelTime] = useState('');
   const [distance, setDistance] = useState('');
   const [safetyScore, setSafetyScore] = useState('');
+  const [routeOptionCount, setRouteOptionCount] = useState(0);
+  const [routeWarnings, setRouteWarnings] = useState<string[]>([]);
+  const [routeExplanation, setRouteExplanation] = useState<string | null>(null);
 
   const [hazards, setHazards] = useState<Hazard[]>([]);
+  const [contextPoints, setContextPoints] = useState<ContextMapPoint[]>([]);
+  const [mapRiskSummary, setMapRiskSummary] = useState<string | null>(null);
 
   const [filterModalVisible, setFilterModalVisible] = useState(false);
 
@@ -277,6 +275,91 @@ export default function MapScreen() {
     return `${Math.round(numericScore)}%`;
   }
 
+  function extractPointCoordinate(item: PointOfInterest): Coordinate | null {
+    const coordinates = item.location?.coordinates ?? item.location?.geometry?.coordinates;
+    const longitude = Number(
+      item.location?.x ??
+      item.location?.longitude ??
+      item.location?.lng ??
+      coordinates?.[0]
+    );
+    const latitude = Number(
+      item.location?.y ??
+      item.location?.latitude ??
+      item.location?.lat ??
+      coordinates?.[1]
+    );
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+
+    return { latitude, longitude };
+  }
+
+  async function loadNearbyContext(origin: Coordinate) {
+    try {
+      const [safeHavenResult, poiResult, riskResult, predictiveRiskResult] = await Promise.allSettled([
+        spatialService.getNearbySafeHavens(origin.latitude, origin.longitude, 800),
+        spatialService.getPointsOfInterest(origin.latitude, origin.longitude, 800),
+        routingService.getRiskScore(origin.latitude, origin.longitude, 500),
+        routingService.getAiRiskScore(origin.latitude, origin.longitude, 500),
+      ]);
+
+      const safeHavens = safeHavenResult.status === 'fulfilled'
+        ? safeHavenResult.value.places ?? []
+        : [];
+      const pois = poiResult.status === 'fulfilled' ? poiResult.value ?? [] : [];
+
+      const safeHavenPoints: ContextMapPoint[] = safeHavens
+        .filter((place) => Number.isFinite(place.latitude) && Number.isFinite(place.longitude))
+        .slice(0, 8)
+        .map((place) => ({
+          id: `safe-haven:${place.id}`,
+          title: place.name || 'Safe haven',
+          subtitle: place.types?.slice(0, 2).join(', '),
+          latitude: place.latitude,
+          longitude: place.longitude,
+          kind: 'safe-haven',
+        }));
+
+      const poiPoints = pois
+        .reduce<ContextMapPoint[]>((items, poi) => {
+          const coordinate = extractPointCoordinate(poi);
+          if (!coordinate) return items;
+
+          items.push({
+            id: `poi:${poi.id ?? poi.name ?? `${coordinate.latitude}-${coordinate.longitude}`}`,
+            title: poi.name || poi.category || 'Point of interest',
+            subtitle: poi.category,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            kind: 'poi',
+          });
+
+          return items;
+        }, [])
+        .slice(0, 12);
+
+      setContextPoints([...safeHavenPoints, ...poiPoints]);
+
+      const risk = riskResult.status === 'fulfilled' ? riskResult.value : null;
+      const predictiveRisk = predictiveRiskResult.status === 'fulfilled'
+        ? predictiveRiskResult.value
+        : null;
+      const riskValue = Number(predictiveRisk?.overallRisk ?? risk?.overallRisk);
+      const riskLabel = Number.isFinite(riskValue)
+        ? `${Math.round(Math.max(0, Math.min(1, riskValue)) * 100)}% area risk`
+        : 'Area risk unavailable';
+      const nearbyHazards = Number(risk?.nearbyHazardCount ?? 0);
+      setMapRiskSummary(`${riskLabel} · ${nearbyHazards} nearby hazards · ${safeHavenPoints.length} safe havens`);
+    } catch (error) {
+      console.warn('Nearby context unavailable:', error);
+      setContextPoints([]);
+      setMapRiskSummary(null);
+    }
+  }
+
   function getBearing(start: Coordinate, end: Coordinate) {
     const startLat = (start.latitude * Math.PI) / 180;
     const startLng = (start.longitude * Math.PI) / 180;
@@ -384,6 +467,9 @@ export default function MapScreen() {
     setTravelTime('');
     setDistance('');
     setSafetyScore('');
+    setRouteOptionCount(0);
+    setRouteWarnings([]);
+    setRouteExplanation(null);
 
     if (clearSearchText) {
       setDestinationText('');
@@ -436,6 +522,7 @@ export default function MapScreen() {
         if (!isMounted) return;
 
         setCurrentLocation(firstCoordinate);
+        void loadNearbyContext(firstCoordinate);
 
         if (
           typeof location.coords.heading === 'number' &&
@@ -600,20 +687,7 @@ export default function MapScreen() {
     showErrorAlert = true
   ): Promise<GeocodingResult[]> {
     try {
-      const raw = await api.get<GeocodingSearchResponse>(
-        `/geocoding/search?query=${encodeURIComponent(query)}`,
-        {
-          skipAuth: true,
-        }
-      );
-
-      console.log('Geocoding results:', raw);
-
-      if (Array.isArray(raw)) return raw;
-      if (Array.isArray(raw.data)) return raw.data;
-      if (Array.isArray(raw.results)) return raw.results;
-
-      return [];
+      return await geocodingService.search(query);
     } catch (error) {
       console.error('Geocoding error:', error);
       if (showErrorAlert) {
@@ -667,8 +741,6 @@ export default function MapScreen() {
     }, 350);
 
     return () => clearTimeout(timeoutId);
-    // Only destinationText should retrigger debounced fetch; helpers are stable enough for this screen.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destinationText]);
 
   async function handleSetDestination() {
@@ -721,34 +793,40 @@ export default function MapScreen() {
     try {
       const { profile, preferences, safetyWeight } = buildRouteRequestOptions(routeFilters);
 
-      const data = await api.post<any>(
-        '/routing/safe-path',
-        {
-          start: {
-            x: routeStart.longitude,
-            y: routeStart.latitude,
-          },
-          end: {
-            x: destination.longitude,
-            y: destination.latitude,
-          },
-          safetyWeight,
-          profile,
-          preferences,
+      const routeRequest: RouteRequest = {
+        start: {
+          x: routeStart.longitude,
+          y: routeStart.latitude,
         },
-        {
-          skipAuth: false,
-        }
-      );
+        end: {
+          x: destination.longitude,
+          y: destination.latitude,
+        },
+        safetyWeight,
+        profile,
+        preferences,
+      };
+
+      let data: RouteResponse;
+      let variantCount = 0;
+      try {
+        const options = await routingService.getSafePathOptionsResolved(routeRequest);
+        data = options.recommended;
+        variantCount = options.variants?.length ?? 0;
+      } catch (optionsError) {
+        console.warn('Route options unavailable; falling back to primary route:', optionsError);
+        data = await routingService.getSafePathResolved(routeRequest);
+      }
 
       console.log('Route API data:', data);
 
+      const routeData = data as any;
       const rawCoordinates =
-        data?.path?.coordinates ||
-        data?.route?.coordinates ||
-        data?.geometry?.coordinates ||
-        data?.coordinates ||
-        data?.path ||
+        routeData?.path?.coordinates ||
+        routeData?.route?.coordinates ||
+        routeData?.geometry?.coordinates ||
+        routeData?.coordinates ||
+        routeData?.path ||
         [];
 
       const coords = Array.isArray(rawCoordinates)
@@ -784,6 +862,18 @@ export default function MapScreen() {
       setTravelTime(formatTravelTimeFromBackend(data));
       setDistance(Number.isFinite(distanceValue) && distanceValue > 0 ? formatDistance(distanceValue) : '--');
       setSafetyScore(formatSafetyScoreFromBackend(data));
+      setRouteOptionCount(variantCount);
+      setRouteWarnings(Array.isArray(data?.warnings) ? data.warnings : []);
+      setRouteExplanation(null);
+
+      aiAssistService.explainRoute(routeRequest, data)
+        .then((explanation) => {
+          const text = explanation.explanation || explanation.reasons?.[0];
+          setRouteExplanation(text || null);
+        })
+        .catch((explanationError) => {
+          console.warn('Route explanation unavailable:', explanationError);
+        });
 
       return true;
     } catch (error) {
@@ -962,6 +1052,42 @@ export default function MapScreen() {
     Alert.alert('Filters applied', 'Your route preferences have been updated.');
   }
 
+  async function handleMapPress(point: Coordinate) {
+    if (navigationMode) return;
+
+    setNavigationMode(false);
+    navigationModeRef.current = false;
+    setRouteInfoVisible(false);
+    setRouteCoordinates([]);
+    setRouteSteps([]);
+    setTravelTime('');
+    setDistance('');
+    setSafetyScore('');
+    setRouteOptionCount(0);
+    setRouteWarnings([]);
+    setRouteExplanation(null);
+    setSearchSuggestions([]);
+    stopVoiceGuidance();
+    lastSpokenStepRef.current = -1;
+    setDestination(point);
+    setDestinationText('Selected location');
+
+    try {
+      const reverse = await geocodingService.reverse(point.latitude, point.longitude);
+      const displayName = reverse?.display_name ?? reverse?.name;
+      if (displayName) {
+        skipNextSuggestionFetchRef.current = true;
+        setDestinationText(String(displayName));
+      }
+    } catch (error) {
+      console.warn('Reverse geocoding unavailable:', error);
+    }
+  }
+
+  function handleContextPointPress(point: ContextMapPoint) {
+    Alert.alert(point.title, point.subtitle || (point.kind === 'safe-haven' ? 'Nearby safe haven' : 'Point of interest'));
+  }
+
   function handleHazardPress(hazard: Hazard) {
     if (navigationMode) return;
     setSelectedHazard(hazard);
@@ -990,6 +1116,21 @@ export default function MapScreen() {
     setHazardDetailsVisible(false);
   }
 
+  function handleAvoidSelectedHazardRoute() {
+    if (!selectedHazard) return;
+
+    setRouteFilters((current) => ({
+      ...current,
+      avoidReportedHazards: true,
+    }));
+    setHazardDetailsVisible(false);
+    setHazardPreviewVisible(false);
+    Alert.alert(
+      'Route preference updated',
+      'Reported hazards will be avoided in the next route calculation.'
+    );
+  }
+
   function closeHazardPreview() {
     setHazardPreviewVisible(false);
   }
@@ -1016,10 +1157,22 @@ export default function MapScreen() {
         currentLocation={currentLocation}
         destination={destination}
         hazards={hazards}
+        contextPoints={contextPoints}
         routeCoordinates={routeCoordinates}
         navigationMode={navigationMode}
         onHazardPress={handleHazardPress}
+        onContextPointPress={handleContextPointPress}
+        onMapPress={handleMapPress}
       />
+
+      {!navigationMode && mapRiskSummary ? (
+        <View style={styles.contextStatusChip}>
+          <Ionicons name="analytics-outline" size={15} color="#0F3D91" />
+          <Text style={styles.contextStatusText} numberOfLines={1}>
+            {mapRiskSummary}
+          </Text>
+        </View>
+      ) : null}
 
       {!navigationMode && (
         <>
@@ -1112,6 +1265,9 @@ export default function MapScreen() {
             travelTime={travelTime}
             distance={distance}
             safetyScore={safetyScore}
+            optionCount={routeOptionCount}
+            warnings={routeWarnings}
+            explanation={routeExplanation}
             onPressRoute={handleStartRoute}
             onStartNavigation={handleStartNavigation}
           />
@@ -1165,6 +1321,7 @@ export default function MapScreen() {
         visible={hazardDetailsVisible}
         hazard={selectedHazard}
         onClose={closeHazardDetails}
+        onAvoidRoute={handleAvoidSelectedHazardRoute}
       />
     </View>
   );
@@ -1192,6 +1349,30 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 4,
     zIndex: 20,
+  },
+
+  contextStatusChip: {
+    position: 'absolute',
+    top: 120,
+    left: 16,
+    right: 82,
+    minHeight: 42,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderWidth: 1,
+    borderColor: 'rgba(148,163,184,0.28)',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    zIndex: 15,
+  },
+
+  contextStatusText: {
+    flex: 1,
+    color: '#334155',
+    fontSize: 13,
+    fontWeight: '700',
   },
 
   locateButton: {

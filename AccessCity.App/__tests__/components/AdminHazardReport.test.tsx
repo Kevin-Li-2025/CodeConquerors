@@ -1,19 +1,26 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import AdminHazardReport from '@/components/MapView/AdminHazardReport';
-import { api } from '@/services/api';
-
-jest.mock('@/services/api', () => ({
-  api: {
-    get: jest.fn(),
-    post: jest.fn(),
-    patch: jest.fn(),
-  },
-}));
+import { hazardsService } from '@/services/hazards.service';
+import { dashboardService } from '@/services/system.service';
 
 jest.mock('@/services/aiAssist.service', () => ({
   aiAssistService: {
     getHazardEnrichment: jest.fn(),
+  },
+}));
+
+jest.mock('@/services/hazards.service', () => ({
+  hazardsService: {
+    getHazardsPage: jest.fn(),
+    getHazardById: jest.fn(),
+    updateHazardStatus: jest.fn(),
+  },
+}));
+
+jest.mock('@/services/system.service', () => ({
+  dashboardService: {
+    getSummary: jest.fn(),
   },
 }));
 
@@ -46,6 +53,14 @@ const enrichment = {
   guardrails: [],
 };
 
+const summary = (pendingAlerts: number) => ({
+  totalHazards: pendingAlerts,
+  activeUsers: 0,
+  activeUsersDefinition: 'test',
+  pendingAlerts,
+  resolved: 0,
+});
+
 describe('AdminHazardReport', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -53,11 +68,13 @@ describe('AdminHazardReport', () => {
   });
 
   it('shows empty state when no pending hazards', async () => {
-    jest.mocked(api.get).mockImplementation(async (path: string) => {
-      if (path === '/hazards') return [];
-      if (path === '/dashboard/summary') return { pendingAlerts: 0 };
-      return {};
+    jest.mocked(hazardsService.getHazardsPage).mockResolvedValue({
+      items: [],
+      nextCursor: null,
+      limit: 100,
+      hasMore: false,
     });
+    jest.mocked(dashboardService.getSummary).mockResolvedValue(summary(0));
 
     const { findByText } = render(<AdminHazardReport />);
 
@@ -65,36 +82,41 @@ describe('AdminHazardReport', () => {
   });
 
   it('lists pending reports and opens details', async () => {
-    jest.mocked(api.get).mockImplementation(async (path: string) => {
-      if (path === '/hazards') {
-        return [
-          {
-              id: 'h1',
-              status: 'reported',
-              type: 'Lighting',
-              title: 'Dark alley',
-              description: 'No lights.',
-              locationName: 'Main St',
-              reportedAt: new Date().toISOString(),
-              reporterName: 'Alex',
-          },
-        ];
-      }
-      if (path === '/hazards/h1') {
-        return {
+    jest.mocked(hazardsService.getHazardsPage).mockResolvedValueOnce({
+      items: [
+        {
           id: 'h1',
-          category: 'Lighting',
-          status: 'pending',
+          status: 'Reported',
+          type: 'Lighting',
           title: 'Dark alley',
           description: 'No lights.',
-          locationName: 'Main St',
-          createdAt: new Date().toISOString(),
-          reporter: { name: 'Alex', email: 'a@b.com', verified: false },
-            };
-          }
-      if (path === '/dashboard/summary') return { pendingAlerts: 1 };
-      return {};
+          locationText: 'Main St',
+          reportedTime: new Date().toISOString(),
+          latitude: 52.48,
+          longitude: -1.89,
+        },
+      ],
+      nextCursor: null,
+      limit: 100,
+      hasMore: false,
+    }).mockResolvedValueOnce({
+      items: [],
+      nextCursor: null,
+      limit: 100,
+      hasMore: false,
     });
+    jest.mocked(hazardsService.getHazardById).mockResolvedValue({
+      id: 'h1',
+      type: 'Lighting',
+      status: 'Reported',
+      title: 'Dark alley',
+      description: 'No lights.',
+      locationText: 'Main St',
+      reportedTime: new Date().toISOString(),
+      latitude: 52.48,
+      longitude: -1.89,
+    });
+    jest.mocked(dashboardService.getSummary).mockResolvedValue(summary(1));
 
     const { findByText, getByText } = render(<AdminHazardReport />);
 
@@ -109,34 +131,42 @@ describe('AdminHazardReport', () => {
   });
 
   it('submits approve decision and shows success', async () => {
-    jest.mocked(api.get).mockImplementation(async (path: string) => {
-      if (path === '/hazards') {
-        return [
-          {
-            id: 'h1',
-            status: 'underreview',
-            type: 'Obstruction',
-            title: 'Blocked path',
-            locationName: 'Side Rd',
-            reportedAt: new Date().toISOString(),
-          },
-        ];
-      }
-      if (path === '/hazards/h1') {
-        return {
+    jest.mocked(hazardsService.getHazardsPage).mockResolvedValueOnce({
+      items: [],
+      nextCursor: null,
+      limit: 100,
+      hasMore: false,
+    }).mockResolvedValueOnce({
+      items: [
+        {
           id: 'h1',
-          category: 'Obstruction',
-          status: 'pending',
+          status: 'UnderReview',
+          type: 'Obstruction',
           title: 'Blocked path',
           description: 'Barrier.',
-          locationName: 'Side Rd',
-          createdAt: new Date().toISOString(),
-        };
-      }
-      if (path === '/dashboard/summary') return { pendingAlerts: 1 };
-      return {};
+          locationText: 'Side Rd',
+          reportedTime: new Date().toISOString(),
+          latitude: 52.48,
+          longitude: -1.89,
+        },
+      ],
+      nextCursor: null,
+      limit: 100,
+      hasMore: false,
     });
-    jest.mocked(api.patch).mockResolvedValue({});
+    jest.mocked(hazardsService.getHazardById).mockResolvedValue({
+      id: 'h1',
+      type: 'Obstruction',
+      status: 'UnderReview',
+      title: 'Blocked path',
+      description: 'Barrier.',
+      locationText: 'Side Rd',
+      reportedTime: new Date().toISOString(),
+      latitude: 52.48,
+      longitude: -1.89,
+    });
+    jest.mocked(dashboardService.getSummary).mockResolvedValue(summary(1));
+    jest.mocked(hazardsService.updateHazardStatus).mockResolvedValue(undefined);
 
     const { findByText, getByText } = render(<AdminHazardReport />);
 
@@ -149,7 +179,7 @@ describe('AdminHazardReport', () => {
     fireEvent.press(getByText('Approve Report'));
 
     await waitFor(() => {
-      expect(api.patch).toHaveBeenCalledWith('/hazards/h1', 1);
+      expect(hazardsService.updateHazardStatus).toHaveBeenCalledWith('h1', 1);
     });
 
     expect(await findByText('Report Approved Successfully')).toBeTruthy();

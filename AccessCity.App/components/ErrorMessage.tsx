@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet } from 'react-native';
 import Animated, { FadeInUp, FadeOut } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
+import { AppTheme } from '@/constants/theme';
 
 interface Props {
   message?: string;
@@ -17,7 +18,7 @@ export function ErrorMessage({ message, visible }: Props) {
       exiting={FadeOut.duration(200)}
       style={styles.container}
     >
-      <Ionicons name="alert-circle" size={16} color="#EF4444" style={styles.icon} />
+      <Ionicons name="alert-circle" size={16} color={AppTheme.color.danger} style={styles.icon} />
       <Animated.Text style={styles.text}>{message}</Animated.Text>
     </Animated.View>
   );
@@ -28,14 +29,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 6,
-    paddingHorizontal: 4,
+    paddingHorizontal: AppTheme.space.xs,
   },
   icon: {
     marginRight: 6,
   },
   text: {
-    color: '#EF4444',
-    fontSize: 13,
-    fontWeight: '600',
+    color: AppTheme.color.danger,
+    ...AppTheme.type.meta,
   },
 });

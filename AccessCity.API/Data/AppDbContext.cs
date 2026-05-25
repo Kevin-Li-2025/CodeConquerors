@@ -18,6 +18,7 @@ namespace AccessCity.API.Data
         public DbSet<HazardReport> Hazards => Set<HazardReport>();
         public DbSet<InfrastructureAsset> InfrastructureAssets => Set<InfrastructureAsset>();
         public DbSet<AccessibilityVerificationSubmission> AccessibilityVerificationSubmissions => Set<AccessibilityVerificationSubmission>();
+        public DbSet<SupportContactSubmission> SupportContactSubmissions => Set<SupportContactSubmission>();
         public DbSet<FeedIngestionRun> FeedIngestionRuns => Set<FeedIngestionRun>();
         public DbSet<OsmImportJob> OsmImportJobs => Set<OsmImportJob>();
         public DbSet<ProcessedIntegrationMessage> ProcessedIntegrationMessages => Set<ProcessedIntegrationMessage>();
@@ -185,6 +186,31 @@ namespace AccessCity.API.Data
                     .OnDelete(DeleteBehavior.Cascade);
                 entity.HasIndex(e => new { e.InfrastructureAssetId, e.Status, e.SubmittedAtUtc })
                     .HasDatabaseName("IX_accessibility_verifications_asset_status_submitted");
+            });
+
+            builder.Entity<SupportContactSubmission>(entity =>
+            {
+                entity.ToTable("support_contact_submissions");
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.Id).HasColumnName("id");
+                entity.Property(e => e.UserId).HasColumnName("user_id").HasMaxLength(450);
+                entity.Property(e => e.Email).HasColumnName("email").HasMaxLength(256);
+                entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(150);
+                entity.Property(e => e.Category).HasColumnName("category").HasMaxLength(80);
+                entity.Property(e => e.Subject).HasColumnName("subject").HasMaxLength(160);
+                entity.Property(e => e.Message).HasColumnName("message").HasMaxLength(4000);
+                entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(40);
+                entity.Property(e => e.CreatedAtUtc).HasColumnName("created_at_utc");
+
+                entity.HasOne(e => e.User)
+                    .WithMany()
+                    .HasForeignKey(e => e.UserId)
+                    .OnDelete(DeleteBehavior.SetNull);
+
+                entity.HasIndex(e => new { e.Status, e.CreatedAtUtc })
+                    .HasDatabaseName("IX_support_contact_status_created");
+                entity.HasIndex(e => e.UserId)
+                    .HasDatabaseName("IX_support_contact_user_id");
             });
 
             builder.Entity<FeedIngestionRun>(entity =>

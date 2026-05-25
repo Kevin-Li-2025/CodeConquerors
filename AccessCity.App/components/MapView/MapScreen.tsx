@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { AppTheme } from '@/constants/theme';
 
 export default function MapScreen() {
   return (
@@ -18,18 +19,17 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#F8FAFC',
+    padding: AppTheme.space.xl,
+    backgroundColor: AppTheme.color.background,
   },
   title: {
-    fontSize: 24,
-    fontWeight: 'bold',
     marginBottom: 10,
-    color: '#0F3D91',
+    color: AppTheme.color.primary,
+    ...AppTheme.type.headline,
   },
   message: {
-    fontSize: 16,
     textAlign: 'center',
-    color: '#64748B',
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.body,
   },
 });

@@ -1,0 +1,26 @@
+<svg aria-label="Healthy Walk" viewBox="0 0 400 300" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <!-- Pathway -->
+        <path d="M0 260 H400" stroke="var(--border-color)" stroke-width="4" stroke-dasharray="10 10"/>
+
+        <!-- Two People silhouettes -->
+        <g >
+            <!-- Friend 1 -->
+            <g transform="translate(140, 0)">
+                <circle cx="0" cy="100" r="20" fill="#141411"/>
+                <path  d="M0 120 V200 L-15 250 M0 200 L15 250" stroke="#141411" stroke-width="12" stroke-linecap="round"/>
+                <path d="M0 140 L-20 180" stroke="#141411" stroke-width="8" stroke-linecap="round"/>
+            </g>
+
+            <!-- Friend 2 -->
+            <g transform="translate(260, 0)">
+                <circle cx="0" cy="100" r="20" fill="#8CAC63"/>
+                <path   d="M0 120 V200 L-15 250 M0 200 L15 250" stroke="#8CAC63" stroke-width="12" stroke-linecap="round"/>
+                <path d="M0 140 L20 180" stroke="#8CAC63" stroke-width="8" stroke-linecap="round"/>
+            </g>
+        </g>
+
+        <!-- Dialogue Bubble (Simplified) -->
+        <g  >
+            <path d="M200 80 Q220 50 180 50" stroke="#F4B18A" stroke-width="3" fill="none"/>
+        </g>
+    </svg>

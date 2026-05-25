@@ -726,6 +726,37 @@ public static class WebApplicationExtensions
                     processed_at_utc timestamp with time zone NOT NULL,
                     CONSTRAINT "PK_processed_integration_messages" PRIMARY KEY (id)
                 );
+
+                IF EXISTS (
+                    SELECT 1
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_name = 'AspNetUsers'
+                ) THEN
+                    CREATE TABLE IF NOT EXISTS public.support_contact_submissions
+                    (
+                        id uuid NOT NULL,
+                        user_id character varying(450),
+                        email character varying(256) NOT NULL,
+                        name character varying(150) NOT NULL,
+                        category character varying(80) NOT NULL,
+                        subject character varying(160) NOT NULL,
+                        message character varying(4000) NOT NULL,
+                        status character varying(40) NOT NULL,
+                        created_at_utc timestamp with time zone NOT NULL,
+                        CONSTRAINT "PK_support_contact_submissions" PRIMARY KEY (id),
+                        CONSTRAINT "FK_support_contact_submissions_AspNetUsers_user_id"
+                            FOREIGN KEY (user_id)
+                            REFERENCES public."AspNetUsers" ("Id")
+                            ON DELETE SET NULL
+                    );
+
+                    CREATE INDEX IF NOT EXISTS "IX_support_contact_status_created"
+                        ON public.support_contact_submissions (status, created_at_utc DESC);
+
+                    CREATE INDEX IF NOT EXISTS "IX_support_contact_user_id"
+                        ON public.support_contact_submissions (user_id);
+                END IF;
             END $$;
             """);
     }

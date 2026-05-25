@@ -7,6 +7,7 @@ using AccessCity.API.Models.Identity;
 using AccessCity.API.Services.Security;
 using AccessCity.API.Common;
 using AccessCity.API.Models.DTOs;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace AccessCity.API.Controllers;
 
@@ -22,15 +23,105 @@ public class AuthController : ControllerBase
     private readonly UserManager<AccessCityUser> _userManager;
     private readonly ITokenService _tokenService;
     private readonly IRefreshTokenRevocationService _refreshTokenRevocation;
+    private readonly IConfiguration _configuration;
 
     public AuthController(
         UserManager<AccessCityUser> userManager,
         ITokenService tokenService,
-        IRefreshTokenRevocationService refreshTokenRevocation)
+        IRefreshTokenRevocationService refreshTokenRevocation,
+        IConfiguration configuration)
     {
         _userManager = userManager;
         _tokenService = tokenService;
         _refreshTokenRevocation = refreshTokenRevocation;
+        _configuration = configuration;
+    }
+
+    /// <summary>
+    /// Lists OAuth providers and whether this deployment has credentials configured.
+    /// </summary>
+    [HttpGet("oauth/providers")]
+    [ProducesResponseType(typeof(IEnumerable<OAuthProviderResponse>), StatusCodes.Status200OK)]
+    public ActionResult<IEnumerable<OAuthProviderResponse>> GetOAuthProviders()
+    {
+        return Ok(GetKnownOAuthProviders().Select(provider => new OAuthProviderResponse(
+            provider.Provider,
+            provider.DisplayName,
+            IsOAuthProviderConfigured(provider.Provider))));
+    }
+
+    /// <summary>
+    /// Builds the upstream OAuth authorization URL for a configured provider.
+    /// The mobile/web client still owns callback handling and code exchange.
+    /// </summary>
+    [HttpGet("oauth/{provider}/authorize")]
+    [ProducesResponseType(typeof(OAuthAuthorizeResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status501NotImplemented)]
+    public ActionResult<OAuthAuthorizeResponse> CreateOAuthAuthorizeUrl(
+        string provider,
+        [FromQuery] string redirectUri,
+        [FromQuery] string? state)
+    {
+        var knownProvider = ResolveOAuthProvider(provider);
+        if (knownProvider is null)
+        {
+            return BadRequest(new ApiError("Unsupported OAuth provider."));
+        }
+
+        if (!IsSafeRedirectUri(redirectUri))
+        {
+            return BadRequest(new ApiError("redirectUri must be an absolute http(s) or app-scheme URI."));
+        }
+
+        var clientId = _configuration[$"Authentication:OAuth:{knownProvider.Provider}:ClientId"];
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            return StatusCode(
+                StatusCodes.Status501NotImplemented,
+                new ApiError($"{knownProvider.DisplayName} OAuth is not configured for this deployment."));
+        }
+
+        var authorizationEndpoint = _configuration[$"Authentication:OAuth:{knownProvider.Provider}:AuthorizationEndpoint"]
+            ?? knownProvider.AuthorizationEndpoint;
+        var scope = _configuration[$"Authentication:OAuth:{knownProvider.Provider}:Scopes"]
+            ?? knownProvider.DefaultScopes;
+
+        var parameters = new Dictionary<string, string?>
+        {
+            ["client_id"] = clientId,
+            ["redirect_uri"] = redirectUri,
+            ["response_type"] = "code",
+            ["scope"] = scope,
+            ["state"] = string.IsNullOrWhiteSpace(state) ? Guid.NewGuid().ToString("N") : state
+        };
+
+        if (string.Equals(knownProvider.Provider, "Apple", StringComparison.OrdinalIgnoreCase))
+        {
+            parameters["response_mode"] = "form_post";
+        }
+
+        var url = QueryHelpers.AddQueryString(authorizationEndpoint, parameters);
+        return Ok(new OAuthAuthorizeResponse(knownProvider.Provider.ToLowerInvariant(), url));
+    }
+
+    /// <summary>
+    /// Placeholder exchange endpoint. It is intentionally explicit instead of fake-login behavior.
+    /// Add provider token validation before enabling production OAuth sessions.
+    /// </summary>
+    [HttpPost("oauth/{provider}/exchange")]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status501NotImplemented)]
+    public IActionResult ExchangeOAuthCode(string provider, [FromBody] OAuthCodeExchangeRequest _)
+    {
+        var knownProvider = ResolveOAuthProvider(provider);
+        if (knownProvider is null)
+        {
+            return BadRequest(new ApiError("Unsupported OAuth provider."));
+        }
+
+        return StatusCode(
+            StatusCodes.Status501NotImplemented,
+            new ApiError("OAuth code exchange is not enabled. Configure provider token validation before issuing AccessCity sessions."));
     }
 
     /// <summary>
@@ -241,4 +332,42 @@ public class AuthController : ControllerBase
 
         return HttpContext.Connection.RemoteIpAddress?.MapToIPv4().ToString() ?? "unknown";
     }
+
+    private bool IsOAuthProviderConfigured(string provider) =>
+        !string.IsNullOrWhiteSpace(_configuration[$"Authentication:OAuth:{provider}:ClientId"]);
+
+    private static OAuthProviderDefinition? ResolveOAuthProvider(string provider) =>
+        GetKnownOAuthProviders().FirstOrDefault(
+            item => string.Equals(item.Provider, provider, StringComparison.OrdinalIgnoreCase));
+
+    private static IReadOnlyList<OAuthProviderDefinition> GetKnownOAuthProviders() =>
+        new[]
+        {
+            new OAuthProviderDefinition("Google", "Google", "https://accounts.google.com/o/oauth2/v2/auth", "openid email profile"),
+            new OAuthProviderDefinition("Apple", "Apple", "https://appleid.apple.com/auth/authorize", "name email"),
+            new OAuthProviderDefinition("Facebook", "Facebook", "https://www.facebook.com/v19.0/dialog/oauth", "email public_profile")
+        };
+
+    private static bool IsSafeRedirectUri(string redirectUri)
+    {
+        if (!Uri.TryCreate(redirectUri, UriKind.Absolute, out var uri))
+        {
+            return false;
+        }
+
+        if (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return !string.Equals(uri.Scheme, "javascript", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(uri.Scheme, "data", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private sealed record OAuthProviderDefinition(
+        string Provider,
+        string DisplayName,
+        string AuthorizationEndpoint,
+        string DefaultScopes);
 }
