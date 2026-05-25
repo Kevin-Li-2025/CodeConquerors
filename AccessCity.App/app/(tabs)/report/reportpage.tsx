@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Alert } from 'react-native';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
@@ -11,6 +11,10 @@ import {
 } from '../../../services/geocoding.service';
 import { hazardsService } from '../../../services/hazards.service';
 import type { HazardPhotoUpload } from '../../../services/hazards.service';
+import {
+  aiAssistService,
+  type HazardReportDraftAiResult,
+} from '../../../services/aiAssist.service';
 
 function formatReverseGeocode(result: GeocodingResult | null) {
   if (!result) return null;
@@ -45,6 +49,7 @@ function formatReverseGeocode(result: GeocodingResult | null) {
 export default function ReportPage() {
   const [isMounted, setIsMounted] = useState(false);
   const [reportModalVisible, setReportModalVisible] = useState(true);
+  const aiDraftRequestRef = useRef(0);
 
   const [reportStep, setReportStep] = useState<1 | 2 | 3>(1);
   const [selectedReportType, setSelectedReportType] =
@@ -54,6 +59,8 @@ export default function ReportPage() {
   const [selectedPhoto, setSelectedPhoto] = useState<HazardPhotoUpload | null>(null);
   const [similarReportCount, setSimilarReportCount] = useState(0);
   const [isCheckingSimilarReports, setIsCheckingSimilarReports] = useState(false);
+  const [aiDraft, setAiDraft] = useState<HazardReportDraftAiResult | null>(null);
+  const [isLoadingAiDraft, setIsLoadingAiDraft] = useState(false);
 
   const [currentLocation, setCurrentLocation] = useState<{
     latitude: number;
@@ -115,6 +122,47 @@ export default function ReportPage() {
     };
   }, [currentLocation, reportStep, selectedReportType]);
 
+  useEffect(() => {
+    if (!currentLocation || !selectedReportType || reportStep !== 2) {
+      return;
+    }
+
+    const requestId = ++aiDraftRequestRef.current;
+    setIsLoadingAiDraft(true);
+
+    const timer = setTimeout(() => {
+      aiAssistService.previewHazardReportDraft({
+        latitude: currentLocation.latitude,
+        longitude: currentLocation.longitude,
+        type: selectedReportType,
+        description: reportDescription,
+        photoAttached: Boolean(selectedPhoto),
+      })
+        .then((result) => {
+          if (aiDraftRequestRef.current !== requestId) return;
+          setAiDraft(result);
+          const suggestedSeverity = normalizeAiSeverity(result.text.suggestedSeverity);
+          if (suggestedSeverity && !reportDescription.trim()) {
+            setReportSeverity(suggestedSeverity);
+          }
+        })
+        .catch((error) => {
+          if (aiDraftRequestRef.current !== requestId) return;
+          console.warn('AI hazard draft preview unavailable:', error);
+          setAiDraft(null);
+        })
+        .finally(() => {
+          if (aiDraftRequestRef.current === requestId) {
+            setIsLoadingAiDraft(false);
+          }
+        });
+    }, 450);
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [currentLocation, reportDescription, reportStep, selectedPhoto, selectedReportType]);
+
   async function getCurrentLocation() {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -166,6 +214,7 @@ export default function ReportPage() {
   function handleClose() {
     setReportModalVisible(false);
     setSimilarReportCount(0);
+    setAiDraft(null);
     router.back();
   }
 
@@ -179,6 +228,7 @@ export default function ReportPage() {
 
   function handleBack() {
     setSimilarReportCount(0);
+    setAiDraft(null);
     setReportStep(1);
   }
 
@@ -225,8 +275,10 @@ export default function ReportPage() {
     }
 
     try {
+      const aiNormalizedDescription = aiDraft?.text.normalizedDescription?.trim();
+      const submittedDescription = aiNormalizedDescription || reportDescription.trim();
       const normalizedDescription = [
-        reportDescription.trim(),
+        submittedDescription,
         `Severity: ${reportSeverity}.`,
       ].filter(Boolean).join('\n');
 
@@ -252,12 +304,27 @@ export default function ReportPage() {
     setReportModalVisible(false);
     setSelectedPhoto(null);
     setSimilarReportCount(0);
+    setAiDraft(null);
     router.back();
   }
 
   function handleReviewSimilarReports() {
     setReportModalVisible(false);
     router.push('/hazard' as never);
+  }
+
+  function handleApplyAiDraft() {
+    if (!aiDraft) return;
+
+    const normalized = aiDraft.text.normalizedDescription?.trim();
+    if (normalized) {
+      setReportDescription(normalized);
+    }
+
+    const suggestedSeverity = normalizeAiSeverity(aiDraft.text.suggestedSeverity);
+    if (suggestedSeverity) {
+      setReportSeverity(suggestedSeverity);
+    }
   }
 
   return (
@@ -275,6 +342,19 @@ export default function ReportPage() {
           onChangeSeverity={setReportSeverity}
           onAddPhoto={() => void handleAddPhoto()}
           selectedPhotoLabel={selectedPhoto?.name}
+          aiDraftSuggestion={aiDraft ? {
+            normalizedDescription: aiDraft.text.normalizedDescription,
+            suggestedType: aiDraft.text.suggestedType,
+            suggestedSeverity: aiDraft.text.suggestedSeverity,
+            confidence: aiDraft.text.confidence,
+            tags: aiDraft.text.tags,
+            duplicateCount: aiDraft.duplicateSuggestions.length,
+            shouldReviewExistingReport: aiDraft.shouldReviewExistingReport,
+            osmCandidateCount: aiDraft.missingOsmAttributeCandidates.length,
+            suggestedDescriptionChips: aiDraft.suggestedDescriptionChips,
+          } : null}
+          isLoadingAiDraft={isLoadingAiDraft}
+          onApplyAiDraft={handleApplyAiDraft}
           onNext={handleNext}
           onBack={handleBack}
           onSubmit={handleSubmit}
@@ -291,4 +371,17 @@ export default function ReportPage() {
       ) : null}
     </View>
   );
+}
+
+function normalizeAiSeverity(value: string | undefined): 'Low' | 'Medium' | 'High' | null {
+  switch (value?.toLowerCase()) {
+    case 'low':
+      return 'Low';
+    case 'medium':
+      return 'Medium';
+    case 'high':
+      return 'High';
+    default:
+      return null;
+  }
 }

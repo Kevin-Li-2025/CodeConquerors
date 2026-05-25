@@ -66,6 +66,47 @@ public sealed class AiAssistServiceTests
     }
 
     [Fact]
+    public async Task PreviewHazardReportDraft_ReturnsIntakeSuggestions_WithoutPersistingOrRoutingAuthority()
+    {
+        var nearby = new List<HazardReport>
+        {
+            new()
+            {
+                Id = Guid.NewGuid(),
+                Type = "blocked pavement",
+                Description = "Pavement is blocked by parked van",
+                Location = new Point(-0.12569, 51.50851) { SRID = 4326 },
+                ReportedAt = DateTime.UtcNow,
+                Status = HazardStatus.Reported,
+                Source = "user"
+            }
+        };
+
+        var result = await _service.PreviewHazardReportDraftAsync(
+            new HazardReportDraftAiRequest
+            {
+                Latitude = 51.5085,
+                Longitude = -0.1257,
+                Type = "blocked pavement",
+                Description = "  Pavement is blocked and wheelchair cannot pass safely. ",
+                PhotoAttached = true
+            },
+            nearby,
+            CancellationToken.None);
+
+        Assert.False(result.ForRouteDecision);
+        Assert.Equal("Pavement is blocked and wheelchair cannot pass safely.", result.Text.NormalizedDescription);
+        Assert.Equal("obstruction", result.Text.SuggestedType);
+        Assert.Equal("high", result.Text.SuggestedSeverity);
+        Assert.True(result.ShouldReviewExistingReport);
+        Assert.Single(result.DuplicateSuggestions);
+        Assert.Contains("photo-attached", result.Text.Tags);
+        Assert.Contains(result.SuggestedDescriptionChips, chip => chip.Contains("blocked", StringComparison.OrdinalIgnoreCase));
+        Assert.All(result.MissingOsmAttributeCandidates, candidate => Assert.False(candidate.CanAutoApply));
+        Assert.Contains(result.Guardrails, guardrail => guardrail.Contains("routing remains deterministic", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task ExplainRoute_FormatsExistingRoute_WithoutDecisionAuthority()
     {
         var request = new RouteExplanationRequest

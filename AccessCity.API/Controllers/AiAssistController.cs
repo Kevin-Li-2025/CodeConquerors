@@ -67,6 +67,38 @@ public sealed class AiAssistController : ControllerBase
     }
 
     /// <summary>
+    /// Previews AI-assisted hazard intake before a report is persisted.
+    /// The response can normalize text and suggest duplicate review, but cannot create or alter routes.
+    /// </summary>
+    [HttpPost("hazards/report-draft")]
+    [ProducesResponseType(typeof(HazardReportDraftAiResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<HazardReportDraftAiResult>> PreviewHazardReportDraft(
+        [FromBody] HazardReportDraftAiRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_options.Enabled)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ApiError("AI assist is disabled."));
+        }
+
+        if (!IsValidLatitude(request.Latitude) || !IsValidLongitude(request.Longitude))
+        {
+            return BadRequest(new ApiError("A valid report latitude and longitude are required."));
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Type) && string.IsNullOrWhiteSpace(request.Description))
+        {
+            return BadRequest(new ApiError("A hazard type or description is required."));
+        }
+
+        var nearby = await GetNearbyPersistedHazardsAsync(request.Latitude, request.Longitude, cancellationToken);
+        var preview = await _aiAssist.PreviewHazardReportDraftAsync(request, nearby, cancellationToken);
+        return Ok(preview);
+    }
+
+    /// <summary>
     /// Explains an already-computed route. This endpoint does not compute or alter routes.
     /// </summary>
     [HttpPost("route-explanation")]
@@ -234,17 +266,60 @@ public sealed class AiAssistController : ControllerBase
         HazardReport hazard,
         CancellationToken cancellationToken)
     {
-        var radiusMetres = Math.Max(1, _options.DuplicateRadiusMetres);
-        var latDelta = radiusMetres / 111_320d;
-        var cosLat = Math.Cos(hazard.Location.Y * Math.PI / 180);
-        var lngDelta = Math.Abs(cosLat) < 0.01 ? latDelta : radiusMetres / (111_320d * Math.Abs(cosLat));
+        return await GetNearbyHazardsAsync(hazard.Location.Y, hazard.Location.X, cancellationToken);
+    }
+
+    private async Task<IReadOnlyCollection<HazardReport>> GetNearbyHazardsAsync(
+        double latitude,
+        double longitude,
+        CancellationToken cancellationToken)
+    {
+        var (minLat, minLng, maxLat, maxLng) = BuildNearbyBounds(latitude, longitude);
 
         return await _hazards.GetHazardsAsync(
-            hazard.Location.Y - latDelta,
-            hazard.Location.X - lngDelta,
-            hazard.Location.Y + latDelta,
-            hazard.Location.X + lngDelta,
+            minLat,
+            minLng,
+            maxLat,
+            maxLng,
             null,
             cancellationToken);
     }
+
+    private async Task<IReadOnlyCollection<HazardReport>> GetNearbyPersistedHazardsAsync(
+        double latitude,
+        double longitude,
+        CancellationToken cancellationToken)
+    {
+        var (minLat, minLng, maxLat, maxLng) = BuildNearbyBounds(latitude, longitude);
+        return await _hazards.GetPersistedHazardsAsync(
+            minLat,
+            minLng,
+            maxLat,
+            maxLng,
+            null,
+            limit: 25,
+            cancellationToken);
+    }
+
+    private (double MinLat, double MinLng, double MaxLat, double MaxLng) BuildNearbyBounds(
+        double latitude,
+        double longitude)
+    {
+        var radiusMetres = Math.Max(1, _options.DuplicateRadiusMetres);
+        var latDelta = radiusMetres / 111_320d;
+        var cosLat = Math.Cos(latitude * Math.PI / 180);
+        var lngDelta = Math.Abs(cosLat) < 0.01 ? latDelta : radiusMetres / (111_320d * Math.Abs(cosLat));
+
+        return (
+            latitude - latDelta,
+            longitude - lngDelta,
+            latitude + latDelta,
+            longitude + lngDelta);
+    }
+
+    private static bool IsValidLatitude(double latitude) =>
+        !double.IsNaN(latitude) && !double.IsInfinity(latitude) && latitude is >= -90 and <= 90;
+
+    private static bool IsValidLongitude(double longitude) =>
+        !double.IsNaN(longitude) && !double.IsInfinity(longitude) && longitude is >= -180 and <= 180;
 }

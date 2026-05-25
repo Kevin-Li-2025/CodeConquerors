@@ -34,6 +34,27 @@ export type HazardAiEnrichment = {
   guardrails: string[];
 };
 
+export type HazardReportDraftAiRequest = {
+  latitude: number;
+  longitude: number;
+  type: string;
+  description: string;
+  photoAttached?: boolean;
+  photoUrl?: string | null;
+};
+
+export type HazardReportDraftAiResult = {
+  forRouteDecision: boolean;
+  provider: string;
+  generatedAtUtc: string;
+  text: HazardAiEnrichment['text'];
+  duplicateSuggestions: DuplicateHazardSuggestion[];
+  missingOsmAttributeCandidates: MissingOsmAttributeCandidate[];
+  shouldReviewExistingReport: boolean;
+  suggestedDescriptionChips: string[];
+  guardrails: string[];
+};
+
 export type RouteExplanationResponse = {
   forRouteDecision: boolean;
   provider: string;
@@ -74,6 +95,15 @@ export type AccessibilityAiInferenceResult = {
 };
 
 export const aiAssistService = {
+  async previewHazardReportDraft(
+    request: HazardReportDraftAiRequest
+  ): Promise<HazardReportDraftAiResult> {
+    return api.post<HazardReportDraftAiResult>(
+      '/ai-assist/hazards/report-draft',
+      request
+    );
+  },
+
   async getHazardEnrichment(hazardId: string): Promise<HazardAiEnrichment> {
     return api.get<HazardAiEnrichment>(
       `/ai-assist/hazards/${encodeURIComponent(hazardId)}/enrichment`

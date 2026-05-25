@@ -12,6 +12,29 @@ public sealed class HazardAiEnrichmentResult
     public List<string> Guardrails { get; set; } = new();
 }
 
+public sealed class HazardReportDraftAiRequest
+{
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+    public string Type { get; set; } = "other";
+    public string Description { get; set; } = string.Empty;
+    public bool PhotoAttached { get; set; }
+    public string? PhotoUrl { get; set; }
+}
+
+public sealed class HazardReportDraftAiResult
+{
+    public bool ForRouteDecision { get; set; }
+    public string Provider { get; set; } = "local-rules";
+    public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
+    public HazardTextEnrichment Text { get; set; } = new();
+    public List<DuplicateHazardSuggestion> DuplicateSuggestions { get; set; } = new();
+    public List<MissingOsmAttributeCandidate> MissingOsmAttributeCandidates { get; set; } = new();
+    public bool ShouldReviewExistingReport { get; set; }
+    public List<string> SuggestedDescriptionChips { get; set; } = new();
+    public List<string> Guardrails { get; set; } = new();
+}
+
 public sealed class HazardTextEnrichment
 {
     public string NormalizedDescription { get; set; } = string.Empty;

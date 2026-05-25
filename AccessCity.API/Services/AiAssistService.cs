@@ -2,11 +2,17 @@ using System.Text.RegularExpressions;
 using AccessCity.API.Configuration;
 using AccessCity.API.Models;
 using Microsoft.Extensions.Options;
+using NetTopologySuite.Geometries;
 
 namespace AccessCity.API.Services;
 
 public interface IAiAssistService
 {
+    Task<HazardReportDraftAiResult> PreviewHazardReportDraftAsync(
+        HazardReportDraftAiRequest request,
+        IReadOnlyCollection<HazardReport> nearbyHazards,
+        CancellationToken cancellationToken);
+
     Task<HazardAiEnrichmentResult> EnrichHazardAsync(
         HazardReport hazard,
         IReadOnlyCollection<HazardReport> nearbyHazards,
@@ -63,7 +69,51 @@ public sealed partial class AiAssistService : IAiAssistService
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(BuildHazardEnrichmentResult(hazard, nearbyHazards));
+    }
 
+    public Task<HazardReportDraftAiResult> PreviewHazardReportDraftAsync(
+        HazardReportDraftAiRequest request,
+        IReadOnlyCollection<HazardReport> nearbyHazards,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var hasPhoto = request.PhotoAttached || !string.IsNullOrWhiteSpace(request.PhotoUrl);
+        var description = string.IsNullOrWhiteSpace(request.Description)
+            ? HumanizeToken(request.Type)
+            : request.Description;
+        var hazard = new HazardReport
+        {
+            Id = Guid.Empty,
+            Type = string.IsNullOrWhiteSpace(request.Type) ? "other" : request.Type,
+            Description = description,
+            PhotoUrl = hasPhoto ? request.PhotoUrl?.Trim() ?? "pending-field-photo" : string.Empty,
+            Location = new Point(request.Longitude, request.Latitude) { SRID = 4326 },
+            ReportedAt = DateTime.UtcNow,
+            Status = HazardStatus.Reported,
+            Source = "ai_report_draft"
+        };
+
+        var enrichment = BuildHazardEnrichmentResult(hazard, nearbyHazards);
+        return Task.FromResult(new HazardReportDraftAiResult
+        {
+            ForRouteDecision = false,
+            Provider = enrichment.Provider,
+            GeneratedAtUtc = enrichment.GeneratedAtUtc,
+            Text = enrichment.Text,
+            DuplicateSuggestions = enrichment.DuplicateSuggestions,
+            MissingOsmAttributeCandidates = enrichment.MissingOsmAttributeCandidates,
+            ShouldReviewExistingReport = enrichment.DuplicateSuggestions.Any(candidate => candidate.Confidence >= 0.60),
+            SuggestedDescriptionChips = BuildSuggestedDescriptionChips(enrichment.Text.SuggestedType),
+            Guardrails = enrichment.Guardrails
+        });
+    }
+
+    private HazardAiEnrichmentResult BuildHazardEnrichmentResult(
+        HazardReport hazard,
+        IReadOnlyCollection<HazardReport> nearbyHazards)
+    {
         var normalized = NormalizeDescription(hazard.Description);
         var searchText = $"{hazard.Type} {normalized}".ToLowerInvariant();
         var matchedRules = HazardRules
@@ -113,7 +163,7 @@ public sealed partial class AiAssistService : IAiAssistService
             ]
         };
 
-        return Task.FromResult(result);
+        return result;
     }
 
     public Task<RouteExplanationResponse> ExplainRouteAsync(
@@ -448,6 +498,49 @@ public sealed partial class AiAssistService : IAiAssistService
         return "unpaved";
     }
 
+    private static List<string> BuildSuggestedDescriptionChips(string suggestedType)
+    {
+        return suggestedType switch
+        {
+            "missing_curb_ramp" =>
+            [
+                "Raised kerb blocks wheelchair access",
+                "No dropped kerb at this crossing",
+                "Curb ramp is blocked"
+            ],
+            "stairs" =>
+            [
+                "Steps block step-free access",
+                "No ramp visible nearby",
+                "Needs a step-free detour"
+            ],
+            "obstruction" =>
+            [
+                "Pavement is blocked",
+                "Wheelchair cannot pass safely",
+                "Temporary obstruction in walkway"
+            ],
+            "surface_quality" =>
+            [
+                "Uneven pavement is hard to pass",
+                "Loose surface affects wheels",
+                "Surface damage needs review"
+            ],
+            "low_lighting" =>
+            [
+                "Street light is out",
+                "Poor lighting after dark",
+                "Visibility feels unsafe"
+            ],
+            _ =>
+            [
+                "Hard to pass safely",
+                "May affect wheelchair access",
+                "Needs accessibility review"
+            ]
+        };
+    }
+
     private static bool ContainsAny(string text, params string[] terms)
     {
         return terms.Any(term => text.Contains(term, StringComparison.OrdinalIgnoreCase));
@@ -463,6 +556,14 @@ public sealed partial class AiAssistService : IAiAssistService
     {
         var normalized = TokenRegex().Replace(token.Trim().ToLowerInvariant(), "_");
         return normalized.Trim('_');
+    }
+
+    private static string HumanizeToken(string token)
+    {
+        var normalized = NormalizeToken(token);
+        return string.IsNullOrWhiteSpace(normalized)
+            ? "reported accessibility issue"
+            : normalized.Replace('_', ' ');
     }
 
     private static double DistanceMetres(double lat1, double lng1, double lat2, double lng2)

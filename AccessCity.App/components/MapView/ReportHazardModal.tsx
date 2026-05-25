@@ -39,6 +39,21 @@ type ReportHazardModalProps = {
   similarReportCount?: number;
   isCheckingSimilarReports?: boolean;
   onReviewSimilarReports?: () => void;
+  aiDraftSuggestion?: ReportAiDraftSuggestion | null;
+  isLoadingAiDraft?: boolean;
+  onApplyAiDraft?: () => void;
+};
+
+type ReportAiDraftSuggestion = {
+  normalizedDescription: string;
+  suggestedType: string;
+  suggestedSeverity: string;
+  confidence: number;
+  tags: string[];
+  duplicateCount: number;
+  shouldReviewExistingReport: boolean;
+  osmCandidateCount: number;
+  suggestedDescriptionChips: string[];
 };
 
 function renderOptionIcon(
@@ -83,6 +98,9 @@ export default function ReportHazardModal({
   similarReportCount = 0,
   isCheckingSimilarReports = false,
   onReviewSimilarReports,
+  aiDraftSuggestion,
+  isLoadingAiDraft = false,
+  onApplyAiDraft,
 }: ReportHazardModalProps) {
   const selectedTypeOption = reportHazardOptions.find(
     (item) => item.key === selectedReportType
@@ -298,6 +316,76 @@ export default function ReportHazardModal({
                     </View>
                   ) : null}
 
+                  {isLoadingAiDraft || aiDraftSuggestion ? (
+                    <View style={styles.aiAssistBox}>
+                      <View style={styles.aiAssistHeader}>
+                        <View style={styles.aiAssistTitleRow}>
+                          <View style={styles.aiAssistIcon}>
+                            <Ionicons name="sparkles-outline" size={16} color={AppTheme.color.text} />
+                          </View>
+                          <View>
+                            <Text style={styles.aiAssistTitle}>AI report assistant</Text>
+                            <Text style={styles.aiAssistSubtitle}>Review-only suggestions</Text>
+                          </View>
+                        </View>
+                        {isLoadingAiDraft ? (
+                          <ActivityIndicator size="small" color={AppTheme.color.textMuted} />
+                        ) : aiDraftSuggestion ? (
+                          <Text style={styles.aiConfidence}>
+                            {Math.round(aiDraftSuggestion.confidence * 100)}%
+                          </Text>
+                        ) : null}
+                      </View>
+
+                      {aiDraftSuggestion ? (
+                        <>
+                          <Text style={styles.aiSuggestionText}>
+                            {formatAiType(aiDraftSuggestion.suggestedType)} · {formatAiSeverity(aiDraftSuggestion.suggestedSeverity)}
+                          </Text>
+                          <Text style={styles.aiMetaText}>
+                            {aiDraftSuggestion.duplicateCount > 0
+                              ? `${aiDraftSuggestion.duplicateCount} possible duplicate${aiDraftSuggestion.duplicateCount === 1 ? '' : 's'} nearby`
+                              : 'No close duplicate found'} · {aiDraftSuggestion.osmCandidateCount} accessibility data candidate{aiDraftSuggestion.osmCandidateCount === 1 ? '' : 's'}
+                          </Text>
+
+                          {aiDraftSuggestion.shouldReviewExistingReport ? (
+                            <View style={styles.aiWarningRow}>
+                              <Ionicons name="git-merge-outline" size={15} color={AppTheme.color.warning} />
+                              <Text style={styles.aiWarningText}>A nearby report may already cover this issue.</Text>
+                            </View>
+                          ) : null}
+
+                          {aiDraftSuggestion.suggestedDescriptionChips.length > 0 ? (
+                            <View style={styles.aiChipRow}>
+                              {aiDraftSuggestion.suggestedDescriptionChips.slice(0, 3).map((chip) => (
+                                <TouchableOpacity
+                                  key={chip}
+                                  activeOpacity={0.85}
+                                  style={styles.aiChip}
+                                  onPress={() => onChangeDescription(chip)}
+                                >
+                                  <Text style={styles.aiChipText}>{chip}</Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          ) : null}
+
+                          {onApplyAiDraft ? (
+                            <TouchableOpacity
+                              activeOpacity={0.85}
+                              style={styles.applyAiButton}
+                              onPress={onApplyAiDraft}
+                            >
+                              <Text style={styles.applyAiText}>Use suggestion</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </>
+                      ) : (
+                        <Text style={styles.aiMetaText}>Checking report text, duplicate risk, and accessibility data gaps...</Text>
+                      )}
+                    </View>
+                  ) : null}
+
                   <Text style={styles.sectionTitle}>Describe the issue <Text style={styles.optionalText}>(optional)</Text></Text>
 
                   <View style={styles.quickChipRow}>
@@ -388,6 +476,18 @@ export default function ReportHazardModal({
       </View>
     </Modal>
   );
+}
+
+function formatAiType(type: string) {
+  return type
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatAiSeverity(severity: string) {
+  return severity
+    ? severity.charAt(0).toUpperCase() + severity.slice(1).toLowerCase()
+    : 'Medium';
 }
 
 const styles = StyleSheet.create({
@@ -788,6 +888,104 @@ const styles = StyleSheet.create({
   },
   reviewSimilarText: {
     color: AppTheme.color.text,
+    ...AppTheme.type.label,
+  },
+  aiAssistBox: {
+    borderRadius: AppTheme.radius.lg,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    padding: 14,
+    marginBottom: 18,
+  },
+  aiAssistHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 10,
+  },
+  aiAssistTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  aiAssistIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppTheme.color.accentSoft,
+  },
+  aiAssistTitle: {
+    color: AppTheme.color.text,
+    ...AppTheme.type.label,
+  },
+  aiAssistSubtitle: {
+    color: AppTheme.color.textSubtle,
+    marginTop: 1,
+    ...AppTheme.type.meta,
+  },
+  aiConfidence: {
+    color: AppTheme.color.text,
+    ...AppTheme.type.meta,
+  },
+  aiSuggestionText: {
+    color: AppTheme.color.text,
+    marginBottom: 4,
+    ...AppTheme.type.cardTitle,
+  },
+  aiMetaText: {
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.label,
+  },
+  aiWarningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    marginTop: 10,
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: AppTheme.color.warningSoft,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  aiWarningText: {
+    flex: 1,
+    color: AppTheme.color.text,
+    ...AppTheme.type.meta,
+  },
+  aiChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginTop: 12,
+  },
+  aiChip: {
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: AppTheme.color.surface,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+  },
+  aiChipText: {
+    color: AppTheme.color.text,
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+  },
+  applyAiButton: {
+    minHeight: 38,
+    marginTop: 12,
+    borderRadius: AppTheme.radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppTheme.color.text,
+  },
+  applyAiText: {
+    color: AppTheme.color.textInverse,
     ...AppTheme.type.label,
   },
   photoPreview: {

@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import ReportPage from '@/app/(tabs)/report/reportpage';
 import { geocodingService } from '@/services/geocoding.service';
 import { hazardsService } from '@/services/hazards.service';
+import { aiAssistService } from '@/services/aiAssist.service';
 jest.mock('@/components/MapView/ReportHazardModal', () => {
   const React = require('react');
   const { View, Text, Pressable } = require('react-native');
@@ -21,6 +22,9 @@ jest.mock('@/components/MapView/ReportHazardModal', () => {
       similarReportCount,
       isCheckingSimilarReports,
       onReviewSimilarReports,
+      aiDraftSuggestion,
+      isLoadingAiDraft,
+      onApplyAiDraft,
     }: {
       visible: boolean;
       onClose: () => void;
@@ -33,6 +37,9 @@ jest.mock('@/components/MapView/ReportHazardModal', () => {
       similarReportCount?: number;
       isCheckingSimilarReports?: boolean;
       onReviewSimilarReports?: () => void;
+      aiDraftSuggestion?: { suggestedType: string; suggestedSeverity: string; duplicateCount: number } | null;
+      isLoadingAiDraft?: boolean;
+      onApplyAiDraft?: () => void;
     }) {
       if (!visible) {
         return null;
@@ -43,6 +50,8 @@ jest.mock('@/components/MapView/ReportHazardModal', () => {
           <Text>{locationLabel}</Text>
           <Text>{locationHint}</Text>
           <Text>similar-{isCheckingSimilarReports ? 'checking' : similarReportCount ?? 0}</Text>
+          <Text>ai-{isLoadingAiDraft ? 'checking' : aiDraftSuggestion?.suggestedType ?? 'none'}</Text>
+          <Text>ai-severity-{aiDraftSuggestion?.suggestedSeverity ?? 'none'}</Text>
           <Pressable onPress={onClose} accessibilityLabel="Close modal">
             <Text>Close</Text>
           </Pressable>
@@ -57,6 +66,9 @@ jest.mock('@/components/MapView/ReportHazardModal', () => {
           </Pressable>
           <Pressable onPress={onReviewSimilarReports} accessibilityLabel="Review similar reports">
             <Text>Review similar</Text>
+          </Pressable>
+          <Pressable onPress={onApplyAiDraft} accessibilityLabel="Use AI suggestion">
+            <Text>Use AI suggestion</Text>
           </Pressable>
         </View>
       );
@@ -83,6 +95,29 @@ jest.mock('@/services/hazards.service', () => ({
   },
 }));
 
+jest.mock('@/services/aiAssist.service', () => ({
+  aiAssistService: {
+    previewHazardReportDraft: jest.fn(() => Promise.resolve({
+      forRouteDecision: false,
+      provider: 'local-rules',
+      generatedAtUtc: '2026-05-25T00:00:00Z',
+      text: {
+        normalizedDescription: 'Pavement is blocked and wheelchair cannot pass safely.',
+        suggestedType: 'obstruction',
+        suggestedSeverity: 'high',
+        confidence: 0.82,
+        adminSummary: 'obstruction report',
+        tags: ['temporary_obstacle'],
+      },
+      duplicateSuggestions: [{ hazardId: 'h1', distanceMetres: 10, confidence: 0.9, reason: 'nearby same type' }],
+      missingOsmAttributeCandidates: [],
+      shouldReviewExistingReport: true,
+      suggestedDescriptionChips: ['Pavement is blocked'],
+      guardrails: ['review only'],
+    })),
+  },
+}));
+
 describe('ReportPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -92,6 +127,24 @@ describe('ReportPage', () => {
       nextCursor: null,
       limit: 10,
       hasMore: false,
+    });
+    jest.mocked(aiAssistService.previewHazardReportDraft).mockResolvedValue({
+      forRouteDecision: false,
+      provider: 'local-rules',
+      generatedAtUtc: '2026-05-25T00:00:00Z',
+      text: {
+        normalizedDescription: 'Pavement is blocked and wheelchair cannot pass safely.',
+        suggestedType: 'obstruction',
+        suggestedSeverity: 'high',
+        confidence: 0.82,
+        adminSummary: 'obstruction report',
+        tags: ['temporary_obstacle'],
+      },
+      duplicateSuggestions: [{ hazardId: 'h1', distanceMetres: 10, confidence: 0.9, reason: 'nearby same type' }],
+      missingOsmAttributeCandidates: [],
+      shouldReviewExistingReport: true,
+      suggestedDescriptionChips: ['Pavement is blocked'],
+      guardrails: ['review only'],
     });
   });
 
@@ -142,5 +195,20 @@ describe('ReportPage', () => {
     fireEvent.press(await findByLabelText('Next step'));
 
     expect(await findByText('similar-1')).toBeTruthy();
+  });
+
+  it('previews AI hazard intake suggestions before submit', async () => {
+    const { findByLabelText, findByText } = render(<ReportPage />);
+    fireEvent.press(await findByLabelText('Select blocked pavement'));
+    fireEvent.press(await findByLabelText('Next step'));
+
+    expect(await findByText('ai-obstruction')).toBeTruthy();
+    expect(await findByText('ai-severity-high')).toBeTruthy();
+    expect(aiAssistService.previewHazardReportDraft).toHaveBeenCalledWith(expect.objectContaining({
+      latitude: 52.48,
+      longitude: -1.89,
+      type: 'blocked_pavement',
+      photoAttached: false,
+    }));
   });
 });

@@ -18,6 +18,15 @@ public interface IHazardReportService
         HazardStatus? status,
         CancellationToken cancellationToken);
 
+    Task<List<HazardReport>> GetPersistedHazardsAsync(
+        double? minLat,
+        double? minLng,
+        double? maxLat,
+        double? maxLng,
+        HazardStatus? status,
+        int limit,
+        CancellationToken cancellationToken);
+
     Task<HazardPageResponse> GetHazardsPageAsync(
         double? minLat,
         double? minLng,
@@ -69,6 +78,28 @@ public sealed class HazardReportService : IHazardReportService
     {
         _ = cancellationToken;
         return await _realHazardData.GetActiveHazardsAsync(minLat, minLng, maxLat, maxLng, status);
+    }
+
+    public async Task<List<HazardReport>> GetPersistedHazardsAsync(
+        double? minLat,
+        double? minLng,
+        double? maxLat,
+        double? maxLng,
+        HazardStatus? status,
+        int limit,
+        CancellationToken cancellationToken)
+    {
+        var cappedLimit = Math.Clamp(limit, 1, MaxPageLimit);
+        return await QueryPersistedHazardsPageAsync(
+                minLat,
+                minLng,
+                maxLat,
+                maxLng,
+                status,
+                cursorReportedBefore: null,
+                cappedLimit,
+                cancellationToken)
+            .ConfigureAwait(false);
     }
 
     public async Task<HazardPageResponse> GetHazardsPageAsync(
