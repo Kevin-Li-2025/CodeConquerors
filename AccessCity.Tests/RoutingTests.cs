@@ -7,6 +7,7 @@ using AccessCity.API.Data;
 using AccessCity.API.Models;
 using AccessCity.API.Serialization;
 using AccessCity.API.Services;
+using AccessCity.API.Services.External;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -17,6 +18,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Moq;
 using NetTopologySuite.Geometries;
 using Xunit;
 
@@ -334,6 +336,117 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var result = await response.Content.ReadFromJsonAsync<RouteResponse>(JsonOptions);
         Assert.NotNull(result);
         Assert.NotNull(result.Path);
+    }
+
+    [Fact]
+    public async Task SafePath_Relaxes_Accessibility_Filters_On_Real_Graph_Before_Osrm()
+    {
+        var start = new Coordinate(-1.8904, 52.4862);
+        var end = new Coordinate(-1.8894, 52.4862);
+        var graph = new RouteGraphData
+        {
+            Nodes = new Dictionary<long, GraphNode>
+            {
+                [1] = new()
+                {
+                    Id = 1,
+                    Location = start,
+                    Edges =
+                    {
+                        [2] = BuildTestEdge(end, distanceMetres: 80, hasStairs: true)
+                    }
+                },
+                [2] = new()
+                {
+                    Id = 2,
+                    Location = end
+                }
+            },
+            LoadedEdgeCount = 1
+        };
+
+        var risk = new Mock<IRiskScoringService>();
+        risk.Setup(x => x.QuickRisk(
+                It.IsAny<double>(),
+                It.IsAny<double>(),
+                It.IsAny<IEnumerable<HazardReport>>(),
+                It.IsAny<double>()))
+            .Returns(0);
+
+        var aiRisk = new Mock<IPredictiveRiskModel>();
+        var osrm = new Mock<IOsrmClient>();
+        osrm.Setup(x => x.GetAlternativeRoutesAsync(
+                It.IsAny<Coordinate>(),
+                It.IsAny<Coordinate>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<OsrmRouteResult>());
+
+        var routeGraph = new Mock<IRouteGraphRepository>();
+        routeGraph.Setup(x => x.LoadGraphAsync(
+                It.IsAny<Coordinate>(),
+                It.IsAny<Coordinate>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(graph);
+
+        var routeGraphStatus = new Mock<IRouteGraphStatusService>();
+        routeGraphStatus.Setup(x => x.GetVersionAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync("test-graph");
+        routeGraphStatus.Setup(x => x.GetStatusAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RouteGraphCoverageStatus(2, 1, true, "test-graph", null, null, null, null, null));
+
+        var routeCache = new Mock<IRouteCacheService>();
+        routeCache.Setup(x => x.TryGetAsync(It.IsAny<string>()))
+            .ReturnsAsync((RouteResponse?)null);
+        routeCache.Setup(x => x.SetAsync(It.IsAny<string>(), It.IsAny<RouteResponse>()))
+            .Returns(Task.CompletedTask);
+        routeCache.Setup(x => x.BuildKey(
+                It.IsAny<double>(),
+                It.IsAny<double>(),
+                It.IsAny<double>(),
+                It.IsAny<double>(),
+                It.IsAny<string>(),
+                It.IsAny<double>(),
+                It.IsAny<IEnumerable<string>?>(),
+                It.IsAny<string?>()))
+            .Returns("route:test");
+
+        var tileCache = new Mock<IRiskTileCacheService>();
+        var hazardGrid = new Mock<IHazardRiskGrid>();
+        var hazardIndex = new Mock<IHazardSpatialIndex>();
+        var service = new RoutingService(
+            risk.Object,
+            aiRisk.Object,
+            osrm.Object,
+            routeGraph.Object,
+            routeGraphStatus.Object,
+            tileCache.Object,
+            routeCache.Object,
+            hazardGrid.Object,
+            hazardIndex.Object,
+            Options.Create(new RoutingOptions { RouteGraphMaxSnapDistanceMetres = 150 }));
+
+        var request = new RouteRequest
+        {
+            Start = start,
+            End = end,
+            Profile = "manual-wheelchair",
+            Preferences = new List<string> { "avoid-stairs" },
+            SafetyWeight = 0.8
+        };
+
+        var response = await service.FindSafePathAsync(request, Enumerable.Empty<HazardReport>());
+
+        Assert.NotNull(response.Path);
+        Assert.Equal(80, response.Distance, precision: 1);
+        Assert.Contains(response.Warnings, warning =>
+            warning.Contains("No fully verified accessible path", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(response.Warnings, warning =>
+            warning.Contains("contains stairs", StringComparison.OrdinalIgnoreCase));
+        osrm.Verify(x => x.GetAlternativeRoutesAsync(
+                It.IsAny<Coordinate>(),
+                It.IsAny<Coordinate>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
     }
 
     [Fact]
@@ -862,5 +975,43 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         var cachedEnvelope = await cached.Content.ReadFromJsonAsync<SafePathOptionsResponse>(JsonOptions);
         Assert.NotNull(cachedEnvelope);
         Assert.True(cachedEnvelope!.Recommended.Distance > 0);
+    }
+
+    private static GraphEdge BuildTestEdge(
+        Coordinate target,
+        double distanceMetres,
+        bool hasStairs = false,
+        bool hasBarrier = false)
+    {
+        var cost = RouteEdgeCostModel.Compute(
+            distanceMetres,
+            surface: "asphalt",
+            smoothness: "good",
+            hasStairs,
+            hasBarrier,
+            kerbHeight: 0,
+            widthMetres: 1.5,
+            isSteep: false,
+            access: null);
+
+        var edge = new GraphEdge
+        {
+            TargetNodeId = 2,
+            DistanceMetres = distanceMetres,
+            SurfaceType = "asphalt",
+            Smoothness = "good",
+            WidthMetres = 1.5,
+            LightingQuality = 0.9,
+            HasStairs = hasStairs,
+            HasBarrier = hasBarrier,
+            AccessibilityCostVersion = cost.Version,
+            StandardAccessibilityPenaltySeconds = cost.StandardAccessibilityPenaltySeconds,
+            WheelchairAccessibilityPenaltySeconds = cost.WheelchairAccessibilityPenaltySeconds,
+            StrollerAccessibilityPenaltySeconds = cost.StrollerAccessibilityPenaltySeconds,
+            AccessibilityDataQuality = cost.AccessibilityDataQuality,
+            Geometry = new[] { new Coordinate(-1.8904, 52.4862), target }
+        };
+        RouteEdgeCostModel.PopulateTraversalWeights(edge);
+        return edge;
     }
 }

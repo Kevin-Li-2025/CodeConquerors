@@ -2,10 +2,10 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text.Json;
 using AccessCity.API.Common;
-using AccessCity.API.Data;
 using AccessCity.API.Models;
 using AccessCity.API.Models.DTOs;
 using AccessCity.API.Models.Identity;
+using AccessCity.API.Services;
 using Asp.Versioning;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -36,12 +36,12 @@ public sealed class AccountController : ControllerBase
         WeeklySummary: false);
 
     private readonly UserManager<AccessCityUser> _userManager;
-    private readonly AppDbContext _dbContext;
+    private readonly IAccountService _accountService;
 
-    public AccountController(UserManager<AccessCityUser> userManager, AppDbContext dbContext)
+    public AccountController(UserManager<AccessCityUser> userManager, IAccountService accountService)
     {
         _userManager = userManager;
-        _dbContext = dbContext;
+        _accountService = accountService;
     }
 
     [HttpGet("profile")]
@@ -156,25 +156,18 @@ public sealed class AccountController : ControllerBase
             return BadRequest(new ApiError("Message must be between 10 and 4000 characters."));
         }
 
-        var submission = new SupportContactSubmission
-        {
-            Id = Guid.NewGuid(),
-            UserId = user.Id,
-            Email = user.Email ?? string.Empty,
-            Name = user.FullName ?? string.Empty,
-            Category = NormalizeCategory(request.Category),
-            Subject = subject,
-            Message = message,
-            Status = "open",
-            CreatedAtUtc = DateTime.UtcNow
-        };
-
-        _dbContext.SupportContactSubmissions.Add(submission);
-        await _dbContext.SaveChangesAsync(cancellationToken);
+        var submission = await _accountService.CreateSupportContactAsync(
+            user.Id,
+            user.Email ?? string.Empty,
+            user.FullName ?? string.Empty,
+            NormalizeCategory(request.Category),
+            subject,
+            message,
+            cancellationToken);
 
         return Created(
             $"/api/v1/account/support/contact/{submission.Id}",
-            new SupportContactResponse(submission.Id, submission.Status, submission.CreatedAtUtc));
+            submission);
     }
 
     private async Task<AccessCityUser?> ResolveUserAsync(CancellationToken cancellationToken)
@@ -211,23 +204,13 @@ public sealed class AccountController : ControllerBase
         AccessCityUser user,
         CancellationToken cancellationToken)
     {
-        var reportsSubmitted = await _dbContext.Hazards
-            .AsNoTracking()
-            .CountAsync(hazard => hazard.ReporterUserId == user.Id, cancellationToken);
-        var resolvedReports = await _dbContext.Hazards
-            .AsNoTracking()
-            .CountAsync(
-                hazard => hazard.ReporterUserId == user.Id && hazard.Status == HazardStatus.Resolved,
-                cancellationToken);
+        var stats = await _accountService.GetProfileStatsAsync(user.Id, cancellationToken);
 
         return new AccountProfileResponse(
             user.Email ?? string.Empty,
             user.FullName ?? string.Empty,
             FromPreferenceTokens(user.PreferredRoutes),
-            new AccountProfileStatsDto(
-                reportsSubmitted,
-                resolvedReports,
-                reportsSubmitted + resolvedReports));
+            stats);
     }
 
     private static AccessibilityPreferenceDto FromPreferenceTokens(IEnumerable<string>? tokens)

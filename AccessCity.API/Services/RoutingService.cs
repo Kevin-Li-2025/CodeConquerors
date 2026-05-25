@@ -50,6 +50,8 @@ public class RoutingService : IRoutingService
     private const double MinimumCostMultiplier = 0.8;
     private const double HazardAvoidanceRadiusMetres = 50.0;
     private const double HazardWaypointOffsetMetres = 100.0;
+    private const string RelaxedAccessibilityGraphWarning =
+        "No fully verified accessible path was found on the imported road network. Showing the lowest-cost route from the accessibility graph with explicit obstacle warnings.";
 
     /// <summary>Profile-specific edge filters for accessibility routing.</summary>
     private static readonly Dictionary<string, Func<GraphEdge, bool>> ProfileFilters = new(StringComparer.OrdinalIgnoreCase)
@@ -440,6 +442,19 @@ public class RoutingService : IRoutingService
         }
 
         path ??= AStarSearch(graphData.Nodes, startId, endId, request, hazardList, graphData.Preprocessing);
+        var usedRelaxedAccessibilitySearch = false;
+        if ((path == null || path.Count < 2) && RequiresVerifiedAccessibility(request))
+        {
+            path = AStarSearch(
+                graphData.Nodes,
+                startId,
+                endId,
+                request,
+                hazardList,
+                graphData.Preprocessing,
+                enforceHardFilters: false);
+            usedRelaxedAccessibilitySearch = path is { Count: >= 2 };
+        }
 
         if (path == null || path.Count < 2)
         {
@@ -453,7 +468,14 @@ public class RoutingService : IRoutingService
             };
         }
 
-        return BuildRealGraphResponse(path, graphData.Nodes, request, hazardList);
+        var response = BuildRealGraphResponse(path, graphData.Nodes, request, hazardList);
+        if (usedRelaxedAccessibilitySearch)
+        {
+            response.Warnings.Insert(0, RelaxedAccessibilityGraphWarning);
+            response.Warnings = response.Warnings.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        return response;
     }
 
     private static bool CanUseContractionHierarchy(RouteRequest request, IReadOnlyCollection<HazardReport> hazards)
@@ -559,6 +581,8 @@ public class RoutingService : IRoutingService
                 warnings.Add($"Step {i + 1}: This segment contains stairs — {FormatAccessibilityNote("stairs", request.Profile)}.");
             if (edge.HasBarrier)
                 warnings.Add($"Step {i + 1}: Physical barrier detected on this path.");
+            if (IsWheelchairAccessRestricted(edge) && IsAccessibilityProfile(request.Profile))
+                warnings.Add($"Step {i + 1}: OSM marks this segment as not wheelchair accessible.");
             if (edge.KerbHeight > 0.03)
                 warnings.Add($"Step {i + 1}: Raised kerb ({edge.KerbHeight * 100:F0}cm) — may affect wheelchair access.");
             if (edge.SurfaceType is "cobblestone" or "gravel" or "unpaved")
@@ -741,6 +765,23 @@ public class RoutingService : IRoutingService
                || access.Contains("foot=no", StringComparison.Ordinal)
                || access.Contains("wheelchair=no", StringComparison.Ordinal);
     }
+
+    private static bool IsPedestrianAccessBlocked(GraphEdge edge)
+    {
+        if (string.IsNullOrWhiteSpace(edge.Access))
+        {
+            return false;
+        }
+
+        var access = edge.Access.ToLowerInvariant();
+        return access.Contains("access=no", StringComparison.Ordinal)
+               || access.Contains("access=private", StringComparison.Ordinal)
+               || access.Contains("foot=no", StringComparison.Ordinal);
+    }
+
+    private static bool IsWheelchairAccessRestricted(GraphEdge edge) =>
+        !string.IsNullOrWhiteSpace(edge.Access)
+        && edge.Access.Contains("wheelchair=no", StringComparison.OrdinalIgnoreCase);
 
     private static bool SmoothnessAllowsWheels(string? smoothness)
     {
@@ -1312,7 +1353,7 @@ public class RoutingService : IRoutingService
         ["avoid-cobblestone"] = e => e.SurfaceType != "cobblestone",
         ["avoid-construction"] = e => !e.IsUnderConstruction,
         ["avoid-steep-hills"] = e => !e.IsSteep,
-        ["avoid-reported-hazards"] = e => e.BaseSafetyCost < 0.3,
+        ["avoid-reported-hazards"] = e => true,
         ["prefer-crossings"] = e => true,
     };
 
@@ -1320,6 +1361,10 @@ public class RoutingService : IRoutingService
     {
         ["low-light-penalty"] = e => 1.0 + (1.0 - e.LightingQuality) * 0.5,
         ["prefer-crossings"] = e => e.HasCrossing ? 0.85 : 1.15,
+        ["avoid-reported-hazards"] = e => 1.0 + Math.Clamp(e.BaseSafetyCost, 0.0, 1.0) * 2.0,
+        ["avoid-construction"] = e => e.IsUnderConstruction ? 4.0 : 1.0,
+        ["avoid-cobblestone"] = e => e.SurfaceType is "cobblestone" or "sett" ? 2.5 : 1.0,
+        ["avoid-steep-hills"] = e => e.IsSteep ? 2.0 : 1.0,
     };
 
     private RouteResponse FindSafePathFallback(
@@ -1395,7 +1440,8 @@ public class RoutingService : IRoutingService
         long startId, long endId,
         RouteRequest request,
         List<HazardReport> hazards,
-        RouteGraphPreprocessingData? preprocessing = null)
+        RouteGraphPreprocessingData? preprocessing = null,
+        bool enforceHardFilters = true)
     {
         var endNode = graph[endId];
         var gScore = new Dictionary<long, double> { [startId] = 0 };
@@ -1409,8 +1455,10 @@ public class RoutingService : IRoutingService
         var closed = new HashSet<long>();
         var riskMemo = new Dictionary<(long From, long To), double>();
 
-        // Build combined edge filter from preferences AND profile
-        var edgeFilterChain = BuildEdgeFilterChain(request);
+        // Build combined edge filter from preferences AND profile.
+        // In relaxed mode, profile penalties still affect ComputeEdgeCost, but
+        // the graph remains connected enough to return a degraded-confidence route.
+        var edgeFilterChain = BuildEdgeFilterChain(request, enforceHardFilters);
 
         while (open.Count > 0)
         {
@@ -1468,9 +1516,16 @@ public class RoutingService : IRoutingService
     /// Build a combined filter chain from user preferences AND mobility profile.
     /// This ensures A* never traverses edges that are impassable for the user.
     /// </summary>
-    private static List<Func<GraphEdge, bool>> BuildEdgeFilterChain(RouteRequest request)
+    private static List<Func<GraphEdge, bool>> BuildEdgeFilterChain(
+        RouteRequest request,
+        bool enforceHardFilters = true)
     {
         var filters = new List<Func<GraphEdge, bool>>();
+        if (!enforceHardFilters)
+        {
+            filters.Add(edge => !IsPedestrianAccessBlocked(edge));
+            return filters;
+        }
 
         // Profile-based filter (always applied)
         if (ProfileFilters.TryGetValue(request.Profile, out var profileFilter))

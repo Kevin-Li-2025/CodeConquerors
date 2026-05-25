@@ -241,6 +241,7 @@ public static class DependencyInjection
             .AddMapsModule(configuration)
             .AddOsmImportModule(configuration);
 
+        services.AddScoped<IAccountService, AccountService>();
         services.AddHostedService<AccessCity.API.Services.Background.HotPathWarmupBackgroundService>();
 
         // API Versioning
