@@ -226,6 +226,8 @@ export default function ReportPage() {
           locationLabel={locationLabel}
           locationHint={locationHint}
           isResolvingLocation={isResolvingLocation}
+          canSubmit={Boolean(currentLocation)}
+          onRetryLocation={() => void getCurrentLocation()}
         />
       ) : null}
     </View>

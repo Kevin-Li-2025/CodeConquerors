@@ -71,7 +71,7 @@ describe('ReportPage', () => {
     expect(router.back).toHaveBeenCalled();
   });
 
-  it('uses backend reverse geocoding for the report location label', async () => {
+  it('uses reverse geocoding for the report location label', async () => {
     jest.mocked(geocodingService.reverse).mockResolvedValue({
       display_name: 'New Street, Birmingham',
     });

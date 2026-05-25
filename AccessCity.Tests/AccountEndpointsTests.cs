@@ -17,6 +17,24 @@ public sealed class AccountEndpointsTests : IClassFixture<AccessCityApiFactory>
     public AccountEndpointsTests(AccessCityApiFactory factory) => _factory = factory;
 
     [Fact]
+    public async Task Account_profile_defaults_are_wheelchair_safe_for_new_users()
+    {
+        var client = await _factory.CreateAuthenticatedClientAsync();
+
+        var response = await client.GetAsync("/api/v1/account/profile");
+        response.EnsureSuccessStatusCode();
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>(JsonOptions);
+        var preferences = json.GetProperty("accessibilityPreferences");
+
+        Assert.Equal("Manual wheelchair", preferences.GetProperty("mobilityDevice").GetString());
+        Assert.True(preferences.GetProperty("avoidStairs").GetBoolean());
+        Assert.True(preferences.GetProperty("avoidSteepIncline").GetBoolean());
+        Assert.True(preferences.GetProperty("preferCurbRamps").GetBoolean());
+        Assert.True(preferences.GetProperty("preferSmoothSurface").GetBoolean());
+        Assert.Equal(30, preferences.GetProperty("maxDetourToleranceMinutes").GetInt32());
+    }
+
+    [Fact]
     public async Task Account_profile_can_be_read_and_updated()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();

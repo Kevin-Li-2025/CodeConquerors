@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, waitFor } from '@testing-library/react-native';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 jest.mock('@/components/MapView', () => function MockMapView(props: any) {
   const { Text, View } = require('react-native');
@@ -23,9 +23,16 @@ jest.mock('@/services/routing.service', () => ({
   },
 }));
 
+jest.mock('@/services/geocoding.service', () => ({
+  geocodingService: {
+    search: jest.fn(),
+  },
+}));
+
 import MapPageWeb from '@/app/(tabs)/map.web';
 import { hazardsService } from '@/services/hazards.service';
 import { routingService } from '@/services/routing.service';
+import { geocodingService } from '@/services/geocoding.service';
 
 describe('MapPageWeb', () => {
   beforeEach(() => {
@@ -40,7 +47,7 @@ describe('MapPageWeb', () => {
     });
   });
 
-  it('loads backend hazards into the web map', async () => {
+  it('loads live hazards into the web map', async () => {
     jest.mocked(hazardsService.getHazardsPage).mockResolvedValue({
       items: [
         {
@@ -68,7 +75,41 @@ describe('MapPageWeb', () => {
     expect(getByText('1 city reports')).toBeTruthy();
     expect(getByText('Birmingham')).toBeTruthy();
     await waitFor(() => expect(routingService.getSafePathResolved).toHaveBeenCalled());
+    expect(routingService.getSafePathResolved).toHaveBeenCalledWith(
+      expect.objectContaining({
+        profile: 'manual-wheelchair',
+        preferences: expect.arrayContaining(['avoid-reported-hazards', 'prefer-crossings', 'low-light-penalty']),
+      }),
+    );
     expect(getByText('18 min')).toBeTruthy();
     expect(getByText('1.2 km')).toBeTruthy();
+  });
+
+  it('searches a destination and recalculates the route', async () => {
+    jest.mocked(hazardsService.getHazardsPage).mockResolvedValue({
+      items: [],
+      nextCursor: null,
+      limit: 100,
+      hasMore: false,
+    });
+    jest.mocked(geocodingService.search).mockResolvedValue([
+      {
+        display_name: 'New Street Station, Birmingham',
+        lat: '52.4777',
+        lon: '-1.8986',
+      },
+    ]);
+
+    const { getByLabelText, getByText } = render(<MapPageWeb />);
+
+    await waitFor(() => expect(routingService.getSafePathResolved).toHaveBeenCalledTimes(1));
+    fireEvent.changeText(getByLabelText('Destination'), 'New Street Station');
+    fireEvent.press(getByLabelText('Search destination'));
+
+    await waitFor(() => {
+      expect(geocodingService.search).toHaveBeenCalledWith('New Street Station');
+      expect(routingService.getSafePathResolved).toHaveBeenCalledTimes(2);
+    });
+    expect(getByText('New Street Station, Birmingham')).toBeTruthy();
   });
 });

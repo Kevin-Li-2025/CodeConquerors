@@ -1,4 +1,5 @@
 import React from 'react';
+import { Linking } from 'react-native';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
 import { router } from 'expo-router';
 import AuthScreen from '@/app/index';
@@ -82,5 +83,18 @@ describe('AuthScreen (index)', () => {
     expect(
       await findByText('If your email is registered, you will receive a reset token.'),
     ).toBeTruthy();
+  });
+
+  it('opens contact support from the auth footer', async () => {
+    jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    const { getByText } = renderAuth();
+
+    fireEvent.press(getByText('Contact Support'));
+
+    await waitFor(() => {
+      expect(Linking.openURL).toHaveBeenCalledWith(
+        'mailto:support@accesscity.app?subject=AccessCity%20support',
+      );
+    });
   });
 });

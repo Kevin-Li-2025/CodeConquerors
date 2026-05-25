@@ -57,6 +57,51 @@ describe('HazardScreen', () => {
     expect(await findByText('Broken pavement')).toBeTruthy();
   });
 
+  it('filters visible hazards from the search control', async () => {
+    jest.mocked(hazardsService.getHazardsPage).mockResolvedValueOnce({
+      items: [
+        {
+          id: '1',
+          title: 'Broken pavement',
+          type: 'broken_pavement',
+          latitude: 52.48,
+          longitude: -1.89,
+          description: 'Crack near curb.',
+          status: 'Reported',
+          locationText: 'Bristol Road',
+          reportedTime: 'Today',
+        },
+        {
+          id: '2',
+          title: 'Broken street light',
+          type: 'broken_light',
+          latitude: 52.49,
+          longitude: -1.88,
+          description: 'Dark corner.',
+          status: 'Reported',
+          locationText: 'Selly Oak',
+          reportedTime: 'Today',
+        },
+      ],
+      nextCursor: null,
+      limit: 25,
+      hasMore: false,
+    });
+
+    const { findByText, getByLabelText, queryByText } = render(<HazardScreen />);
+
+    expect(await findByText('Broken pavement')).toBeTruthy();
+    expect(await findByText('Broken street light')).toBeTruthy();
+
+    fireEvent.press(getByLabelText('Search hazards'));
+    fireEvent.changeText(getByLabelText('Search hazards'), 'light');
+
+    await waitFor(() => {
+      expect(queryByText('Broken pavement')).toBeNull();
+      expect(queryByText('Broken street light')).toBeTruthy();
+    });
+  });
+
   it('filter pills switch reported / acknowledged / resolved', async () => {
     const { getByText } = render(<HazardScreen />);
 

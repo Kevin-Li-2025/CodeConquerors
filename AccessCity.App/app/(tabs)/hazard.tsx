@@ -6,6 +6,7 @@ import {
   FlatList,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -167,6 +168,8 @@ export default function Hazard() {
   const loadGenerationRef = useRef(0);
   const [selectedFilter, setSelectedFilter] = useState<HazardStatus>('Reported');
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('Severity');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [selectedHazardDetail, setSelectedHazardDetail] = useState<HazardType | null>(null);
   const [hazardDetailsVisible, setHazardDetailsVisible] = useState(false);
@@ -290,7 +293,13 @@ export default function Hazard() {
   );
 
   const displayHazards = React.useMemo(() => {
-    const sorted = [...hazards];
+    const query = searchQuery.trim().toLowerCase();
+    const sorted = query
+      ? hazards.filter((hazard) => {
+        const haystack = `${hazard.title} ${hazard.description} ${hazard.location} ${hazard.status}`.toLowerCase();
+        return haystack.includes(query);
+      })
+      : [...hazards];
     if (quickFilter === 'Type') {
       sorted.sort((a, b) => a.title.localeCompare(b.title));
     } else if (quickFilter === 'Distance') {
@@ -302,7 +311,16 @@ export default function Hazard() {
       sorted.sort((a, b) => a.status.localeCompare(b.status));
     }
     return sorted;
-  }, [hazards, quickFilter]);
+  }, [hazards, quickFilter, searchQuery]);
+
+  function toggleSearch() {
+    setIsSearching((current) => {
+      if (current) {
+        setSearchQuery('');
+      }
+      return !current;
+    });
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -329,9 +347,10 @@ export default function Hazard() {
                   activeOpacity={0.85}
                   style={styles.roundButton}
                   accessibilityRole="button"
-                  onPress={() => Alert.alert('Hazard search', 'Search is connected at the map level. Use Map to search locations and inspect nearby hazards.')}
+                  accessibilityLabel={isSearching ? 'Close hazard search' : 'Search hazards'}
+                  onPress={toggleSearch}
                 >
-                  <Ionicons name="search" size={18} color={AppTheme.color.text} />
+                  <Ionicons name={isSearching ? 'close' : 'search'} size={18} color={AppTheme.color.text} />
                 </TouchableOpacity>
                 <TouchableOpacity
                   activeOpacity={0.85}
@@ -344,6 +363,33 @@ export default function Hazard() {
                 </TouchableOpacity>
               </View>
             </View>
+
+            {isSearching ? (
+              <View style={styles.searchCard}>
+                <Ionicons name="search" size={16} color={AppTheme.color.textSubtle} />
+                <TextInput
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  placeholder="Search type, street, or status"
+                  placeholderTextColor={AppTheme.color.textSubtle}
+                  style={styles.searchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  accessibilityLabel="Search hazards"
+                />
+                {searchQuery ? (
+                  <TouchableOpacity
+                    activeOpacity={0.82}
+                    accessibilityRole="button"
+                    accessibilityLabel="Clear hazard search"
+                    onPress={() => setSearchQuery('')}
+                    style={styles.searchClearButton}
+                  >
+                    <Ionicons name="close-circle" size={16} color={AppTheme.color.textSubtle} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
 
             <View style={styles.filterPill}>
               {FILTERS.map((filter) => {
@@ -406,9 +452,11 @@ export default function Hazard() {
               </View>
             ) : null}
 
-            {!isLoading && !hazards.length ? (
+            {!isLoading && !displayHazards.length ? (
               <View style={styles.stateCard}>
-                <Text style={styles.stateText}>No hazards found for this status.</Text>
+                <Text style={styles.stateText}>
+                  {searchQuery.trim() ? 'No hazards match this search.' : 'No hazards found for this status.'}
+                </Text>
               </View>
             ) : null}
           </>
@@ -483,16 +531,23 @@ export default function Hazard() {
         )}
         ListFooterComponent={
           <>
-            {hazards.length > 0 ? (
+            {displayHazards.length > 0 ? (
               <View style={styles.pageHint}>
                 <Text style={styles.pageHintText}>1-{displayHazards.length} of {hasMore ? `${displayHazards.length}+` : displayHazards.length}</Text>
                 <View style={styles.pageButtons}>
                   <View style={styles.pageButton}>
                     <Ionicons name="chevron-back" size={15} color={AppTheme.color.textSubtle} />
                   </View>
-                  <View style={[styles.pageButton, hasMore && styles.pageButtonActive]}>
+                  <TouchableOpacity
+                    activeOpacity={0.84}
+                    accessibilityRole="button"
+                    accessibilityLabel="Load more hazards"
+                    disabled={!hasMore || isLoadingMore}
+                    onPress={() => void loadMoreHazards()}
+                    style={[styles.pageButton, hasMore && styles.pageButtonActive]}
+                  >
                     <Ionicons name="chevron-forward" size={15} color={hasMore ? AppTheme.color.text : AppTheme.color.textSubtle} />
-                  </View>
+                  </TouchableOpacity>
                 </View>
               </View>
             ) : null}
@@ -595,6 +650,30 @@ const styles = StyleSheet.create({
   quickFilterRow: {
     flexDirection: 'row',
     gap: 7,
+  },
+  searchCard: {
+    minHeight: 44,
+    borderRadius: AppTheme.radius.md,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    backgroundColor: AppTheme.color.surface,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: 42,
+    color: AppTheme.color.text,
+    ...AppTheme.type.body,
+  },
+  searchClearButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   quickFilterChip: {
     flex: 1,

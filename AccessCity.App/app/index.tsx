@@ -14,6 +14,7 @@ import {
   ActivityIndicator,
   Pressable,
   Alert,
+  Linking,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AntDesign, FontAwesome, Ionicons } from "@expo/vector-icons";
@@ -75,10 +76,16 @@ export default function AuthScreen() {
       } catch (error: any) {
         Alert.alert(
           `${provider} auth`,
-          error?.message || "OAuth is not configured for this build yet. Use email and password for this demo."
+          error?.message || "OAuth is not configured for this build yet. Use email and password to continue."
         );
       }
     })();
+  };
+
+  const handleContactSupport = () => {
+    void Linking.openURL('mailto:support@accesscity.app?subject=AccessCity%20support').catch(() => {
+      Alert.alert('Support', 'Sign in and open Profile > Help & Support to send a request.');
+    });
   };
 
   const handleSubmit = async () => {
@@ -368,9 +375,10 @@ export default function AuthScreen() {
             </Animated.View>
             
             <View style={styles.footer}>
-              <Text style={styles.footerText}>
-                Need help? <Text style={styles.footerLink}>Contact Support</Text>
-              </Text>
+              <Text style={styles.footerText}>Need help? </Text>
+              <TouchableOpacity accessibilityRole="link" onPress={handleContactSupport}>
+                <Text style={styles.footerLink}>Contact Support</Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
@@ -609,6 +617,8 @@ const styles = StyleSheet.create({
   },
   footer: {
     marginTop: 24,
+    flexDirection: "row",
+    justifyContent: "center",
     alignItems: "center",
   },
   footerText: {

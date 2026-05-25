@@ -4,6 +4,7 @@ import {
   Alert,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -15,10 +16,13 @@ import { PremiumTag } from '@/components/ui/PremiumTag';
 import { DEFAULT_MAP_CENTER_LNG_LAT } from '@/constants/defaultMapRegion';
 import { AppTheme } from '@/constants/theme';
 import { type AppHazard, hazardsService } from '@/services/hazards.service';
+import { geocodingService, type GeocodingResult } from '@/services/geocoding.service';
 import { routingService, type RouteResponse } from '@/services/routing.service';
 import { type Hazard } from '@/models/spatial';
 
 type TagTone = React.ComponentProps<typeof PremiumTag>['tone'];
+type ProfileKey = 'walking' | 'manual-wheelchair' | 'stroller';
+type RouteModeKey = 'safe' | 'accessible' | 'fastest';
 
 function toMapHazard(hazard: AppHazard): Hazard {
   return {
@@ -48,13 +52,29 @@ function getStatusTone(status: string): TagTone {
   return 'neutral';
 }
 
-const DEFAULT_ROUTE_REQUEST = {
-  start: { x: -1.89, y: 52.48 },
-  end: { x: -1.88, y: 52.485 },
-  profile: 'manual-wheelchair',
-  safetyWeight: 0.7,
-  preferences: ['avoid_hazards', 'wheelchair_accessible'],
-};
+const DEFAULT_START = { x: -1.89, y: 52.48 };
+const DEFAULT_END = { x: -1.88, y: 52.485 };
+
+const PROFILE_OPTIONS: {
+  key: ProfileKey;
+  label: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+}[] = [
+  { key: 'walking', label: 'Walking', icon: 'walk-outline' },
+  { key: 'manual-wheelchair', label: 'Wheelchair', icon: 'accessibility-outline' },
+  { key: 'stroller', label: 'Stroller', icon: 'body-outline' },
+];
+
+const ROUTE_MODE_OPTIONS: {
+  key: RouteModeKey;
+  label: string;
+  safetyWeight: number;
+  preferences: string[];
+}[] = [
+  { key: 'safe', label: 'Safe route', safetyWeight: 0.75, preferences: ['avoid-reported-hazards', 'prefer-crossings', 'low-light-penalty'] },
+  { key: 'accessible', label: 'Accessible', safetyWeight: 0.65, preferences: ['wheelchair', 'avoid-stairs', 'avoid-steep-hills', 'prefer-crossings'] },
+  { key: 'fastest', label: 'Fastest', safetyWeight: 0.35, preferences: [] },
+];
 
 function formatDistance(distance?: number) {
   if (typeof distance !== 'number' || !Number.isFinite(distance)) return '-';
@@ -106,8 +126,37 @@ function routeToGeoJson(route: RouteResponse | null) {
   };
 }
 
+function readCoordinate(value: string | number | undefined) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function getResultCoordinate(result: GeocodingResult) {
+  const latitude = readCoordinate(result.lat ?? result.latitude ?? result.y);
+  const longitude = readCoordinate(result.lon ?? result.lng ?? result.longitude ?? result.x);
+  if (latitude === null || longitude === null) return null;
+  return { latitude, longitude };
+}
+
+function formatGeocodingLabel(result: GeocodingResult, fallback: string) {
+  if (typeof result.display_name === 'string' && result.display_name.trim()) {
+    return result.display_name.trim().split(',').slice(0, 2).join(',');
+  }
+  if (typeof result.name === 'string' && result.name.trim()) {
+    return result.name.trim();
+  }
+  return fallback;
+}
+
 export default function MapPageWeb() {
   const params = useLocalSearchParams<{ avoidHazardId?: string; avoidHazardTitle?: string }>();
+  const avoidHazardId = typeof params.avoidHazardId === 'string' && params.avoidHazardId.trim()
+    ? params.avoidHazardId.trim()
+    : null;
   const [hazards, setHazards] = useState<Hazard[]>([]);
   const [selectedHazard, setSelectedHazard] = useState<Hazard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -116,6 +165,12 @@ export default function MapPageWeb() {
   const [route, setRoute] = useState<RouteResponse | null>(null);
   const [routeStatus, setRouteStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [destinationQuery, setDestinationQuery] = useState('');
+  const [destinationLabel, setDestinationLabel] = useState('Where to?');
+  const [destinationCoordinate, setDestinationCoordinate] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [selectedProfile, setSelectedProfile] = useState<ProfileKey>('manual-wheelchair');
+  const [selectedRouteMode, setSelectedRouteMode] = useState<RouteModeKey>('safe');
+  const [isSearchingDestination, setIsSearchingDestination] = useState(false);
   const hazardRequestIdRef = useRef(0);
   const routeRequestIdRef = useRef(0);
   const routeLoadingRef = useRef(false);
@@ -128,6 +183,29 @@ export default function MapPageWeb() {
   }, [hazards]);
 
   const routeGeoJSON = useMemo(() => routeToGeoJson(route), [route]);
+
+  const selectedRouteModeConfig = useMemo(
+    () => ROUTE_MODE_OPTIONS.find((option) => option.key === selectedRouteMode) ?? ROUTE_MODE_OPTIONS[0],
+    [selectedRouteMode]
+  );
+
+  const routeRequest = useMemo(() => {
+    const end = destinationCoordinate
+      ? { x: destinationCoordinate.longitude, y: destinationCoordinate.latitude }
+      : DEFAULT_END;
+    const preferences = selectedRouteModeConfig.preferences;
+    const routePreferences = avoidHazardId && !preferences.includes('avoid-reported-hazards')
+      ? [...preferences, 'avoid-reported-hazards']
+      : preferences;
+
+    return {
+      start: DEFAULT_START,
+      end,
+      profile: selectedProfile,
+      safetyWeight: avoidHazardId ? Math.max(selectedRouteModeConfig.safetyWeight, 0.85) : selectedRouteModeConfig.safetyWeight,
+      preferences: routePreferences,
+    };
+  }, [avoidHazardId, destinationCoordinate, selectedProfile, selectedRouteModeConfig]);
 
   const loadHazards = useCallback(async () => {
     const requestId = hazardRequestIdRef.current + 1;
@@ -161,7 +239,7 @@ export default function MapPageWeb() {
     try {
       setRouteStatus('loading');
       setRouteError(null);
-      const nextRoute = await routingService.getSafePathResolved(DEFAULT_ROUTE_REQUEST);
+      const nextRoute = await routingService.getSafePathResolved(routeRequest);
       if (routeRequestIdRef.current !== requestId) return;
       setRoute(nextRoute);
       setRouteStatus('ready');
@@ -176,7 +254,38 @@ export default function MapPageWeb() {
         routeLoadingRef.current = false;
       }
     }
-  }, []);
+  }, [routeRequest]);
+
+  const searchDestination = useCallback(async () => {
+    const query = destinationQuery.trim();
+    if (!query) {
+      Alert.alert('Destination needed', 'Enter a destination in Birmingham to calculate a route.');
+      return;
+    }
+
+    try {
+      setIsSearchingDestination(true);
+      const results = await geocodingService.search(query);
+      const match = results
+        .map((result) => ({ result, coordinate: getResultCoordinate(result) }))
+        .find((item) => item.coordinate !== null);
+
+      if (!match?.coordinate) {
+        Alert.alert('No destination found', 'Try a street, place, or postcode nearby.');
+        return;
+      }
+
+      setDestinationCoordinate(match.coordinate);
+      setDestinationLabel(formatGeocodingLabel(match.result, query));
+      setRoute(null);
+      setRouteStatus('idle');
+    } catch (searchError) {
+      console.warn('Destination search failed:', searchError);
+      Alert.alert('Search error', 'Could not find that destination right now.');
+    } finally {
+      setIsSearchingDestination(false);
+    }
+  }, [destinationQuery]);
 
   useEffect(() => {
     void loadHazards();
@@ -213,23 +322,72 @@ export default function MapPageWeb() {
           <View style={styles.searchRow}>
             <Ionicons name="location-outline" size={14} color={AppTheme.color.textSubtle} />
             <Text style={styles.searchLabel}>To</Text>
-            <Text style={styles.searchValue}>Where to?</Text>
-            <Ionicons name="swap-vertical" size={16} color={AppTheme.color.text} />
+            <TextInput
+              value={destinationQuery}
+              onChangeText={setDestinationQuery}
+              onSubmitEditing={() => void searchDestination()}
+              placeholder={destinationLabel}
+              placeholderTextColor={AppTheme.color.textSubtle}
+              returnKeyType="search"
+              style={styles.destinationInput}
+              accessibilityLabel="Destination"
+            />
+            <TouchableOpacity
+              activeOpacity={0.82}
+              onPress={() => void searchDestination()}
+              accessibilityRole="button"
+              accessibilityLabel="Search destination"
+              style={styles.searchIconButton}
+            >
+              {isSearchingDestination ? (
+                <ActivityIndicator size="small" color={AppTheme.color.text} />
+              ) : (
+                <Ionicons name="search" size={16} color={AppTheme.color.text} />
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
         <View style={styles.modeRow}>
-          <PremiumTag label="Walking" icon="walk-outline" tone="good" variant="soft" />
-          <PremiumTag label="Wheelchair" icon="accessibility-outline" tone="accent" variant="surface" />
-          <PremiumTag label="Stroller" icon="body-outline" tone="neutral" variant="surface" />
+          {PROFILE_OPTIONS.map((option) => {
+            const isActive = selectedProfile === option.key;
+            return (
+              <TouchableOpacity
+                key={option.key}
+                activeOpacity={0.84}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isActive }}
+                onPress={() => setSelectedProfile(option.key)}
+              >
+                <PremiumTag
+                  label={option.label}
+                  icon={option.icon}
+                  tone={isActive ? 'accent' : 'neutral'}
+                  variant={isActive ? 'soft' : 'surface'}
+                />
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         <View style={styles.routeModeRow}>
-          <View style={styles.routeModeActive}>
-            <Text style={styles.routeModeActiveText}>Safe route</Text>
-          </View>
-          <Text style={styles.routeModeText}>Accessible</Text>
-          <Text style={styles.routeModeText}>Fastest</Text>
+          {ROUTE_MODE_OPTIONS.map((option) => {
+            const isActive = selectedRouteMode === option.key;
+            return (
+              <TouchableOpacity
+                key={option.key}
+                activeOpacity={0.84}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isActive }}
+                onPress={() => setSelectedRouteMode(option.key)}
+                style={isActive ? styles.routeModeActive : styles.routeModeButton}
+              >
+                <Text style={isActive ? styles.routeModeActiveText : styles.routeModeText}>
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
 
         <View style={styles.tagRow}>
@@ -246,6 +404,14 @@ export default function MapPageWeb() {
             variant="soft"
           />
           <PremiumTag label="Birmingham" icon="location-outline" tone="accent" variant="surface" />
+          {destinationCoordinate ? (
+            <PremiumTag
+              label={destinationLabel}
+              icon="flag-outline"
+              tone="accent"
+              variant="soft"
+            />
+          ) : null}
           {params.avoidHazardTitle ? (
             <PremiumTag
               label={`Avoiding ${String(params.avoidHazardTitle).slice(0, 18)}`}
@@ -333,7 +499,7 @@ export default function MapPageWeb() {
               void loadRecommendedRoute();
               return;
             }
-            Alert.alert('Route ready', 'The backend route is loaded on the map. Turn-by-turn navigation is the next mobile integration step.');
+            Alert.alert('Route ready', 'The route is shown on the map. Open the mobile app for turn-by-turn guidance.');
           }}
         >
           {routeStatus === 'loading' ? (
@@ -467,6 +633,21 @@ const styles = StyleSheet.create({
     color: AppTheme.color.text,
     ...AppTheme.type.label,
   },
+  destinationInput: {
+    flex: 1,
+    minHeight: 32,
+    paddingVertical: 0,
+    color: AppTheme.color.text,
+    ...AppTheme.type.label,
+  },
+  searchIconButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppTheme.color.surfaceSubtle,
+  },
   modeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -485,6 +666,13 @@ const styles = StyleSheet.create({
     minHeight: 32,
     borderRadius: AppTheme.radius.pill,
     backgroundColor: AppTheme.color.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  routeModeButton: {
+    flex: 1,
+    minHeight: 32,
+    borderRadius: AppTheme.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },

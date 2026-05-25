@@ -34,6 +34,8 @@ type ReportHazardModalProps = {
   locationLabel?: string;
   locationHint?: string;
   isResolvingLocation?: boolean;
+  canSubmit?: boolean;
+  onRetryLocation?: () => void;
 };
 
 function renderOptionIcon(
@@ -73,6 +75,8 @@ export default function ReportHazardModal({
   locationLabel = 'Current Location',
   locationHint = 'Using your current location',
   isResolvingLocation = false,
+  canSubmit = true,
+  onRetryLocation,
 }: ReportHazardModalProps) {
   const selectedTypeOption = reportHazardOptions.find(
     (item) => item.key === selectedReportType
@@ -235,6 +239,16 @@ export default function ReportHazardModal({
                   </View>
 
                   <Text style={styles.locationHint}>{locationHint}</Text>
+                  {!canSubmit && onRetryLocation ? (
+                    <TouchableOpacity
+                      activeOpacity={0.84}
+                      style={styles.retryLocationButton}
+                      onPress={onRetryLocation}
+                    >
+                      <Ionicons name="refresh" size={15} color={AppTheme.color.text} />
+                      <Text style={styles.retryLocationText}>Try location again</Text>
+                    </TouchableOpacity>
+                  ) : null}
 
                   <Text style={styles.sectionTitle}>Add photos <Text style={styles.optionalText}>(optional)</Text></Text>
 
@@ -306,8 +320,14 @@ export default function ReportHazardModal({
                     <Text style={styles.cancelButtonText}>Back</Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity style={styles.nextButton} onPress={onSubmit}>
-                    <Text style={styles.nextButtonText}>Submit</Text>
+                  <TouchableOpacity
+                    style={[styles.nextButton, !canSubmit && styles.nextButtonDisabled]}
+                    onPress={onSubmit}
+                    disabled={!canSubmit}
+                  >
+                    <Text style={[styles.nextButtonText, !canSubmit && styles.nextButtonTextDisabled]}>
+                      {canSubmit ? 'Submit' : 'Need location'}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </>
@@ -634,8 +654,25 @@ const styles = StyleSheet.create({
   locationHint: {
     marginTop: 10,
     color: AppTheme.color.accent,
-    marginBottom: 22,
+    marginBottom: 12,
     ...AppTheme.type.meta,
+  },
+  retryLocationButton: {
+    minHeight: 38,
+    borderRadius: AppTheme.radius.pill,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    backgroundColor: AppTheme.color.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 7,
+    paddingHorizontal: 12,
+    marginBottom: 22,
+  },
+  retryLocationText: {
+    color: AppTheme.color.text,
+    ...AppTheme.type.label,
   },
   descriptionInput: {
     minHeight: 96,

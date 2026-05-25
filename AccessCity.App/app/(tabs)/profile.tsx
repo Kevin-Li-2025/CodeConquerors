@@ -392,7 +392,7 @@ export default function Profile() {
             <View style={styles.profileInfo}>
               <Text style={styles.name}>{displayName}</Text>
               <TouchableOpacity activeOpacity={0.8} onPress={() => router.push('/map' as never)}>
-                <Text style={styles.publicProfile}>View public profile ›</Text>
+                <Text style={styles.publicProfile}>Open route map ›</Text>
               </TouchableOpacity>
               <Text style={styles.email} numberOfLines={1}>{displayEmail}</Text>
               <View style={styles.badgeRow}>
@@ -438,7 +438,7 @@ export default function Profile() {
             </TouchableOpacity>
           </View>
           {isEditingPreferences ? (
-            <Text style={styles.preferenceHint}>Tap any row to change it. Preferences are saved to your backend profile and cached locally.</Text>
+            <Text style={styles.preferenceHint}>Tap any row to change it. Preferences are saved to your profile and cached locally.</Text>
           ) : null}
           {getPreferenceRows(preferences).map((preference, index) => (
             <TouchableOpacity

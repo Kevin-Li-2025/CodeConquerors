@@ -233,6 +233,11 @@ public sealed class AccountController : ControllerBase
     private static AccessibilityPreferenceDto FromPreferenceTokens(IEnumerable<string>? tokens)
     {
         var set = new HashSet<string>(tokens ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+        if (set.Count == 0)
+        {
+            return DefaultAccessibilityPreferences;
+        }
+
         var mobility = set.FirstOrDefault(token => token.StartsWith("mobility:", StringComparison.OrdinalIgnoreCase))
             ?.Split(':', 2)[1]
             ?? DefaultAccessibilityPreferences.MobilityDevice;

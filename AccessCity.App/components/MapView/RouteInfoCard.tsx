@@ -156,7 +156,7 @@ export default function RouteInfoCard({
         <View style={styles.accessibilityTextWrap}>
           <Text style={styles.accessibilityTitle}>Wheelchair Accessible Route</Text>
           <Text style={styles.accessibilitySubtitle}>
-            {explanation || 'This route uses backend routing preferences, live hazards, and accessibility weights.'}
+            {explanation || 'This route prioritizes step-free paths, smoother surfaces, and current safety reports.'}
           </Text>
         </View>
       </View>

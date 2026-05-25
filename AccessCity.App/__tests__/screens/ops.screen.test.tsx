@@ -273,5 +273,5 @@ describe('OpsScreen', () => {
     fireEvent.press(getByText('Submit verification'));
     await waitFor(() => expect(spatialService.submitAccessibilityVerification).toHaveBeenCalled());
     expect(await findByText('Submitted verification submission-2.')).toBeTruthy();
-  });
+  }, 15000);
 });

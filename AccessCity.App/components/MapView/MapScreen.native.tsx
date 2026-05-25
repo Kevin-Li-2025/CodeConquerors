@@ -230,7 +230,7 @@ export default function MapScreen() {
       setHazards(mappedHazards);
     } catch (error) {
       console.error('Error fetching hazards:', error);
-      Alert.alert('Hazard error', 'Could not load hazards from backend.');
+      Alert.alert('Hazard error', 'Could not load current hazards.');
     }
   }
 
@@ -878,7 +878,7 @@ export default function MapScreen() {
       return true;
     } catch (error) {
       console.error('Error fetching route:', error);
-      Alert.alert('Route error', 'Could not load the route from backend.');
+      Alert.alert('Route error', 'Could not calculate this route.');
       return false;
     }
   }

@@ -198,8 +198,19 @@ public sealed class HazardReportService : IHazardReportService
             return hazard;
         }
 
-        var merged = await _realHazardData.GetActiveHazardsAsync(null, null, null, null, null);
-        return merged.FirstOrDefault(h => h.Id == id);
+        var reportedHazards = await _realHazardData
+            .GetActiveHazardsAsync(null, null, null, null, HazardStatus.Reported)
+            .ConfigureAwait(false);
+        hazard = reportedHazards.FirstOrDefault(h => h.Id == id);
+        if (hazard is not null)
+        {
+            return hazard;
+        }
+
+        var allHazards = await _realHazardData
+            .GetActiveHazardsAsync(null, null, null, null, null)
+            .ConfigureAwait(false);
+        return allHazards.FirstOrDefault(h => h.Id == id);
     }
 
     public async Task<HazardReport?> UpdateStatusAsync(
