@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using AccessCity.API.Models;
 
 namespace AccessCity.Tests;
@@ -87,5 +88,47 @@ public sealed class AiAssistEndpointTests : IClassFixture<AccessCityApiFactory>
         Assert.NotEmpty(parsed.DuplicateSuggestions);
         Assert.Contains("photo-attached", parsed.Text.Tags);
         Assert.All(parsed.MissingOsmAttributeCandidates, candidate => Assert.False(candidate.CanAutoApply));
+    }
+
+    [Fact]
+    public async Task HazardPhotoAnalysis_ReturnsReviewOnlyAccessibilityCandidates()
+    {
+        var client = _factory.CreateClient();
+        var createResponse = await client.PostAsJsonAsync(
+            "/api/v1/hazards",
+            new
+            {
+                type = "missing_curb_ramp",
+                description = "Raised kerb, no ramp, narrow pavement, uneven concrete surface.",
+                photoUrl = "/api/v1/hazards/photos/test-kerb.jpg",
+                location = new { x = -1.8904, y = 52.4862 }
+            });
+        createResponse.EnsureSuccessStatusCode();
+        await using var createdStream = await createResponse.Content.ReadAsStreamAsync();
+        using var createdJson = await JsonDocument.ParseAsync(createdStream);
+        var hazardId = createdJson.RootElement.GetProperty("id").GetGuid();
+
+        var response = await client.PostAsJsonAsync(
+            $"/api/v1/ai-assist/hazards/{hazardId}/photo-analysis",
+            new
+            {
+                photoUrl = "/api/v1/hazards/photos/test-kerb.jpg",
+                observationText = "Wheelchair cannot cross because there is no dropped kerb.",
+                includeDraftVerification = true
+            });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var parsed = await response.Content.ReadFromJsonAsync<HazardPhotoAiAnalysisResult>();
+        Assert.NotNull(parsed);
+        Assert.Equal(hazardId, parsed!.HazardId);
+        Assert.False(parsed.ForRouteDecision);
+        Assert.StartsWith("http://", parsed.PhotoUrl, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("review_required", parsed.ReviewStatus);
+        Assert.Contains(parsed.AttributeCandidates, candidate => candidate.Attribute == "curb_ramp" && candidate.Value == "false");
+        Assert.Contains(parsed.AttributeCandidates, candidate => candidate.Attribute == "width_metres");
+        Assert.Contains(parsed.AttributeCandidates, candidate => candidate.Attribute == "photos");
+        Assert.All(parsed.AttributeCandidates, candidate => Assert.False(candidate.CanAutoApply));
+        Assert.NotNull(parsed.DraftVerification);
+        Assert.Contains(parsed.Guardrails, guardrail => guardrail.Contains("cannot change routing graph", StringComparison.OrdinalIgnoreCase));
     }
 }

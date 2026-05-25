@@ -35,6 +35,29 @@ public sealed class HazardReportDraftAiResult
     public List<string> Guardrails { get; set; } = new();
 }
 
+public sealed class HazardPhotoAiAnalysisRequest
+{
+    public string? PhotoUrl { get; set; }
+    public string? ObservationText { get; set; }
+    public bool IncludeDraftVerification { get; set; } = true;
+}
+
+public sealed class HazardPhotoAiAnalysisResult
+{
+    public Guid HazardId { get; set; }
+    public bool ForRouteDecision { get; set; }
+    public string Provider { get; set; } = "local-rules";
+    public string Model { get; set; } = string.Empty;
+    public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
+    public string PhotoUrl { get; set; } = string.Empty;
+    public string ReviewStatus { get; set; } = "review_required";
+    public string AdminSummary { get; set; } = string.Empty;
+    public List<MissingOsmAttributeCandidate> AttributeCandidates { get; set; } = new();
+    public AccessibilityVerificationRequest? DraftVerification { get; set; }
+    public List<string> Guardrails { get; set; } = new();
+    public List<string> Limitations { get; set; } = new();
+}
+
 public sealed class HazardTextEnrichment
 {
     public string NormalizedDescription { get; set; } = string.Empty;

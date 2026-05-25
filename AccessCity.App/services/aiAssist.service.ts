@@ -55,6 +55,27 @@ export type HazardReportDraftAiResult = {
   guardrails: string[];
 };
 
+export type HazardPhotoAiAnalysisRequest = {
+  photoUrl?: string | null;
+  observationText?: string | null;
+  includeDraftVerification?: boolean;
+};
+
+export type HazardPhotoAiAnalysisResult = {
+  hazardId: string;
+  forRouteDecision: boolean;
+  provider: string;
+  model: string;
+  generatedAtUtc: string;
+  photoUrl: string;
+  reviewStatus: string;
+  adminSummary: string;
+  attributeCandidates: MissingOsmAttributeCandidate[];
+  draftVerification?: Record<string, unknown> | null;
+  guardrails: string[];
+  limitations: string[];
+};
+
 export type RouteExplanationResponse = {
   forRouteDecision: boolean;
   provider: string;
@@ -107,6 +128,16 @@ export const aiAssistService = {
   async getHazardEnrichment(hazardId: string): Promise<HazardAiEnrichment> {
     return api.get<HazardAiEnrichment>(
       `/ai-assist/hazards/${encodeURIComponent(hazardId)}/enrichment`
+    );
+  },
+
+  async analyzeHazardPhoto(
+    hazardId: string | number,
+    request: HazardPhotoAiAnalysisRequest = {}
+  ): Promise<HazardPhotoAiAnalysisResult> {
+    return api.post<HazardPhotoAiAnalysisResult>(
+      `/ai-assist/hazards/${encodeURIComponent(String(hazardId))}/photo-analysis`,
+      request
     );
   },
 

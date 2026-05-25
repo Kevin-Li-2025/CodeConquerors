@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Alert } from 'react-native';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
+import * as ImagePicker from 'expo-image-picker';
 
 import ReportHazardModal from '../../../components/MapView/ReportHazardModal';
 import { ReportHazardType } from '../../../components/MapView/MapTypes';
@@ -13,8 +14,11 @@ import { hazardsService } from '../../../services/hazards.service';
 import type { HazardPhotoUpload } from '../../../services/hazards.service';
 import {
   aiAssistService,
+  type HazardPhotoAiAnalysisResult,
   type HazardReportDraftAiResult,
 } from '../../../services/aiAssist.service';
+
+type PhotoAnalysisStatus = 'idle' | 'uploading' | 'analyzing' | 'ready' | 'error';
 
 function formatReverseGeocode(result: GeocodingResult | null) {
   if (!result) return null;
@@ -61,6 +65,8 @@ export default function ReportPage() {
   const [isCheckingSimilarReports, setIsCheckingSimilarReports] = useState(false);
   const [aiDraft, setAiDraft] = useState<HazardReportDraftAiResult | null>(null);
   const [isLoadingAiDraft, setIsLoadingAiDraft] = useState(false);
+  const [photoAnalysisStatus, setPhotoAnalysisStatus] = useState<PhotoAnalysisStatus>('idle');
+  const [photoAnalysis, setPhotoAnalysis] = useState<HazardPhotoAiAnalysisResult | null>(null);
 
   const [currentLocation, setCurrentLocation] = useState<{
     latitude: number;
@@ -215,6 +221,8 @@ export default function ReportPage() {
     setReportModalVisible(false);
     setSimilarReportCount(0);
     setAiDraft(null);
+    setPhotoAnalysis(null);
+    setPhotoAnalysisStatus('idle');
     router.back();
   }
 
@@ -229,12 +237,13 @@ export default function ReportPage() {
   function handleBack() {
     setSimilarReportCount(0);
     setAiDraft(null);
+    setPhotoAnalysis(null);
+    setPhotoAnalysisStatus('idle');
     setReportStep(1);
   }
 
   async function handleAddPhoto() {
     try {
-      const ImagePicker = await import('expo-image-picker');
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert('Photo access needed', 'Allow photo access to attach an image to this hazard report.');
@@ -257,6 +266,8 @@ export default function ReportPage() {
         name: asset.fileName || `hazard-photo-${Date.now()}.jpg`,
         type: asset.mimeType || 'image/jpeg',
       });
+      setPhotoAnalysis(null);
+      setPhotoAnalysisStatus('idle');
     } catch (error) {
       console.error('Photo selection error:', error);
       Alert.alert('Photo error', 'Could not select a photo.');
@@ -282,6 +293,8 @@ export default function ReportPage() {
         `Severity: ${reportSeverity}.`,
       ].filter(Boolean).join('\n');
 
+      setPhotoAnalysis(null);
+      setPhotoAnalysisStatus(selectedPhoto ? 'uploading' : 'idle');
       const createdHazard = await hazardsService.reportHazard({
         latitude: currentLocation.latitude,
         longitude: currentLocation.longitude,
@@ -289,13 +302,27 @@ export default function ReportPage() {
         description: normalizedDescription,
       });
 
-      if (selectedPhoto && createdHazard.id) {
-        await hazardsService.uploadHazardPhoto(createdHazard.id, selectedPhoto);
-      }
-
       setReportStep(3);
+
+      if (selectedPhoto && createdHazard.id) {
+        try {
+          const upload = await hazardsService.uploadHazardPhoto(createdHazard.id, selectedPhoto);
+          setPhotoAnalysisStatus('analyzing');
+          const analysis = await aiAssistService.analyzeHazardPhoto(createdHazard.id, {
+            photoUrl: upload.photoUrl,
+            observationText: normalizedDescription,
+            includeDraftVerification: true,
+          });
+          setPhotoAnalysis(analysis);
+          setPhotoAnalysisStatus('ready');
+        } catch (photoError) {
+          console.warn('Photo upload or analysis failed:', photoError);
+          setPhotoAnalysisStatus('error');
+        }
+      }
     } catch (error) {
       console.error('Submit error:', error);
+      setPhotoAnalysisStatus('idle');
       Alert.alert('Submit error', 'Could not submit report.');
     }
   }
@@ -305,6 +332,8 @@ export default function ReportPage() {
     setSelectedPhoto(null);
     setSimilarReportCount(0);
     setAiDraft(null);
+    setPhotoAnalysis(null);
+    setPhotoAnalysisStatus('idle');
     router.back();
   }
 
@@ -355,6 +384,13 @@ export default function ReportPage() {
           } : null}
           isLoadingAiDraft={isLoadingAiDraft}
           onApplyAiDraft={handleApplyAiDraft}
+          photoAnalysis={selectedPhoto ? {
+            status: photoAnalysisStatus,
+            provider: photoAnalysis?.provider,
+            model: photoAnalysis?.model,
+            candidateCount: photoAnalysis?.attributeCandidates.length,
+            topCandidates: photoAnalysis?.attributeCandidates.map((candidate) => candidate.attribute),
+          } : null}
           onNext={handleNext}
           onBack={handleBack}
           onSubmit={handleSubmit}

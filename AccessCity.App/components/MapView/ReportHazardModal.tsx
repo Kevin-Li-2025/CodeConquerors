@@ -42,6 +42,7 @@ type ReportHazardModalProps = {
   aiDraftSuggestion?: ReportAiDraftSuggestion | null;
   isLoadingAiDraft?: boolean;
   onApplyAiDraft?: () => void;
+  photoAnalysis?: ReportPhotoAiAnalysisSummary | null;
 };
 
 type ReportAiDraftSuggestion = {
@@ -54,6 +55,14 @@ type ReportAiDraftSuggestion = {
   shouldReviewExistingReport: boolean;
   osmCandidateCount: number;
   suggestedDescriptionChips: string[];
+};
+
+type ReportPhotoAiAnalysisSummary = {
+  status: 'idle' | 'uploading' | 'analyzing' | 'ready' | 'error';
+  provider?: string;
+  model?: string;
+  candidateCount?: number;
+  topCandidates?: string[];
 };
 
 function renderOptionIcon(
@@ -101,6 +110,7 @@ export default function ReportHazardModal({
   aiDraftSuggestion,
   isLoadingAiDraft = false,
   onApplyAiDraft,
+  photoAnalysis,
 }: ReportHazardModalProps) {
   const selectedTypeOption = reportHazardOptions.find(
     (item) => item.key === selectedReportType
@@ -462,6 +472,40 @@ export default function ReportHazardModal({
                       Your report has been acknowledged
                     </Text>
                   </View>
+
+                  {photoAnalysis && photoAnalysis.status !== 'idle' ? (
+                    <View style={styles.photoAnalysisBox}>
+                      <View style={styles.photoAnalysisHeader}>
+                        <View style={styles.photoAnalysisIcon}>
+                          {photoAnalysis.status === 'ready' ? (
+                            <Ionicons name="sparkles-outline" size={17} color={AppTheme.color.text} />
+                          ) : photoAnalysis.status === 'error' ? (
+                            <Ionicons name="alert-circle-outline" size={17} color={AppTheme.color.warning} />
+                          ) : (
+                            <ActivityIndicator size="small" color={AppTheme.color.textMuted} />
+                          )}
+                        </View>
+                        <View style={styles.photoAnalysisCopy}>
+                          <Text style={styles.photoAnalysisTitle}>
+                            {formatPhotoAnalysisTitle(photoAnalysis.status)}
+                          </Text>
+                          <Text style={styles.photoAnalysisText}>
+                            {formatPhotoAnalysisText(photoAnalysis)}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {photoAnalysis.status === 'ready' && photoAnalysis.topCandidates?.length ? (
+                        <View style={styles.photoAnalysisChips}>
+                          {photoAnalysis.topCandidates.slice(0, 3).map((candidate) => (
+                            <View key={candidate} style={styles.photoAnalysisChip}>
+                              <Text style={styles.photoAnalysisChipText}>{formatAiType(candidate)}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                    </View>
+                  ) : null}
                 </View>
 
                 <View style={styles.sheetBottomButtons}>
@@ -488,6 +532,35 @@ function formatAiSeverity(severity: string) {
   return severity
     ? severity.charAt(0).toUpperCase() + severity.slice(1).toLowerCase()
     : 'Medium';
+}
+
+function formatPhotoAnalysisTitle(status: ReportPhotoAiAnalysisSummary['status']) {
+  switch (status) {
+    case 'uploading':
+      return 'Uploading photo';
+    case 'analyzing':
+      return 'Checking accessibility clues';
+    case 'ready':
+      return 'Photo analysis ready';
+    case 'error':
+      return 'Photo analysis unavailable';
+    default:
+      return 'Photo analysis';
+  }
+}
+
+function formatPhotoAnalysisText(summary: ReportPhotoAiAnalysisSummary) {
+  if (summary.status === 'ready') {
+    const candidateCount = summary.candidateCount ?? 0;
+    const provider = summary.provider ? ` · ${summary.provider}` : '';
+    return `${candidateCount} review candidate${candidateCount === 1 ? '' : 's'} found${provider}`;
+  }
+
+  if (summary.status === 'error') {
+    return 'The report was saved. Photo review can be retried later.';
+  }
+
+  return 'This will not change routing until reviewed.';
 }
 
 const styles = StyleSheet.create({
@@ -1105,5 +1178,60 @@ const styles = StyleSheet.create({
     color: AppTheme.color.textMuted,
     textAlign: 'center',
     ...AppTheme.type.body,
+  },
+  photoAnalysisBox: {
+    alignSelf: 'stretch',
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    borderRadius: AppTheme.radius.lg,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    padding: AppTheme.space.lg,
+    gap: AppTheme.space.sm,
+    marginTop: AppTheme.space.md,
+  },
+  photoAnalysisHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: AppTheme.space.md,
+  },
+  photoAnalysisIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: AppTheme.color.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+  },
+  photoAnalysisCopy: {
+    flex: 1,
+  },
+  photoAnalysisTitle: {
+    color: AppTheme.color.text,
+    ...AppTheme.type.cardTitle,
+  },
+  photoAnalysisText: {
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.meta,
+    marginTop: 2,
+  },
+  photoAnalysisChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: AppTheme.space.xs,
+  },
+  photoAnalysisChip: {
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.color.surface,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    paddingHorizontal: AppTheme.space.sm,
+    paddingVertical: 5,
+  },
+  photoAnalysisChipText: {
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.meta,
+    fontWeight: '700',
   },
 });

@@ -99,6 +99,63 @@ public sealed class AiAssistController : ControllerBase
     }
 
     /// <summary>
+    /// Analyzes a hazard field photo for review-only accessibility attribute candidates.
+    /// This endpoint is outside routing hot paths and cannot update route costs.
+    /// </summary>
+    [HttpPost("hazards/{id:guid}/photo-analysis")]
+    [ProducesResponseType(typeof(HazardPhotoAiAnalysisResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<HazardPhotoAiAnalysisResult>> AnalyzeHazardPhoto(
+        Guid id,
+        [FromBody] HazardPhotoAiAnalysisRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_options.Enabled)
+        {
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ApiError("AI assist is disabled."));
+        }
+
+        var hazard = await _hazards.GetByIdAsync(id, cancellationToken);
+        if (hazard is null)
+        {
+            return NotFound(new ApiError("Hazard not found."));
+        }
+
+        var photoUrl = string.IsNullOrWhiteSpace(request?.PhotoUrl)
+            ? hazard.PhotoUrl
+            : request.PhotoUrl.Trim();
+        if (string.IsNullOrWhiteSpace(photoUrl))
+        {
+            return BadRequest(new ApiError("A hazard photo URL is required for photo analysis."));
+        }
+
+        var absolutePhotoUrl = ResolveAbsolutePhotoUrl(photoUrl);
+        var inference = await _accessibilityInference.InferAsync(
+            assetId: 0,
+            BuildHazardPhotoReviewProfile(hazard),
+            new AccessibilityAiInferenceRequest
+            {
+                ObservationText = BuildHazardPhotoObservation(hazard, request?.ObservationText),
+                Photos =
+                [
+                    new AccessibilityPhotoInput
+                    {
+                        Source = "hazard_photo",
+                        Url = absolutePhotoUrl,
+                        Caption = BuildHazardPhotoCaption(hazard),
+                        TakenAtUtc = hazard.ReportedAt
+                    }
+                ],
+                IncludeDraftVerification = request?.IncludeDraftVerification ?? true
+            },
+            cancellationToken);
+
+        return Ok(ToHazardPhotoAnalysisResult(hazard.Id, absolutePhotoUrl, inference));
+    }
+
+    /// <summary>
     /// Explains an already-computed route. This endpoint does not compute or alter routes.
     /// </summary>
     [HttpPost("route-explanation")]
@@ -322,4 +379,88 @@ public sealed class AiAssistController : ControllerBase
 
     private static bool IsValidLongitude(double longitude) =>
         !double.IsNaN(longitude) && !double.IsInfinity(longitude) && longitude is >= -180 and <= 180;
+
+    private static InfrastructureAccessibilityProfile BuildHazardPhotoReviewProfile(HazardReport hazard)
+    {
+        return new InfrastructureAccessibilityProfile
+        {
+            SourceSystem = "hazard_report",
+            SourceRecordId = hazard.Id.ToString("D"),
+            ProfileGeneratedAtUtc = DateTime.UtcNow,
+            VerificationStatus = "hazard-photo-review",
+            Confidence = 0.2,
+            MissingFields =
+            [
+                "surface",
+                "smoothness",
+                "width_metres",
+                "kerb",
+                "curb_ramp",
+                "incline_percent",
+                "tactile_paving",
+                "last_verified_at"
+            ],
+            EvidenceTags = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["hazard_type"] = hazard.Type,
+                ["hazard_status"] = hazard.Status.ToString()
+            }
+        };
+    }
+
+    private static string BuildHazardPhotoObservation(HazardReport hazard, string? observationText)
+    {
+        var supplied = string.IsNullOrWhiteSpace(observationText)
+            ? string.Empty
+            : observationText.Trim();
+        return string.Join(
+            "\n",
+            new[]
+            {
+                $"Hazard type: {hazard.Type}",
+                $"Hazard description: {hazard.Description}",
+                $"Hazard status: {hazard.Status}",
+                supplied.Length > 0 ? $"Reporter observation: {supplied}" : null
+            }.Where(part => !string.IsNullOrWhiteSpace(part)));
+    }
+
+    private static string BuildHazardPhotoCaption(HazardReport hazard) =>
+        $"Field photo for {hazard.Type} hazard reported at {hazard.ReportedAt:O}.";
+
+    private string ResolveAbsolutePhotoUrl(string photoUrl)
+    {
+        if (Uri.TryCreate(photoUrl, UriKind.Absolute, out var absolute)
+            && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
+        {
+            return absolute.ToString();
+        }
+
+        var path = photoUrl.StartsWith("/", StringComparison.Ordinal)
+            ? photoUrl
+            : "/" + photoUrl;
+        var pathBase = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+        return $"{Request.Scheme}://{Request.Host}{pathBase}{path}";
+    }
+
+    private static HazardPhotoAiAnalysisResult ToHazardPhotoAnalysisResult(
+        Guid hazardId,
+        string photoUrl,
+        AccessibilityAiInferenceResult inference)
+    {
+        return new HazardPhotoAiAnalysisResult
+        {
+            HazardId = hazardId,
+            ForRouteDecision = false,
+            Provider = inference.Provider,
+            Model = inference.Model,
+            GeneratedAtUtc = inference.GeneratedAtUtc,
+            PhotoUrl = photoUrl,
+            ReviewStatus = inference.AttributeCandidates.Count > 0 ? "review_required" : "no_candidates",
+            AdminSummary = inference.AdminSummary,
+            AttributeCandidates = inference.AttributeCandidates,
+            DraftVerification = inference.DraftVerification,
+            Guardrails = inference.Guardrails,
+            Limitations = inference.Limitations
+        };
+    }
 }
