@@ -17,6 +17,7 @@ import { DEFAULT_MAP_CENTER_LNG_LAT } from '@/constants/defaultMapRegion';
 import { AppTheme } from '@/constants/theme';
 import { type AppHazard, hazardsService } from '@/services/hazards.service';
 import { geocodingService, type GeocodingResult } from '@/services/geocoding.service';
+import { aiAssistService } from '@/services/aiAssist.service';
 import { routingService, type RouteResponse } from '@/services/routing.service';
 import { type Hazard } from '@/models/spatial';
 
@@ -180,6 +181,8 @@ export default function MapPageWeb() {
   const [route, setRoute] = useState<RouteResponse | null>(null);
   const [routeStatus, setRouteStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [routeError, setRouteError] = useState<string | null>(null);
+  const [routeExplanation, setRouteExplanation] = useState<string | null>(null);
+  const [routeOptionCount, setRouteOptionCount] = useState(0);
   const [destinationQuery, setDestinationQuery] = useState('');
   const [destinationLabel, setDestinationLabel] = useState('Where to?');
   const [destinationCoordinate, setDestinationCoordinate] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -190,7 +193,6 @@ export default function MapPageWeb() {
   const [navigationActive, setNavigationActive] = useState(false);
   const hazardRequestIdRef = useRef(0);
   const routeRequestIdRef = useRef(0);
-  const routeLoadingRef = useRef(false);
 
   const centerCoordinate = useMemo<[number, number]>(() => {
     const first = hazards[0];
@@ -258,29 +260,48 @@ export default function MapPageWeb() {
   }, []);
 
   const loadRecommendedRoute = useCallback(async () => {
-    if (routeLoadingRef.current) return;
-
     const requestId = routeRequestIdRef.current + 1;
     routeRequestIdRef.current = requestId;
-    routeLoadingRef.current = true;
 
     try {
       setRouteStatus('loading');
       setRouteError(null);
-      const nextRoute = await routingService.getSafePathResolved(routeRequest);
+      setRouteExplanation(null);
+      setRouteOptionCount(0);
+
+      let nextRoute: RouteResponse;
+      let variantCount = 0;
+      try {
+        const options = await routingService.getSafePathOptionsResolved(routeRequest);
+        nextRoute = options.recommended;
+        variantCount = options.variants?.length ?? 0;
+      } catch (optionsError) {
+        console.warn('Route options unavailable on web map; falling back to primary route:', optionsError);
+        nextRoute = await routingService.getSafePathResolved(routeRequest);
+      }
+
       if (routeRequestIdRef.current !== requestId) return;
       setRoute(nextRoute);
+      setRouteOptionCount(variantCount);
       setRouteStatus('ready');
+
+      aiAssistService.explainRoute(routeRequest, nextRoute)
+        .then((explanation) => {
+          if (routeRequestIdRef.current !== requestId) return;
+          const text = explanation.explanation || explanation.reasons?.[0] || null;
+          setRouteExplanation(text);
+        })
+        .catch((explanationError) => {
+          console.warn('Route explanation unavailable on web map:', explanationError);
+        });
     } catch (loadError) {
       if (routeRequestIdRef.current !== requestId) return;
       console.warn('Failed to load recommended route:', loadError);
       setRoute(null);
+      setRouteOptionCount(0);
+      setRouteExplanation(null);
       setRouteStatus('error');
       setRouteError('Route engine unavailable');
-    } finally {
-      if (routeRequestIdRef.current === requestId) {
-        routeLoadingRef.current = false;
-      }
     }
   }, [routeRequest]);
 
@@ -306,6 +327,8 @@ export default function MapPageWeb() {
       setDestinationCoordinate(match.coordinate);
       setDestinationLabel(formatGeocodingLabel(match.result, query));
       setRoute(null);
+      setRouteExplanation(null);
+      setRouteOptionCount(0);
       setRouteStatus('idle');
       setNavigationActive(false);
     } catch (searchError) {
@@ -333,6 +356,8 @@ export default function MapPageWeb() {
     });
     setSelectedHazard(null);
     setRoute(null);
+    setRouteExplanation(null);
+    setRouteOptionCount(0);
     setRouteStatus('idle');
     setNavigationActive(false);
   }
@@ -571,7 +596,9 @@ export default function MapPageWeb() {
           {[
             route ? 'Avoids known hazards' : 'Finding a safer route',
             route?.warnings?.length ? 'Review warnings before you go' : 'No major warnings on this route',
-          ].map((reason) => (
+            routeOptionCount > 0 ? `Compared ${routeOptionCount + 1} route options` : null,
+            routeExplanation,
+          ].filter((reason): reason is string => Boolean(reason)).map((reason) => (
             <View key={reason} style={styles.reasonRow}>
               <Ionicons name="checkmark-circle" size={14} color={AppTheme.color.success} />
               <Text style={styles.reasonText}>{reason}</Text>

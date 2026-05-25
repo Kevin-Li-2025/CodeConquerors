@@ -20,6 +20,13 @@ jest.mock('@/services/hazards.service', () => ({
 jest.mock('@/services/routing.service', () => ({
   routingService: {
     getSafePathResolved: jest.fn(),
+    getSafePathOptionsResolved: jest.fn(),
+  },
+}));
+
+jest.mock('@/services/aiAssist.service', () => ({
+  aiAssistService: {
+    explainRoute: jest.fn(),
   },
 }));
 
@@ -33,17 +40,34 @@ import MapPageWeb from '@/app/(tabs)/map.web';
 import { hazardsService } from '@/services/hazards.service';
 import { routingService } from '@/services/routing.service';
 import { geocodingService } from '@/services/geocoding.service';
+import { aiAssistService } from '@/services/aiAssist.service';
 
 describe('MapPageWeb', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    jest.mocked(routingService.getSafePathResolved).mockResolvedValue({
+    const route = {
       path: { type: 'LineString', coordinates: [[-1.89, 52.48], [-1.88, 52.485]] },
       distance: 1200,
       estimatedTime: 18,
       safetyScore: 0.92,
       warnings: [],
       steps: [{ instruction: 'Head east' }],
+    };
+    jest.mocked(routingService.getSafePathOptionsResolved).mockResolvedValue({
+      recommended: route,
+      variants: [
+        { kind: 'accessible', description: 'Accessible route', route },
+        { kind: 'fastest', description: 'Fastest route', route },
+      ],
+    });
+    jest.mocked(routingService.getSafePathResolved).mockResolvedValue(route);
+    jest.mocked(aiAssistService.explainRoute).mockResolvedValue({
+      forRouteDecision: false,
+      provider: 'local-rules',
+      explanation: 'This route avoids known hazards and keeps to smoother pavements.',
+      reasons: ['Avoids known hazards'],
+      limitations: [],
+      generatedAtUtc: '2026-05-25T00:00:00Z',
     });
   });
 
@@ -73,8 +97,8 @@ describe('MapPageWeb', () => {
     await waitFor(() => expect(getByText('1 markers')).toBeTruthy());
     expect(getByText('1 city reports')).toBeTruthy();
     expect(getByText('Wheelchair')).toBeTruthy();
-    await waitFor(() => expect(routingService.getSafePathResolved).toHaveBeenCalled());
-    expect(routingService.getSafePathResolved).toHaveBeenCalledWith(
+    await waitFor(() => expect(routingService.getSafePathOptionsResolved).toHaveBeenCalled());
+    expect(routingService.getSafePathOptionsResolved).toHaveBeenCalledWith(
       expect.objectContaining({
         profile: 'manual-wheelchair',
         preferences: expect.arrayContaining(['avoid-reported-hazards', 'prefer-crossings', 'low-light-penalty']),
@@ -82,6 +106,8 @@ describe('MapPageWeb', () => {
     );
     expect(getByText('18 min')).toBeTruthy();
     expect(getByText('1.2 km')).toBeTruthy();
+    await waitFor(() => expect(getByText('Compared 3 route options')).toBeTruthy());
+    expect(getByText('This route avoids known hazards and keeps to smoother pavements.')).toBeTruthy();
   });
 
   it('searches a destination and recalculates the route', async () => {
@@ -101,13 +127,13 @@ describe('MapPageWeb', () => {
 
     const { getByLabelText, getByText } = render(<MapPageWeb />);
 
-    await waitFor(() => expect(routingService.getSafePathResolved).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(routingService.getSafePathOptionsResolved).toHaveBeenCalledTimes(1));
     fireEvent.changeText(getByLabelText('Destination'), 'New Street Station');
     fireEvent.press(getByLabelText('Search destination'));
 
     await waitFor(() => {
       expect(geocodingService.search).toHaveBeenCalledWith('New Street Station');
-      expect(routingService.getSafePathResolved).toHaveBeenCalledTimes(2);
+      expect(routingService.getSafePathOptionsResolved).toHaveBeenCalledTimes(2);
     });
     expect(getByText('New Street Station, Birmingham')).toBeTruthy();
   });
@@ -122,7 +148,7 @@ describe('MapPageWeb', () => {
 
     const { getByText, findByText, queryByText } = render(<MapPageWeb />);
 
-    await waitFor(() => expect(routingService.getSafePathResolved).toHaveBeenCalled());
+    await waitFor(() => expect(routingService.getSafePathOptionsResolved).toHaveBeenCalled());
     fireEvent.press(getByText('Start navigation'));
 
     expect(await findByText('Navigation active')).toBeTruthy();

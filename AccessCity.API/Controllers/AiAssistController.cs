@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text.Json;
 using AccessCity.API.Common;
 using AccessCity.API.Configuration;
 using AccessCity.API.Models;
@@ -69,9 +71,10 @@ public sealed class AiAssistController : ControllerBase
     /// </summary>
     [HttpPost("route-explanation")]
     [ProducesResponseType(typeof(RouteExplanationResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ApiError), StatusCodes.Status400BadRequest)]
     [ProducesResponseType(typeof(ApiError), StatusCodes.Status503ServiceUnavailable)]
     public async Task<ActionResult<RouteExplanationResponse>> ExplainRoute(
-        [FromBody] RouteExplanationRequest request,
+        [FromBody] JsonElement requestPayload,
         CancellationToken cancellationToken = default)
     {
         if (!_options.Enabled)
@@ -79,6 +82,7 @@ public sealed class AiAssistController : ControllerBase
             return StatusCode(StatusCodes.Status503ServiceUnavailable, new ApiError("AI assist is disabled."));
         }
 
+        var request = BuildRouteExplanationRequest(requestPayload);
         var explanation = await _aiAssist.ExplainRouteAsync(request, cancellationToken);
         return Ok(explanation);
     }
@@ -137,6 +141,93 @@ public sealed class AiAssistController : ControllerBase
 
         var result = await _accessibilityInference.InferAsync(assetId, profile, request, cancellationToken);
         return Ok(result);
+    }
+
+    private static RouteExplanationRequest BuildRouteExplanationRequest(JsonElement payload)
+    {
+        var routeRequestElement = TryGetProperty(payload, "routeRequest");
+        var routeElement = TryGetProperty(payload, "route");
+
+        return new RouteExplanationRequest
+        {
+            RouteRequest = new RouteRequest
+            {
+                Profile = GetString(routeRequestElement, "profile") ?? "standard",
+                SafetyWeight = GetDouble(routeRequestElement, "safetyWeight") ?? 0.5,
+                Preferences = GetStringArray(routeRequestElement, "preferences")
+            },
+            Route = new RouteResponse
+            {
+                Distance = GetDouble(routeElement, "distance") ?? 0,
+                EstimatedTime = GetDouble(routeElement, "estimatedTime") ?? 0,
+                SafetyScore = GetDouble(routeElement, "safetyScore") ?? 0,
+                Warnings = GetStringArray(routeElement, "warnings")
+            }
+        };
+    }
+
+    private static JsonElement? TryGetProperty(JsonElement? element, string propertyName)
+    {
+        if (element is null || element.Value.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        foreach (var property in element.Value.EnumerateObject())
+        {
+            if (string.Equals(property.Name, propertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                return property.Value;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? GetString(JsonElement? element, string propertyName)
+    {
+        var property = TryGetProperty(element, propertyName);
+        return property?.ValueKind == JsonValueKind.String
+            ? property.Value.GetString()
+            : null;
+    }
+
+    private static double? GetDouble(JsonElement? element, string propertyName)
+    {
+        var property = TryGetProperty(element, propertyName);
+        if (property is null)
+        {
+            return null;
+        }
+
+        if (property.Value.ValueKind == JsonValueKind.Number && property.Value.TryGetDouble(out var number))
+        {
+            return number;
+        }
+
+        if (property.Value.ValueKind == JsonValueKind.String
+            && double.TryParse(property.Value.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out number))
+        {
+            return number;
+        }
+
+        return null;
+    }
+
+    private static List<string> GetStringArray(JsonElement? element, string propertyName)
+    {
+        var property = TryGetProperty(element, propertyName);
+        if (property?.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return property.Value.EnumerateArray()
+            .Where(item => item.ValueKind == JsonValueKind.String)
+            .Select(item => item.GetString())
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value!.Trim())
+            .ToList();
     }
 
     private async Task<IReadOnlyCollection<HazardReport>> GetNearbyHazardsAsync(
