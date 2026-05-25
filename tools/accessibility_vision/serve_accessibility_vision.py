@@ -195,6 +195,11 @@ def build_model(model_name: str, num_tasks: int) -> nn.Module:
         in_features = model.classifier[2].in_features
         model.classifier[2] = nn.Linear(in_features, num_tasks)
         return model
+    if model_name == "convnext_small":
+        model = models.convnext_small(weights=None)
+        in_features = model.classifier[2].in_features
+        model.classifier[2] = nn.Linear(in_features, num_tasks)
+        return model
 
     model = models.efficientnet_b0(weights=None)
     in_features = model.classifier[1].in_features

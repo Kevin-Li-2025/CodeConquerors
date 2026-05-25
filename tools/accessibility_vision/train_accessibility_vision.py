@@ -79,7 +79,7 @@ class AccessibilityDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tenso
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train AccessCity sidewalk accessibility vision classifier.")
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--model", default="convnext_tiny", choices=["convnext_tiny", "efficientnet_b0"])
+    parser.add_argument("--model", default="convnext_tiny", choices=["convnext_tiny", "convnext_small", "efficientnet_b0"])
     parser.add_argument("--epochs", type=int, default=6)
     parser.add_argument("--batch-size", type=int, default=48)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
@@ -231,6 +231,12 @@ def build_model(model_name: str) -> nn.Module:
     if model_name == "convnext_tiny":
         weights = models.ConvNeXt_Tiny_Weights.IMAGENET1K_V1
         model = models.convnext_tiny(weights=weights)
+        in_features = model.classifier[2].in_features
+        model.classifier[2] = nn.Linear(in_features, len(TASKS))
+        return model
+    if model_name == "convnext_small":
+        weights = models.ConvNeXt_Small_Weights.IMAGENET1K_V1
+        model = models.convnext_small(weights=weights)
         in_features = model.classifier[2].in_features
         model.classifier[2] = nn.Linear(in_features, len(TASKS))
         return model

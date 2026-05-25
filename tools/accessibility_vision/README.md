@@ -6,7 +6,7 @@ The first production target is a fast multi-task classifier, not a route-decisio
 
 ## Model Choice
 
-Default: `convnext_tiny`.
+Default: `convnext_tiny`. Use `convnext_small` for L20 accuracy experiments when the weaker hazard heads need more capacity and the deployment can tolerate a larger checkpoint. Do not promote a larger backbone unless untouched holdout F1 and calibration beat the current release; higher validation F1 alone is not enough.
 
 Why this first:
 
@@ -61,6 +61,18 @@ python export_project_sidewalk_subset.py \
 
 The exporter writes separate `train.jsonl`, `validation.jsonl`, and `test.jsonl` files. It downloads selected validator images directly from the Hub file URLs so large balanced exports do not fill the Hugging Face cache with unused images; tune `--validator-download-workers`, `--hf-download-min-interval`, and `--hf-download-timeout-seconds` for the network you are using. Use `validation` only for threshold calibration/model selection and reserve `test` for final holdout reporting. `RampNet crop` rows strengthen curb-ramp positives; `RampNet panorama` rows add large-scale curb-ramp positive/negative labels from `curb_ramp_points_normalized`.
 
+When one task is underperforming, add more training rows for that head without changing the validation or final holdout distribution:
+
+```bash
+python export_project_sidewalk_subset.py \
+  --output-dir data/projectsidewalk-rampnet-expanded \
+  --train-per-task 1200 \
+  --train-per-task-overrides obstacle_present=2200,surface_problem_present=2200,curb_ramp_absent=2000 \
+  --validation-per-task 300 \
+  --test-per-task 300 \
+  --validator-download-workers 8
+```
+
 ## L20 Setup
 
 ```bash
@@ -85,6 +97,7 @@ Full calibrated pass:
 
 ```bash
 python train_accessibility_vision.py \
+  --model convnext_tiny \
   --dataset-root data/projectsidewalk-rampnet-balanced \
   --output-dir runs/project-sidewalk-convnext-tiny-v1 \
   --epochs 12 \
@@ -111,6 +124,10 @@ export HF_TOKEN=...
 # Optional when the GPU box is slow to reach PyPI or download.pytorch.org:
 export PIP_INDEX_URL=...
 export PIP_EXTRA_INDEX_URL=...
+# Optional higher-capacity accuracy pass:
+export ACCESSCITY_VISION_MODEL=convnext_small
+export ACCESSCITY_VISION_TRAIN_PER_TASK_OVERRIDES=obstacle_present=2200,surface_problem_present=2200,curb_ramp_absent=2000
+export ACCESSCITY_VISION_LEARNING_RATE=8e-5
 ./run_l20_training.sh
 ```
 

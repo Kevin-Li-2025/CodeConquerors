@@ -56,6 +56,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--train-per-task", type=int, default=1200)
     parser.add_argument("--validation-per-task", type=int, default=300)
     parser.add_argument("--test-per-task", type=int, default=300)
+    parser.add_argument(
+        "--train-per-task-overrides",
+        default="",
+        help="Comma-separated task=count overrides for train, for example obstacle_present=2200,surface_problem_present=2200.",
+    )
+    parser.add_argument(
+        "--validation-per-task-overrides",
+        default="",
+        help="Comma-separated task=count overrides for validation.",
+    )
+    parser.add_argument(
+        "--test-per-task-overrides",
+        default="",
+        help="Comma-separated task=count overrides for test.",
+    )
     parser.add_argument("--jpeg-quality", type=int, default=92)
     parser.add_argument("--max-image-side", type=int, default=1024)
     parser.add_argument("--seed", type=int, default=20260524)
@@ -73,7 +88,38 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--rampnet-panorama-train", type=int, default=0)
     parser.add_argument("--rampnet-panorama-validation", type=int, default=0)
     parser.add_argument("--rampnet-panorama-test", type=int, default=0)
-    return parser.parse_args()
+    args = parser.parse_args()
+    try:
+        args.train_per_task_overrides = parse_task_count_overrides(args.train_per_task_overrides)
+        args.validation_per_task_overrides = parse_task_count_overrides(args.validation_per_task_overrides)
+        args.test_per_task_overrides = parse_task_count_overrides(args.test_per_task_overrides)
+    except argparse.ArgumentTypeError as exc:
+        parser.error(str(exc))
+    return args
+
+
+def parse_task_count_overrides(raw: str) -> dict[str, int]:
+    overrides: dict[str, int] = {}
+    if not raw:
+        return overrides
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise argparse.ArgumentTypeError(f"Expected task=count override, got {item!r}.")
+        task_name, count_text = item.split("=", 1)
+        task_name = task_name.strip()
+        if task_name not in TASKS:
+            raise argparse.ArgumentTypeError(f"Unknown task override {task_name!r}; expected one of {', '.join(TASKS)}.")
+        try:
+            count = int(count_text)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(f"Invalid count for {task_name!r}: {count_text!r}.") from exc
+        if count < 0:
+            raise argparse.ArgumentTypeError(f"Override count for {task_name!r} must be non-negative.")
+        overrides[task_name] = count
+    return overrides
 
 
 def split_plans(args: argparse.Namespace) -> list[SplitPlan]:
@@ -221,6 +267,7 @@ def export_validator_split(
     output_dir: Path,
     split: str,
     per_task: int,
+    per_task_overrides: dict[str, int],
     jpeg_quality: int,
     max_image_side: int,
     balanced: bool,
@@ -236,6 +283,7 @@ def export_validator_split(
 ) -> None:
     api = HfApi()
     for dataset_name, task_name in VALIDATOR_DATASET_TASKS.items():
+        rows_per_task = per_task_overrides.get(task_name, per_task)
         files_by_target = list_validator_files(api, dataset_name, split, hf_token)
         positive_files = files_by_target[1]
         negative_files = files_by_target[0]
@@ -243,8 +291,8 @@ def export_validator_split(
         rng.shuffle(positive_files)
         rng.shuffle(negative_files)
 
-        positive_target = per_task // 2 if balanced else per_task
-        negative_target = per_task - positive_target if balanced else 0
+        positive_target = rows_per_task // 2 if balanced else rows_per_task
+        negative_target = rows_per_task - positive_target if balanced else 0
         if len(positive_files) < positive_target or len(negative_files) < negative_target:
             raise RuntimeError(
                 f"{dataset_name} {split} has {len(positive_files)} positive and {len(negative_files)} negative rows; "
@@ -438,10 +486,16 @@ def export_split(
 ) -> list[dict[str, Any]]:
     split = split_plan.name
     rows: list[dict[str, Any]] = []
+    split_overrides = {
+        "train": args.train_per_task_overrides,
+        "validation": args.validation_per_task_overrides,
+        "test": args.test_per_task_overrides,
+    }[split]
     export_validator_split(
         output_dir,
         split,
         split_plan.rows_per_task,
+        split_overrides,
         args.jpeg_quality,
         args.max_image_side,
         args.balanced,
@@ -520,6 +574,9 @@ def main() -> None:
         "train_per_task": args.train_per_task,
         "validation_per_task": args.validation_per_task,
         "test_per_task": args.test_per_task,
+        "train_per_task_overrides": args.train_per_task_overrides,
+        "validation_per_task_overrides": args.validation_per_task_overrides,
+        "test_per_task_overrides": args.test_per_task_overrides,
         "balanced": args.balanced,
         "max_image_side": args.max_image_side,
         "hf_download_min_interval": args.hf_download_min_interval,
