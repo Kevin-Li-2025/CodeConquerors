@@ -745,7 +745,7 @@ export default function OpsScreen() {
                   tone={integrations.nominatimConfigured ? 'good' : 'bad'}
                 />
                 <StatusPill
-                  label={integrations.osrmUsesPublicDemo ? 'OSRM demo host' : 'OSRM private host'}
+                  label={integrations.osrmUsesPublicDemo ? 'Public OSRM host' : 'OSRM private host'}
                   tone={integrations.osrmUsesPublicDemo ? 'warn' : 'good'}
                 />
                 <StatusPill

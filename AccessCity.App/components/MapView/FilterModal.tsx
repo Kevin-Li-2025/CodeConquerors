@@ -123,11 +123,11 @@ export default function FilterModal({
                 </View>
               </View>
 
-              <View style={styles.fakeSliderWrap}>
-                <View style={styles.fakeSliderTrack} />
+              <View style={styles.safetySliderWrap}>
+                <View style={styles.safetySliderTrack} />
                 <View
                   style={[
-                    styles.fakeSliderActive,
+                    styles.safetySliderActive,
                     {
                       left: `${routeFilters.minSafetyScore}%`,
                       width: `${routeFilters.maxSafetyScore - routeFilters.minSafetyScore}%`,
@@ -135,10 +135,10 @@ export default function FilterModal({
                   ]}
                 />
                 <View
-                  style={[styles.fakeSliderThumb, { left: `${routeFilters.minSafetyScore}%` }]}
+                  style={[styles.safetySliderThumb, { left: `${routeFilters.minSafetyScore}%` }]}
                 />
                 <View
-                  style={[styles.fakeSliderThumb, { left: `${routeFilters.maxSafetyScore}%` }]}
+                  style={[styles.safetySliderThumb, { left: `${routeFilters.maxSafetyScore}%` }]}
                 />
               </View>
 
@@ -310,25 +310,25 @@ const styles = StyleSheet.create({
     color: AppTheme.color.text,
     ...AppTheme.type.cardTitle,
   },
-  fakeSliderWrap: {
+  safetySliderWrap: {
     position: 'relative',
     height: 34,
     justifyContent: 'center',
     marginTop: 10,
   },
-  fakeSliderTrack: {
+  safetySliderTrack: {
     height: 6,
     borderRadius: 999,
     backgroundColor: AppTheme.color.borderStrong,
     width: '100%',
   },
-  fakeSliderActive: {
+  safetySliderActive: {
     position: 'absolute',
     height: 6,
     borderRadius: 999,
     backgroundColor: AppTheme.color.primary,
   },
-  fakeSliderThumb: {
+  safetySliderThumb: {
     position: 'absolute',
     marginLeft: -10,
     width: 22,

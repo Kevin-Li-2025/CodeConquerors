@@ -55,6 +55,7 @@ describe('HazardScreen', () => {
     const { findByText } = render(<HazardScreen />);
 
     expect(await findByText('Broken pavement')).toBeTruthy();
+    expect(await findByText('Birmingham, UK reports')).toBeTruthy();
   });
 
   it('filters visible hazards from the search control', async () => {

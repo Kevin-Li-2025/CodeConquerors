@@ -112,4 +112,24 @@ describe('MapPageWeb', () => {
     });
     expect(getByText('New Street Station, Birmingham')).toBeTruthy();
   });
+
+  it('starts and ends web guidance from a loaded route', async () => {
+    jest.mocked(hazardsService.getHazardsPage).mockResolvedValue({
+      items: [],
+      nextCursor: null,
+      limit: 100,
+      hasMore: false,
+    });
+
+    const { getByText, findByText, queryByText } = render(<MapPageWeb />);
+
+    await waitFor(() => expect(routingService.getSafePathResolved).toHaveBeenCalled());
+    fireEvent.press(getByText('Start navigation'));
+
+    expect(await findByText('Navigation active')).toBeTruthy();
+    expect(await findByText('Head east')).toBeTruthy();
+
+    fireEvent.press(getByText('End navigation'));
+    await waitFor(() => expect(queryByText('Head east')).toBeNull());
+  });
 });

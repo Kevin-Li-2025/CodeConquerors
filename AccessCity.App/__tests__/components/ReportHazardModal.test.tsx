@@ -52,4 +52,21 @@ describe('ReportHazardModal', () => {
     fireEvent.press(getByText('Cancel'));
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('shows live nearby report review when duplicates are returned', () => {
+    const onReviewSimilarReports = jest.fn();
+    const { getByText } = render(
+      <ReportHazardModal
+        {...base}
+        reportStep={2}
+        selectedReportType="blocked_pavement"
+        similarReportCount={2}
+        onReviewSimilarReports={onReviewSimilarReports}
+      />,
+    );
+
+    expect(getByText('2 nearby reports may match this issue.')).toBeTruthy();
+    fireEvent.press(getByText('Review'));
+    expect(onReviewSimilarReports).toHaveBeenCalled();
+  });
 });

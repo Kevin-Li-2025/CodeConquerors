@@ -1,31 +1,5 @@
-import { DEFAULT_CITY_NAME } from '../../constants/defaultMapRegion';
 import { AppTheme } from '../../constants/theme';
-import { Hazard, ReportHazardOption, ReportHazardType } from './MapTypes';
-
-export const hazards: Hazard[] = [
-  {
-    id: 1,
-    title: 'Broken street light',
-    type: 'lighting',
-    latitude: 52.4865,
-    longitude: -1.891,
-    description: 'There is a broken street light. The street is dimly-lit.',
-    status: 'Acknowledged',
-    locationText: `Hazard located in ${DEFAULT_CITY_NAME}`,
-    reportedTime: '2 minutes ago',
-  },
-  {
-    id: 2,
-    title: 'No wheelchair ramp',
-    type: 'wheelchair',
-    latitude: 52.4852,
-    longitude: -1.888,
-    description: 'Wheelchair users may find it difficult to access this path safely.',
-    status: 'Pending',
-    locationText: 'Hazard located near city centre',
-    reportedTime: '10 minutes ago',
-  },
-];
+import { ReportHazardOption, ReportHazardType } from './MapTypes';
 
 export const reportHazardOptions: ReportHazardOption[] = [
   {

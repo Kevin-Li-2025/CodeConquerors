@@ -52,6 +52,8 @@ export default function ReportPage() {
   const [reportDescription, setReportDescription] = useState('');
   const [reportSeverity, setReportSeverity] = useState<'Low' | 'Medium' | 'High'>('Medium');
   const [selectedPhoto, setSelectedPhoto] = useState<HazardPhotoUpload | null>(null);
+  const [similarReportCount, setSimilarReportCount] = useState(0);
+  const [isCheckingSimilarReports, setIsCheckingSimilarReports] = useState(false);
 
   const [currentLocation, setCurrentLocation] = useState<{
     latitude: number;
@@ -66,6 +68,52 @@ export default function ReportPage() {
     setReportModalVisible(true);
     getCurrentLocation();
   }, []);
+
+  useEffect(() => {
+    let isMountedForSimilarCheck = true;
+
+    async function loadSimilarReports() {
+      if (!currentLocation || !selectedReportType || reportStep !== 2) {
+        return;
+      }
+
+      setIsCheckingSimilarReports(true);
+      try {
+        const delta = 0.002;
+        const page = await hazardsService.getHazardsPage({
+          status: 'Reported',
+          minLat: currentLocation.latitude - delta,
+          minLng: currentLocation.longitude - delta,
+          maxLat: currentLocation.latitude + delta,
+          maxLng: currentLocation.longitude + delta,
+          limit: 10,
+        });
+
+        if (!isMountedForSimilarCheck) return;
+
+        const typeLabel = selectedReportType.replace(/[_-]+/g, ' ').toLowerCase();
+        const sameIssueCount = page.items.filter((hazard) => {
+          const haystack = `${hazard.type} ${hazard.title} ${hazard.description}`.toLowerCase();
+          return haystack.includes(typeLabel) || typeLabel.split(' ').some((part) => part.length > 3 && haystack.includes(part));
+        }).length;
+        setSimilarReportCount(sameIssueCount);
+      } catch {
+        if (isMountedForSimilarCheck) {
+          setSimilarReportCount(0);
+        }
+      } finally {
+        if (isMountedForSimilarCheck) {
+          setIsCheckingSimilarReports(false);
+        }
+      }
+    }
+
+    void loadSimilarReports();
+
+    return () => {
+      isMountedForSimilarCheck = false;
+    };
+  }, [currentLocation, reportStep, selectedReportType]);
 
   async function getCurrentLocation() {
     try {
@@ -117,6 +165,7 @@ export default function ReportPage() {
 
   function handleClose() {
     setReportModalVisible(false);
+    setSimilarReportCount(0);
     router.back();
   }
 
@@ -129,6 +178,7 @@ export default function ReportPage() {
   }
 
   function handleBack() {
+    setSimilarReportCount(0);
     setReportStep(1);
   }
 
@@ -201,7 +251,13 @@ export default function ReportPage() {
   function handleDone() {
     setReportModalVisible(false);
     setSelectedPhoto(null);
+    setSimilarReportCount(0);
     router.back();
+  }
+
+  function handleReviewSimilarReports() {
+    setReportModalVisible(false);
+    router.push('/hazard' as never);
   }
 
   return (
@@ -228,6 +284,9 @@ export default function ReportPage() {
           isResolvingLocation={isResolvingLocation}
           canSubmit={Boolean(currentLocation)}
           onRetryLocation={() => void getCurrentLocation()}
+          similarReportCount={similarReportCount}
+          isCheckingSimilarReports={isCheckingSimilarReports}
+          onReviewSimilarReports={handleReviewSimilarReports}
         />
       ) : null}
     </View>

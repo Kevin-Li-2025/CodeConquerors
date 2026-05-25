@@ -17,6 +17,7 @@ import { hazardsService } from '@/services/hazards.service';
 import HazardDetailsModal from '@/components/MapView/HazardDetailsModal';
 import { Hazard as HazardType } from '@/components/MapView/MapTypes';
 import { AppTheme } from '@/constants/theme';
+import { DEFAULT_CITY_NAME, DEFAULT_MAP_CENTER } from '@/constants/defaultMapRegion';
 
 type HazardStatus = 'Reported' | 'Acknowledged' | 'Resolved';
 type Severity = 'High' | 'Medium' | 'Low';
@@ -29,8 +30,16 @@ type HazardItem = {
   description: string;
   location: string;
   reportedAt: string;
+  latitude: number;
+  longitude: number;
   icon: React.ComponentProps<typeof Ionicons>['name'] | React.ComponentProps<typeof MaterialCommunityIcons>['name'];
   iconFamily: 'ionicons' | 'material';
+};
+
+type ReferenceLocation = {
+  latitude: number;
+  longitude: number;
+  source: 'device' | 'city';
 };
 
 const FILTERS: HazardStatus[] = ['Reported', 'Acknowledged', 'Resolved'];
@@ -121,15 +130,27 @@ function getImpactSummary(item: HazardItem) {
   return 'May affect route comfort';
 }
 
-function getDistanceKm(item: HazardItem) {
-  const seed = String(item.id)
-    .split('')
-    .reduce((total, char) => total + char.charCodeAt(0), 0);
-  return 0.2 + (seed % 7) / 10;
+function haversineDistanceMetres(a: { latitude: number; longitude: number }, b: { latitude: number; longitude: number }) {
+  const earthRadiusMetres = 6_371_000;
+  const toRadians = (degrees: number) => degrees * Math.PI / 180;
+  const dLat = toRadians(b.latitude - a.latitude);
+  const dLon = toRadians(b.longitude - a.longitude);
+  const lat1 = toRadians(a.latitude);
+  const lat2 = toRadians(b.latitude);
+  const h = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return 2 * earthRadiusMetres * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-function formatDistance(item: HazardItem) {
-  return `${getDistanceKm(item).toFixed(1)} km`;
+function getDistanceKm(item: HazardItem, referenceLocation: ReferenceLocation) {
+  return haversineDistanceMetres(referenceLocation, item) / 1000;
+}
+
+function formatDistance(item: HazardItem, referenceLocation: ReferenceLocation) {
+  const distanceKm = getDistanceKm(item, referenceLocation);
+  return distanceKm < 1
+    ? `${Math.round(distanceKm * 1000)} m`
+    : `${distanceKm.toFixed(1)} km`;
 }
 
 function mapHazardToItem(hazard: Awaited<ReturnType<typeof hazardsService.getHazardsPage>>['items'][number]): HazardItem | null {
@@ -148,6 +169,8 @@ function mapHazardToItem(hazard: Awaited<ReturnType<typeof hazardsService.getHaz
     description: hazard.description,
     location: hazard.locationText,
     reportedAt: hazard.reportedTime,
+    latitude: hazard.latitude,
+    longitude: hazard.longitude,
     icon: hazard.type.includes('pavement') || hazard.type.includes('obstruction')
       ? 'boom-gate-outline'
       : hazard.type.includes('light')
@@ -170,6 +193,11 @@ export default function Hazard() {
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('Severity');
   const [isSearching, setIsSearching] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [referenceLocation, setReferenceLocation] = useState<ReferenceLocation>({
+    latitude: DEFAULT_MAP_CENTER.latitude,
+    longitude: DEFAULT_MAP_CENTER.longitude,
+    source: 'city',
+  });
 
   const [selectedHazardDetail, setSelectedHazardDetail] = useState<HazardType | null>(null);
   const [hazardDetailsVisible, setHazardDetailsVisible] = useState(false);
@@ -292,6 +320,30 @@ export default function Hazard() {
     }, [loadHazards])
   );
 
+  React.useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setReferenceLocation({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          source: 'device',
+        });
+      },
+      () => {
+        setReferenceLocation({
+          latitude: DEFAULT_MAP_CENTER.latitude,
+          longitude: DEFAULT_MAP_CENTER.longitude,
+          source: 'city',
+        });
+      },
+      { enableHighAccuracy: false, maximumAge: 60_000, timeout: 2_000 }
+    );
+  }, []);
+
   const displayHazards = React.useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     const sorted = query
@@ -303,7 +355,7 @@ export default function Hazard() {
     if (quickFilter === 'Type') {
       sorted.sort((a, b) => a.title.localeCompare(b.title));
     } else if (quickFilter === 'Distance') {
-      sorted.sort((a, b) => getDistanceKm(a) - getDistanceKm(b));
+      sorted.sort((a, b) => getDistanceKm(a, referenceLocation) - getDistanceKm(b, referenceLocation));
     } else if (quickFilter === 'Severity') {
       const rank: Record<Severity, number> = { High: 0, Medium: 1, Low: 2 };
       sorted.sort((a, b) => rank[getSeverity(a)] - rank[getSeverity(b)]);
@@ -311,7 +363,7 @@ export default function Hazard() {
       sorted.sort((a, b) => a.status.localeCompare(b.status));
     }
     return sorted;
-  }, [hazards, quickFilter, searchQuery]);
+  }, [hazards, quickFilter, referenceLocation, searchQuery]);
 
   function toggleSearch() {
     setIsSearching((current) => {
@@ -339,7 +391,9 @@ export default function Hazard() {
             <View style={styles.header}>
               <View>
                 <Text style={styles.title}>Hazards</Text>
-                <Text style={styles.subtitle}>Near you · 2 km</Text>
+                <Text style={styles.subtitle}>
+                  {referenceLocation.source === 'device' ? 'Near your location' : `${DEFAULT_CITY_NAME} reports`}
+                </Text>
               </View>
 
               <View style={styles.headerActions}>
@@ -472,7 +526,7 @@ export default function Hazard() {
                 <Text style={styles.cardTitle} numberOfLines={2}>{hazard.title}</Text>
                 <Text style={styles.impactText} numberOfLines={2}>{getImpactSummary(hazard)}</Text>
                 <Text style={styles.cardMeta} numberOfLines={1}>
-                  {formatDistance(hazard)} · {hazard.reportedAt} · {getSeverity(hazard)}
+                  {formatDistance(hazard, referenceLocation)} · {hazard.reportedAt} · {getSeverity(hazard)}
                 </Text>
                 <View style={styles.statusLine}>
                   <View

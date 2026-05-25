@@ -1,5 +1,5 @@
-import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import MapLibreGL from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { DEFAULT_MAP_CENTER_LNG_LAT } from '../../constants/defaultMapRegion';
@@ -35,6 +35,7 @@ export default function WebMapView({
   const showHazardsRef = useRef(showHazards);
   const pendingRouteDataRef = useRef(routeGeoJSON ?? EMPTY_ROUTE_DATA);
   const hasCenteredRef = useRef(false);
+  const [mapUnavailable, setMapUnavailable] = useState(false);
 
   useEffect(() => {
     onMapPressRef.current = onMapPress;
@@ -56,31 +57,37 @@ export default function WebMapView({
   }, [showHazards]);
 
   useEffect(() => {
-    if (map.current || !mapContainer.current) return;
+    if (map.current || !mapContainer.current || mapUnavailable) return;
 
-    map.current = new MapLibreGL.Map({
-      container: mapContainer.current,
-      style: {
-        version: 8,
-        sources: {
-          'osm': {
-            type: 'raster',
-            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-            tileSize: 256,
-            attribution: '&copy; OpenStreetMap contributors'
-          }
-        },
-        layers: [
-          {
-            id: 'osm-layer',
-            type: 'raster',
-            source: 'osm'
-          }
-        ],
-        center: initialCenterRef.current as [number, number],
-        zoom: 13
-      }
-    });
+    try {
+      map.current = new MapLibreGL.Map({
+        container: mapContainer.current,
+        style: {
+          version: 8,
+          sources: {
+            'osm': {
+              type: 'raster',
+              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              attribution: '&copy; OpenStreetMap contributors'
+            }
+          },
+          layers: [
+            {
+              id: 'osm-layer',
+              type: 'raster',
+              source: 'osm'
+            }
+          ],
+          center: initialCenterRef.current as [number, number],
+          zoom: 13
+        }
+      });
+    } catch (error) {
+      console.warn('Map renderer unavailable; using static fallback:', error);
+      setMapUnavailable(true);
+      return;
+    }
 
     map.current.on('load', () => {
       if (!map.current) return;
@@ -142,7 +149,7 @@ export default function WebMapView({
     return () => {
       map.current?.remove();
     };
-  }, []);
+  }, [mapUnavailable]);
 
   // Update Route
   useEffect(() => {
@@ -213,6 +220,49 @@ export default function WebMapView({
     }
   }, [centerCoordinate]);
 
+  if (mapUnavailable) {
+    return (
+      <View
+        style={styles.fallbackContainer}
+        accessibilityRole="image"
+        accessibilityLabel="Birmingham route map fallback"
+      >
+        <TouchableOpacity
+          activeOpacity={0.92}
+          style={styles.fallbackCanvas}
+          onPress={() => onMapPress?.({ lng: centerCoordinate[0], lat: centerCoordinate[1] })}
+        >
+          <View style={styles.fallbackGridHorizontal} />
+          <View style={styles.fallbackGridVertical} />
+          {routeGeoJSON?.features?.length ? <View style={styles.fallbackRoute} /> : null}
+          {showHazards ? markers.slice(0, 8).map((hazard, index) => (
+            <TouchableOpacity
+              key={String(hazard.id)}
+              activeOpacity={0.84}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${hazard.title}`}
+              onPress={(event) => {
+                event.stopPropagation();
+                onMarkerPress?.(hazard);
+              }}
+              style={[
+                styles.fallbackMarker,
+                {
+                  left: `${16 + ((index * 17) % 68)}%`,
+                  top: `${24 + ((index * 23) % 48)}%`,
+                },
+              ]}
+            />
+          )) : null}
+          <View style={styles.fallbackLabel}>
+            <Text style={styles.fallbackTitle}>Map view</Text>
+            <Text style={styles.fallbackSubtitle}>Route and reports remain available</Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <div ref={mapContainer} style={{ width: '100%', height: '100%' }} />
@@ -223,5 +273,89 @@ export default function WebMapView({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  fallbackContainer: {
+    flex: 1,
+    backgroundColor: '#EDE7DD',
+  },
+  fallbackCanvas: {
+    flex: 1,
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#EDE7DD',
+  },
+  fallbackGridHorizontal: {
+    position: 'absolute',
+    left: '-10%',
+    right: '-10%',
+    top: '42%',
+    height: 96,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(26, 23, 16, 0.12)',
+    transform: [{ rotate: '-9deg' }],
+  },
+  fallbackGridVertical: {
+    position: 'absolute',
+    top: '-10%',
+    bottom: '-10%',
+    left: '54%',
+    width: 92,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(26, 23, 16, 0.1)',
+    transform: [{ rotate: '18deg' }],
+  },
+  fallbackRoute: {
+    position: 'absolute',
+    left: '26%',
+    top: '36%',
+    width: '46%',
+    height: 5,
+    borderRadius: 999,
+    backgroundColor: '#2F80ED',
+    transform: [{ rotate: '-21deg' }],
+    shadowColor: '#2F80ED',
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  fallbackMarker: {
+    position: 'absolute',
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#E85D2A',
+    borderWidth: 3,
+    borderColor: '#FFFDF7',
+    shadowColor: '#1A1710',
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+  },
+  fallbackLabel: {
+    position: 'absolute',
+    left: 18,
+    bottom: 112,
+    maxWidth: 230,
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: 'rgba(255, 253, 247, 0.88)',
+    borderWidth: 1,
+    borderColor: 'rgba(26, 23, 16, 0.08)',
+  },
+  fallbackTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+    color: '#1A1710',
+  },
+  fallbackSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+    color: '#6D665C',
   },
 });

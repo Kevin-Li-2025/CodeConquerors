@@ -366,11 +366,7 @@ export default function Profile() {
 
   const displayName = accountProfile?.fullName || user?.fullName || 'AccessCity User';
   const displayEmail = accountProfile?.email || user?.email || 'No email available';
-  const profileStats = accountProfile?.stats ?? {
-    reportsSubmitted: 0,
-    resolvedReports: 0,
-    communityImpact: 0,
-  };
+  const profileStats = accountProfile?.stats;
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -410,21 +406,21 @@ export default function Profile() {
 
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{formatStat(profileStats.reportsSubmitted)}</Text>
+              <Text style={styles.statValue}>{formatStat(profileStats?.reportsSubmitted)}</Text>
               <Text style={styles.statLabel}>My reports</Text>
             </View>
 
             <View style={styles.statSeparator} />
 
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{formatStat(profileStats.resolvedReports)}</Text>
+              <Text style={styles.statValue}>{formatStat(profileStats?.resolvedReports)}</Text>
               <Text style={styles.statLabel}>Resolved reports</Text>
             </View>
 
             <View style={styles.statSeparator} />
 
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>{formatStat(profileStats.communityImpact)}</Text>
+              <Text style={styles.statValue}>{formatStat(profileStats?.communityImpact)}</Text>
               <Text style={styles.statLabel}>Community impact</Text>
             </View>
           </View>

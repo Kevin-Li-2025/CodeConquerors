@@ -36,6 +36,9 @@ type ReportHazardModalProps = {
   isResolvingLocation?: boolean;
   canSubmit?: boolean;
   onRetryLocation?: () => void;
+  similarReportCount?: number;
+  isCheckingSimilarReports?: boolean;
+  onReviewSimilarReports?: () => void;
 };
 
 function renderOptionIcon(
@@ -77,6 +80,9 @@ export default function ReportHazardModal({
   isResolvingLocation = false,
   canSubmit = true,
   onRetryLocation,
+  similarReportCount = 0,
+  isCheckingSimilarReports = false,
+  onReviewSimilarReports,
 }: ReportHazardModalProps) {
   const selectedTypeOption = reportHazardOptions.find(
     (item) => item.key === selectedReportType
@@ -268,12 +274,29 @@ export default function ReportHazardModal({
                     </TouchableOpacity>
                   </View>
 
-                  <View style={styles.similarReportBox}>
-                    <Ionicons name="git-merge-outline" size={18} color={AppTheme.color.warning} />
-                    <Text style={styles.similarReportText}>
-                      Similar report found nearby. Add confirmation instead?
-                    </Text>
-                  </View>
+                  {isCheckingSimilarReports || similarReportCount > 0 ? (
+                    <View style={styles.similarReportBox}>
+                      {isCheckingSimilarReports ? (
+                        <ActivityIndicator size="small" color={AppTheme.color.warning} />
+                      ) : (
+                        <Ionicons name="git-merge-outline" size={18} color={AppTheme.color.warning} />
+                      )}
+                      <Text style={styles.similarReportText}>
+                        {isCheckingSimilarReports
+                          ? 'Checking nearby reports...'
+                          : `${similarReportCount} nearby report${similarReportCount === 1 ? '' : 's'} may match this issue.`}
+                      </Text>
+                      {!isCheckingSimilarReports && similarReportCount > 0 && onReviewSimilarReports ? (
+                        <TouchableOpacity
+                          activeOpacity={0.84}
+                          style={styles.reviewSimilarButton}
+                          onPress={onReviewSimilarReports}
+                        >
+                          <Text style={styles.reviewSimilarText}>Review</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  ) : null}
 
                   <Text style={styles.sectionTitle}>Describe the issue <Text style={styles.optionalText}>(optional)</Text></Text>
 
@@ -750,6 +773,20 @@ const styles = StyleSheet.create({
   },
   similarReportText: {
     flex: 1,
+    color: AppTheme.color.text,
+    ...AppTheme.type.label,
+  },
+  reviewSimilarButton: {
+    minHeight: 30,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppTheme.color.surface,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+  },
+  reviewSimilarText: {
     color: AppTheme.color.text,
     ...AppTheme.type.label,
   },

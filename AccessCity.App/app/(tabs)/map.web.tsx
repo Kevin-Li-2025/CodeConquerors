@@ -99,6 +99,18 @@ function formatSafetyLabel(score?: number) {
   return 'High risk';
 }
 
+function formatRouteStep(step: unknown) {
+  if (!step || typeof step !== 'object') return 'Continue on the highlighted route.';
+  const value = step as Record<string, unknown>;
+  for (const key of ['instruction', 'text', 'description', 'name']) {
+    const candidate = value[key];
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate.trim();
+    }
+  }
+  return 'Continue on the highlighted route.';
+}
+
 function formatRouteImpactLabel(route: RouteResponse | null, routeStatus: 'idle' | 'loading' | 'ready' | 'error') {
   if (routeStatus === 'loading') return 'Checking route impact';
   if (routeStatus === 'error') return 'Route impact unavailable';
@@ -157,6 +169,9 @@ export default function MapPageWeb() {
   const avoidHazardId = typeof params.avoidHazardId === 'string' && params.avoidHazardId.trim()
     ? params.avoidHazardId.trim()
     : null;
+  const avoidHazardTitle = typeof params.avoidHazardTitle === 'string' && params.avoidHazardTitle.trim()
+    ? params.avoidHazardTitle.trim()
+    : null;
   const [hazards, setHazards] = useState<Hazard[]>([]);
   const [selectedHazard, setSelectedHazard] = useState<Hazard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -171,6 +186,8 @@ export default function MapPageWeb() {
   const [selectedProfile, setSelectedProfile] = useState<ProfileKey>('manual-wheelchair');
   const [selectedRouteMode, setSelectedRouteMode] = useState<RouteModeKey>('safe');
   const [isSearchingDestination, setIsSearchingDestination] = useState(false);
+  const [selectedAvoidHazard, setSelectedAvoidHazard] = useState<{ id: string; title: string } | null>(null);
+  const [navigationActive, setNavigationActive] = useState(false);
   const hazardRequestIdRef = useRef(0);
   const routeRequestIdRef = useRef(0);
   const routeLoadingRef = useRef(false);
@@ -189,12 +206,23 @@ export default function MapPageWeb() {
     [selectedRouteMode]
   );
 
+  const effectiveAvoidHazard = useMemo(() => {
+    if (selectedAvoidHazard) return selectedAvoidHazard;
+    if (avoidHazardId) {
+      return {
+        id: avoidHazardId,
+        title: avoidHazardTitle ?? 'selected hazard',
+      };
+    }
+    return null;
+  }, [avoidHazardId, avoidHazardTitle, selectedAvoidHazard]);
+
   const routeRequest = useMemo(() => {
     const end = destinationCoordinate
       ? { x: destinationCoordinate.longitude, y: destinationCoordinate.latitude }
       : DEFAULT_END;
     const preferences = selectedRouteModeConfig.preferences;
-    const routePreferences = avoidHazardId && !preferences.includes('avoid-reported-hazards')
+    const routePreferences = effectiveAvoidHazard && !preferences.includes('avoid-reported-hazards')
       ? [...preferences, 'avoid-reported-hazards']
       : preferences;
 
@@ -202,10 +230,10 @@ export default function MapPageWeb() {
       start: DEFAULT_START,
       end,
       profile: selectedProfile,
-      safetyWeight: avoidHazardId ? Math.max(selectedRouteModeConfig.safetyWeight, 0.85) : selectedRouteModeConfig.safetyWeight,
+      safetyWeight: effectiveAvoidHazard ? Math.max(selectedRouteModeConfig.safetyWeight, 0.85) : selectedRouteModeConfig.safetyWeight,
       preferences: routePreferences,
     };
-  }, [avoidHazardId, destinationCoordinate, selectedProfile, selectedRouteModeConfig]);
+  }, [destinationCoordinate, effectiveAvoidHazard, selectedProfile, selectedRouteModeConfig]);
 
   const loadHazards = useCallback(async () => {
     const requestId = hazardRequestIdRef.current + 1;
@@ -279,6 +307,7 @@ export default function MapPageWeb() {
       setDestinationLabel(formatGeocodingLabel(match.result, query));
       setRoute(null);
       setRouteStatus('idle');
+      setNavigationActive(false);
     } catch (searchError) {
       console.warn('Destination search failed:', searchError);
       Alert.alert('Search error', 'Could not find that destination right now.');
@@ -291,6 +320,30 @@ export default function MapPageWeb() {
     void loadHazards();
     void loadRecommendedRoute();
   }, [loadHazards, loadRecommendedRoute]);
+
+  useEffect(() => {
+    setNavigationActive(false);
+  }, [routeRequest]);
+
+  function avoidSelectedHazardInRoute() {
+    if (!selectedHazard) return;
+    setSelectedAvoidHazard({
+      id: String(selectedHazard.id),
+      title: selectedHazard.title,
+    });
+    setSelectedHazard(null);
+    setRoute(null);
+    setRouteStatus('idle');
+    setNavigationActive(false);
+  }
+
+  function startNavigation() {
+    if (!route) {
+      void loadRecommendedRoute();
+      return;
+    }
+    setNavigationActive(true);
+  }
 
   return (
     <View style={styles.container}>
@@ -412,9 +465,9 @@ export default function MapPageWeb() {
               variant="soft"
             />
           ) : null}
-          {params.avoidHazardTitle ? (
+          {effectiveAvoidHazard ? (
             <PremiumTag
-              label={`Avoiding ${String(params.avoidHazardTitle).slice(0, 18)}`}
+              label={`Avoiding ${effectiveAvoidHazard.title.slice(0, 18)}`}
               icon="navigate-outline"
               tone="warning"
               variant="soft"
@@ -494,21 +547,34 @@ export default function MapPageWeb() {
         <TouchableOpacity
           style={styles.startButton}
           activeOpacity={0.9}
-          onPress={() => {
-            if (!route) {
-              void loadRecommendedRoute();
-              return;
-            }
-            Alert.alert('Route ready', 'The route is shown on the map. Open the mobile app for turn-by-turn guidance.');
-          }}
+          onPress={startNavigation}
         >
           {routeStatus === 'loading' ? (
             <ActivityIndicator size="small" color={AppTheme.color.textInverse} />
           ) : (
             <Ionicons name="navigate-outline" size={16} color={AppTheme.color.textInverse} />
           )}
-          <Text style={styles.startButtonText}>{route ? 'Start navigation' : 'Load route'}</Text>
+          <Text style={styles.startButtonText}>
+            {navigationActive ? 'Navigation active' : route ? 'Start navigation' : 'Load route'}
+          </Text>
         </TouchableOpacity>
+        {navigationActive && route ? (
+          <View style={styles.guidancePanel}>
+            <Text style={styles.guidanceLabel}>Next step</Text>
+            <Text style={styles.guidanceText}>
+              {formatRouteStep(Array.isArray(route.steps) ? route.steps[0] : null)}
+            </Text>
+            <TouchableOpacity
+              activeOpacity={0.84}
+              style={styles.endNavigationButton}
+              onPress={() => setNavigationActive(false)}
+              accessibilityRole="button"
+              accessibilityLabel="End navigation"
+            >
+              <Text style={styles.endNavigationText}>End navigation</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
         <View style={styles.reasonList}>
           {[
             route ? 'This route avoids known hazards' : 'Finding a safer route',
@@ -565,6 +631,18 @@ export default function MapPageWeb() {
           <Text style={styles.detailLocation} numberOfLines={1}>
             {selectedHazard.locationText}
           </Text>
+          <View style={styles.detailActions}>
+            <TouchableOpacity
+              activeOpacity={0.86}
+              style={styles.detailPrimaryButton}
+              onPress={avoidSelectedHazardInRoute}
+              accessibilityRole="button"
+              accessibilityLabel={`Avoid ${selectedHazard.title} in route`}
+            >
+              <Ionicons name="navigate-outline" size={15} color={AppTheme.color.textInverse} />
+              <Text style={styles.detailPrimaryText}>Avoid in route</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : null}
 
@@ -827,6 +905,36 @@ const styles = StyleSheet.create({
     color: AppTheme.color.textInverse,
     ...AppTheme.type.label,
   },
+  guidancePanel: {
+    marginTop: 10,
+    borderRadius: AppTheme.radius.md,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    padding: 10,
+    gap: 7,
+  },
+  guidanceLabel: {
+    color: AppTheme.color.textSubtle,
+    ...AppTheme.type.label,
+  },
+  guidanceText: {
+    color: AppTheme.color.text,
+    ...AppTheme.type.body,
+  },
+  endNavigationButton: {
+    minHeight: 34,
+    borderRadius: AppTheme.radius.sm,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppTheme.color.surface,
+  },
+  endNavigationText: {
+    color: AppTheme.color.text,
+    ...AppTheme.type.label,
+  },
   reasonList: {
     marginTop: 12,
     gap: 5,
@@ -881,5 +989,23 @@ const styles = StyleSheet.create({
     marginTop: 10,
     color: AppTheme.color.textMuted,
     ...AppTheme.type.meta,
+  },
+  detailActions: {
+    marginTop: 12,
+    flexDirection: 'row',
+  },
+  detailPrimaryButton: {
+    minHeight: 38,
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: AppTheme.color.primary,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+  detailPrimaryText: {
+    color: AppTheme.color.textInverse,
+    ...AppTheme.type.label,
   },
 });
