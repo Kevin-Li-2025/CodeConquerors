@@ -168,7 +168,7 @@ test.describe('AccessCity web (Expo)', () => {
 
     await expect(page.getByText('Recommended route')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByText('1 city reports')).toBeVisible();
-    await expect(page.getByText('This route avoids known hazards')).toBeVisible();
+    await expect(page.getByText('Avoids known hazards')).toBeVisible();
     await expect(page.getByText('Start navigation')).toBeVisible({ timeout: 20_000 });
 
     await page.getByText('Start navigation').click();
@@ -177,7 +177,7 @@ test.describe('AccessCity web (Expo)', () => {
     await expect(page.getByText('Next step')).toBeVisible();
     await expect(page.getByText('Use the step-free crossing, then continue on Bristol Road.')).toBeVisible();
 
-    await page.getByText('End navigation').click();
+    await page.getByLabel('End navigation').click();
 
     await expect(page.getByText('Navigation active')).not.toBeVisible();
   });

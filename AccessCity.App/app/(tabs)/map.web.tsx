@@ -356,15 +356,6 @@ export default function MapPageWeb() {
       />
 
       <View style={styles.topPanel}>
-        <View style={styles.panelHeader}>
-          <Text style={styles.panelTitle}>AccessCity</Text>
-          <PremiumTag
-            label={isLoading ? 'Loading' : 'Live'}
-            tone={isLoading ? 'neutral' : 'good'}
-            variant={isLoading ? 'surface' : 'soft'}
-          />
-        </View>
-
         <View style={styles.searchStack}>
           <View style={styles.searchRow}>
             <Ionicons name="radio-button-on-outline" size={14} color={AppTheme.color.textSubtle} />
@@ -456,7 +447,6 @@ export default function MapPageWeb() {
             tone={route?.warnings?.length ? 'warning' : 'good'}
             variant="soft"
           />
-          <PremiumTag label="Birmingham" icon="location-outline" tone="accent" variant="surface" />
           {destinationCoordinate ? (
             <PremiumTag
               label={destinationLabel}
@@ -560,25 +550,26 @@ export default function MapPageWeb() {
         </TouchableOpacity>
         {navigationActive && route ? (
           <View style={styles.guidancePanel}>
-            <Text style={styles.guidanceLabel}>Next step</Text>
-            <Text style={styles.guidanceText}>
+            <View style={styles.guidanceHeader}>
+              <Text style={styles.guidanceLabel}>Next step</Text>
+              <TouchableOpacity
+                activeOpacity={0.84}
+                style={styles.endNavigationButton}
+                onPress={() => setNavigationActive(false)}
+                accessibilityRole="button"
+                accessibilityLabel="End navigation"
+              >
+                <Text style={styles.endNavigationText}>End</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.guidanceText} numberOfLines={2}>
               {formatRouteStep(Array.isArray(route.steps) ? route.steps[0] : null)}
             </Text>
-            <TouchableOpacity
-              activeOpacity={0.84}
-              style={styles.endNavigationButton}
-              onPress={() => setNavigationActive(false)}
-              accessibilityRole="button"
-              accessibilityLabel="End navigation"
-            >
-              <Text style={styles.endNavigationText}>End navigation</Text>
-            </TouchableOpacity>
           </View>
         ) : null}
         <View style={styles.reasonList}>
           {[
-            route ? 'This route avoids known hazards' : 'Finding a safer route',
-            'Mostly smooth pavements',
+            route ? 'Avoids known hazards' : 'Finding a safer route',
             route?.warnings?.length ? 'Review warnings before you go' : 'No major warnings on this route',
           ].map((reason) => (
             <View key={reason} style={styles.reasonRow}>
@@ -662,18 +653,18 @@ const styles = StyleSheet.create({
   },
   topPanel: {
     position: 'absolute',
-    top: 16,
-    left: 16,
-    right: 16,
+    top: 12,
+    left: 12,
+    right: 12,
     maxWidth: AppTheme.layout.mobileFrameWidth,
-    borderRadius: AppTheme.radius.lg,
-    backgroundColor: 'rgba(255, 253, 247, 0.98)',
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: 'rgba(255, 253, 247, 0.94)',
     borderWidth: 1,
     borderColor: AppTheme.color.border,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    gap: 10,
-    boxShadow: '0 12px 24px rgba(26, 23, 16, 0.12)',
+    paddingHorizontal: 9,
+    paddingVertical: 9,
+    gap: 7,
+    boxShadow: '0 10px 20px rgba(26, 23, 16, 0.10)',
   },
   panelHeader: {
     flexDirection: 'row',
@@ -685,17 +676,17 @@ const styles = StyleSheet.create({
     ...AppTheme.type.cardTitle,
   },
   searchStack: {
-    borderRadius: AppTheme.radius.md,
+    borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     borderColor: AppTheme.color.border,
     backgroundColor: AppTheme.color.surface,
-    paddingHorizontal: 10,
+    paddingHorizontal: 9,
   },
   searchRow: {
-    minHeight: 38,
+    minHeight: 32,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 7,
   },
   searchDivider: {
     height: 1,
@@ -713,15 +704,15 @@ const styles = StyleSheet.create({
   },
   destinationInput: {
     flex: 1,
-    minHeight: 32,
+    minHeight: 28,
     paddingVertical: 0,
     color: AppTheme.color.text,
     ...AppTheme.type.label,
   },
   searchIconButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: AppTheme.color.surfaceSubtle,
@@ -729,19 +720,19 @@ const styles = StyleSheet.create({
   modeRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 7,
+    gap: 5,
   },
   routeModeRow: {
-    minHeight: 40,
+    minHeight: 34,
     borderRadius: AppTheme.radius.pill,
     backgroundColor: AppTheme.color.surfaceSubtle,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 4,
+    padding: 3,
   },
   routeModeActive: {
     flex: 1,
-    minHeight: 32,
+    minHeight: 28,
     borderRadius: AppTheme.radius.pill,
     backgroundColor: AppTheme.color.primary,
     alignItems: 'center',
@@ -749,7 +740,7 @@ const styles = StyleSheet.create({
   },
   routeModeButton: {
     flex: 1,
-    minHeight: 32,
+    minHeight: 28,
     borderRadius: AppTheme.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
@@ -767,7 +758,7 @@ const styles = StyleSheet.create({
   tagRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 7,
+    gap: 5,
   },
   iconButton: {
     width: 34,
@@ -781,14 +772,14 @@ const styles = StyleSheet.create({
   },
   mapControls: {
     position: 'absolute',
-    right: 18,
-    top: 308,
-    gap: 10,
+    right: 14,
+    top: 218,
+    gap: 8,
   },
   controlButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: AppTheme.color.surface,
     borderWidth: 1,
     borderColor: AppTheme.color.border,
@@ -816,16 +807,16 @@ const styles = StyleSheet.create({
   },
   recommendationCard: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 96,
+    left: 12,
+    right: 12,
+    bottom: 70,
     maxWidth: AppTheme.layout.mobileFrameWidth,
-    borderRadius: AppTheme.radius.lg,
-    backgroundColor: 'rgba(255, 253, 247, 0.98)',
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: 'rgba(255, 253, 247, 0.96)',
     borderWidth: 1,
     borderColor: AppTheme.color.border,
-    padding: 12,
-    boxShadow: '0 14px 28px rgba(26, 23, 16, 0.14)',
+    padding: 10,
+    boxShadow: '0 10px 22px rgba(26, 23, 16, 0.12)',
   },
   recommendationHeader: {
     flexDirection: 'row',
@@ -840,8 +831,8 @@ const styles = StyleSheet.create({
   recommendationMetaRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 7,
+    gap: 8,
+    marginTop: 4,
   },
   routeMetric: {
     color: AppTheme.color.text,
@@ -852,16 +843,16 @@ const styles = StyleSheet.create({
     ...AppTheme.type.label,
   },
   scoreBadge: {
-    width: 52,
-    borderRadius: AppTheme.radius.md,
+    width: 48,
+    borderRadius: AppTheme.radius.sm,
     backgroundColor: AppTheme.color.success,
     alignItems: 'center',
-    paddingVertical: 7,
+    paddingVertical: 5,
   },
   scoreValue: {
     color: AppTheme.color.textInverse,
-    fontSize: 20,
-    lineHeight: 23,
+    fontSize: 18,
+    lineHeight: 21,
     fontWeight: '800',
   },
   scoreLabel: {
@@ -871,10 +862,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   routeSparkline: {
-    height: 44,
-    borderRadius: 12,
+    height: 24,
+    borderRadius: 10,
     backgroundColor: AppTheme.color.successSoft,
-    marginTop: 12,
+    marginTop: 8,
     overflow: 'hidden',
   },
   routeErrorText: {
@@ -886,33 +877,40 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: -8,
     right: -8,
-    bottom: 12,
+    bottom: 8,
     height: 2,
     backgroundColor: AppTheme.color.success,
     transform: [{ rotate: '4deg' }],
   },
   startButton: {
-    minHeight: 42,
-    borderRadius: AppTheme.radius.md,
+    minHeight: 38,
+    borderRadius: AppTheme.radius.sm,
     backgroundColor: AppTheme.color.primary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    marginTop: 12,
+    marginTop: 8,
   },
   startButtonText: {
     color: AppTheme.color.textInverse,
     ...AppTheme.type.label,
   },
   guidancePanel: {
-    marginTop: 10,
-    borderRadius: AppTheme.radius.md,
+    marginTop: 8,
+    borderRadius: AppTheme.radius.sm,
     borderWidth: 1,
     borderColor: AppTheme.color.border,
     backgroundColor: AppTheme.color.surfaceSubtle,
-    padding: 10,
-    gap: 7,
+    padding: 8,
+    gap: 4,
+  },
+  guidanceHeader: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   guidanceLabel: {
     color: AppTheme.color.textSubtle,
@@ -923,10 +921,11 @@ const styles = StyleSheet.create({
     ...AppTheme.type.body,
   },
   endNavigationButton: {
-    minHeight: 34,
-    borderRadius: AppTheme.radius.sm,
+    minHeight: 28,
+    borderRadius: AppTheme.radius.pill,
     borderWidth: 1,
     borderColor: AppTheme.color.border,
+    paddingHorizontal: 12,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: AppTheme.color.surface,
@@ -936,8 +935,8 @@ const styles = StyleSheet.create({
     ...AppTheme.type.label,
   },
   reasonList: {
-    marginTop: 12,
-    gap: 5,
+    marginTop: 8,
+    gap: 3,
   },
   reasonRow: {
     flexDirection: 'row',
@@ -952,7 +951,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 18,
     right: 18,
-    bottom: 18,
+    bottom: 76,
     borderRadius: AppTheme.radius.lg,
     backgroundColor: 'rgba(255,255,255,0.98)',
     borderWidth: 1,

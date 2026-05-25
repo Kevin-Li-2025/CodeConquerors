@@ -21,9 +21,9 @@ export default function TabLayout() {
           fontWeight: '700',
         },
         tabBarStyle: {
-          height: 76,
-          paddingTop: 8,
-          paddingBottom: 14,
+          height: 64,
+          paddingTop: 4,
+          paddingBottom: 8,
           borderTopColor: AppTheme.color.border,
           backgroundColor: AppTheme.color.surface,
         },

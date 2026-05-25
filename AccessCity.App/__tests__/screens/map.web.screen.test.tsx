@@ -71,9 +71,8 @@ describe('MapPageWeb', () => {
 
     expect(getByText('web-map')).toBeTruthy();
     await waitFor(() => expect(getByText('1 markers')).toBeTruthy());
-    expect(getByText('Live')).toBeTruthy();
     expect(getByText('1 city reports')).toBeTruthy();
-    expect(getByText('Birmingham')).toBeTruthy();
+    expect(getByText('Wheelchair')).toBeTruthy();
     await waitFor(() => expect(routingService.getSafePathResolved).toHaveBeenCalled());
     expect(routingService.getSafePathResolved).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -129,7 +128,7 @@ describe('MapPageWeb', () => {
     expect(await findByText('Navigation active')).toBeTruthy();
     expect(await findByText('Head east')).toBeTruthy();
 
-    fireEvent.press(getByText('End navigation'));
+    fireEvent.press(getByText('End'));
     await waitFor(() => expect(queryByText('Head east')).toBeNull());
   });
 });

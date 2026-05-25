@@ -1,16 +1,26 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
 
 import { AppTheme } from '@/constants/theme';
 
 const VISIBLE_TAB_ROUTES = new Set(['map', 'report/reportpage', 'hazard', 'profile']);
+type StickerIconName = React.ComponentProps<typeof Ionicons>['name'];
 
 function getRouteLabel(routeName: string, options: BottomTabBarProps['descriptors'][string]['options']) {
   if (typeof options.tabBarLabel === 'string') return options.tabBarLabel;
   if (typeof options.title === 'string') return options.title;
   const leaf = routeName.split('/').pop() ?? routeName;
   return leaf.charAt(0).toUpperCase() + leaf.slice(1);
+}
+
+function getStickerIcon(routeName: string, focused: boolean): StickerIconName {
+  if (routeName === 'map') return focused ? 'map' : 'map-outline';
+  if (routeName === 'report/reportpage') return focused ? 'add-circle' : 'add-circle-outline';
+  if (routeName === 'hazard') return focused ? 'warning' : 'warning-outline';
+  if (routeName === 'profile') return focused ? 'person-circle' : 'person-circle-outline';
+  return focused ? 'ellipse' : 'ellipse-outline';
 }
 
 export function PremiumTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
@@ -26,12 +36,7 @@ export function PremiumTabBar({ state, descriptors, navigation }: BottomTabBarPr
           const options = descriptor.options;
           const isFocused = state.routes[state.index]?.key === route.key;
           const label = getRouteLabel(route.name, options);
-          const color = isFocused ? AppTheme.color.textInverse : AppTheme.color.textMuted;
-          const icon = options.tabBarIcon?.({
-            focused: isFocused,
-            color,
-            size: isFocused ? 20 : 19,
-          });
+          const iconName = getStickerIcon(route.name, isFocused);
 
           function handlePress() {
             const event = navigation.emit({
@@ -60,7 +65,19 @@ export function PremiumTabBar({ state, descriptors, navigation }: BottomTabBarPr
                 isFocused && styles.itemActive,
               ]}
             >
-              <View style={[styles.iconWrap, isCompact && styles.iconWrapCompact]}>{icon}</View>
+              <View
+                style={[
+                  styles.iconWrap,
+                  isCompact && styles.iconWrapCompact,
+                  isFocused && styles.iconWrapActive,
+                ]}
+              >
+                <Ionicons
+                  name={iconName}
+                  size={isFocused ? 18 : 17}
+                  color={isFocused ? AppTheme.color.textInverse : AppTheme.color.textMuted}
+                />
+              </View>
               <Text
                 numberOfLines={1}
                 style={[
@@ -82,14 +99,14 @@ export function PremiumTabBar({ state, descriptors, navigation }: BottomTabBarPr
 const styles = StyleSheet.create({
   root: {
     backgroundColor: 'transparent',
-    paddingHorizontal: AppTheme.space.md,
-    paddingTop: 4,
-    paddingBottom: 8,
+    paddingHorizontal: AppTheme.space.lg,
+    paddingTop: 2,
+    paddingBottom: 6,
   },
   bar: {
     width: '100%',
     maxWidth: AppTheme.layout.mobileFrameWidth,
-    minHeight: 54,
+    minHeight: 50,
     alignSelf: 'center',
     borderRadius: AppTheme.radius.pill,
     borderWidth: 1,
@@ -98,20 +115,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 6,
-    paddingVertical: 5,
-    ...AppTheme.shadow.floating,
+    paddingHorizontal: 5,
+    paddingVertical: 4,
+    shadowColor: AppTheme.color.shadow,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 5,
   },
   item: {
     flex: 1,
-    minHeight: 42,
+    minHeight: 40,
     minWidth: 0,
     borderRadius: AppTheme.radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
-    flexDirection: 'row',
-    gap: 6,
+    paddingHorizontal: 6,
+    flexDirection: 'column',
+    gap: 2,
   },
   itemCompact: {
     flexDirection: 'column',
@@ -119,21 +140,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   itemActive: {
-    backgroundColor: AppTheme.color.ink,
-    shadowColor: AppTheme.color.shadow,
-    shadowOffset: { width: 0, height: 7 },
-    shadowOpacity: 0.13,
-    shadowRadius: 12,
-    elevation: 4,
+    backgroundColor: 'transparent',
   },
   iconWrap: {
-    width: 20,
-    height: 20,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: AppTheme.color.surfaceSubtle,
   },
   iconWrapCompact: {
-    height: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  iconWrapActive: {
+    backgroundColor: AppTheme.color.ink,
+    shadowColor: AppTheme.color.shadow,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.16,
+    shadowRadius: 12,
+    elevation: 4,
   },
   label: {
     color: AppTheme.color.textMuted,
@@ -146,6 +174,6 @@ const styles = StyleSheet.create({
     lineHeight: 13,
   },
   labelActive: {
-    color: AppTheme.color.textInverse,
+    color: AppTheme.color.text,
   },
 });
