@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Image,
   ScrollView,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   StatusBar,
@@ -16,6 +15,7 @@ import {
   Alert,
   Linking,
 } from "react-native";
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from "expo-linear-gradient";
 import { AntDesign, FontAwesome, Ionicons } from "@expo/vector-icons";
 import Animated, {

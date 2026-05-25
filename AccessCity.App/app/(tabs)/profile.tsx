@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Alert,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAuth } from '@/context/AuthContext';
@@ -76,7 +76,7 @@ const PROFILE_ACTIONS: ProfileAction[] = [
     id: 'privacy',
     title: 'Privacy & Security',
     description: 'Control your data',
-    icon: 'lock-outline',
+    icon: 'lock-closed-outline',
     iconFamily: 'ionicons',
   },
   {

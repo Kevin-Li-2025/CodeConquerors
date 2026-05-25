@@ -211,7 +211,7 @@ test.describe('AccessCity web (Expo)', () => {
     await page.getByText('Next').click();
 
     await expect(page.getByText(/nearby report.*may match/i)).toBeVisible({ timeout: 20_000 });
-    await page.getByText('Review').click();
+    await page.getByText('Review', { exact: true }).click();
 
     await expect(page).toHaveURL(/\/hazard/);
     await expect(page.getByText('Hazards')).toBeVisible({ timeout: 20_000 });
