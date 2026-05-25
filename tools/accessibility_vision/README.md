@@ -73,6 +73,24 @@ python export_project_sidewalk_subset.py \
   --validator-download-workers 8
 ```
 
+For remote GPU experiments, prefer a compact delta export instead of copying a full city-scale image dataset again. Build the expanded dataset locally once, then export only rows that are absent from the current released training set:
+
+```bash
+python build_accessibility_vision_delta_export.py \
+  --full-dataset-root data/projectsidewalk-rampnet-expanded \
+  --base-dataset-root data/projectsidewalk-rampnet-balanced-v5 \
+  --output-dir data/projectsidewalk-rampnet-expanded-delta-v6 \
+  --tar-output data/projectsidewalk-rampnet-expanded-delta-v6.tar \
+  --splits train \
+  --tasks curb_ramp_absent,obstacle_present,surface_problem_present \
+  --source-kinds validator \
+  --max-image-side 256 \
+  --jpeg-quality 76 \
+  --overwrite
+```
+
+On the GPU host, copy the released base dataset, extract the delta images, and append `train-delta.jsonl` to `train.jsonl`. Keep `validation.jsonl` and `test.jsonl` unchanged so macro F1, ECE, and per-task regressions are comparable across releases.
+
 ## L20 Setup
 
 ```bash
@@ -113,6 +131,15 @@ python train_accessibility_vision.py \
 Training writes `latest_metrics.json` for the raw calibration split, `calibrated_metrics.json` when `--temperature-scale` is enabled, and `holdout_metrics.json` for the final untouched test split. The checkpoint embeds per-task temperatures, calibrated thresholds, macro F1, Brier score, expected calibration error, and confusion counts. Keep `--task-balanced-loss` enabled when RampNet adds many curb-ramp rows; otherwise the model can over-optimize curb ramps and under-train obstacles, surface problems, and crosswalks.
 
 Training also writes `model_card.md`. Treat that file as the release record for the checkpoint: data split sizes, holdout/calibration metrics, per-task thresholds, temperatures, training arguments, and the review-only guardrails that keep the model out of route decisions.
+
+Current promoted release pattern:
+
+- dataset: `projectsidewalk-rampnet-balanced-v5` plus train-only weak-class validator delta;
+- checkpoint: `convnext_tiny`, 12 epochs, task-balanced loss, temperature scaling;
+- calibration: macro F1 `0.8668`, macro ECE `0.0620`;
+- untouched test holdout: macro F1 `0.8021`, macro ECE `0.0759`;
+- strongest gain over the prior v5 tiny checkpoint: `obstacle_present` F1 `0.6514 -> 0.7054`;
+- known regression to address next: `surface_problem_present` F1 `0.7085 -> 0.6961`, ECE `0.1234 -> 0.1500`.
 
 Remote L20 runner:
 
