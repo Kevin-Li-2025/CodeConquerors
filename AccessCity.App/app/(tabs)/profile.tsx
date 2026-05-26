@@ -86,13 +86,45 @@ const PROFILE_ACTIONS: ProfileAction[] = [
     icon: 'help-circle-outline',
     iconFamily: 'ionicons',
   },
+];
+
+const OPERATOR_ACTION: ProfileAction = {
+  id: 'ops',
+  title: 'System Operations',
+  description: 'Admin-only console for backend health, jobs, and cache probes',
+  icon: 'settings-outline',
+  iconFamily: 'ionicons',
+  route: '/ops',
+};
+
+const PRIVACY_ROWS = [
   {
-    id: 'ops',
-    title: 'System Operations',
-    description: 'Monitor backend health and admin workflows',
-    icon: 'settings-outline',
+    id: 'session',
+    title: 'Session security',
+    description: 'Refresh tokens are revoked on logout and local session data is cleared.',
+    icon: 'shield-checkmark-outline',
     iconFamily: 'ionicons',
-    route: '/ops',
+  },
+  {
+    id: 'profile',
+    title: 'Profile data',
+    description: 'Your name and accessibility preferences are saved to your account profile.',
+    icon: 'person-outline',
+    iconFamily: 'ionicons',
+  },
+  {
+    id: 'location',
+    title: 'Location usage',
+    description: 'Location is used for routing, nearby hazards, and report placement while the app is open.',
+    icon: 'location-outline',
+    iconFamily: 'ionicons',
+  },
+  {
+    id: 'photos',
+    title: 'Hazard photos',
+    description: 'Photos upload only when you attach them to a hazard report.',
+    icon: 'image-outline',
+    iconFamily: 'ionicons',
   },
 ];
 
@@ -171,7 +203,9 @@ export default function Profile() {
   const [preferences, setPreferences] = React.useState<AccessibilityPreferences>(DEFAULT_ACCESSIBILITY_PREFERENCES);
   const [isEditingPreferences, setIsEditingPreferences] = React.useState(false);
   const [notificationSettings, setNotificationSettings] = React.useState<NotificationSettings>(DEFAULT_NOTIFICATION_SETTINGS);
-  const [activePanel, setActivePanel] = React.useState<'profile' | 'notifications' | 'support' | null>(null);
+  const [activePanel, setActivePanel] = React.useState<
+    'profile' | 'notifications' | 'support' | 'privacy' | 'verification' | 'contribution' | null
+  >(null);
   const [supportSubject, setSupportSubject] = React.useState('');
   const [supportMessage, setSupportMessage] = React.useState('');
   const [isSavingPanel, setIsSavingPanel] = React.useState(false);
@@ -283,7 +317,7 @@ export default function Profile() {
         setActivePanel((current) => current === 'notifications' ? null : 'notifications');
         break;
       case 'privacy':
-        Alert.alert('Privacy & security', 'Access tokens are stored in the app session. Log out revokes the refresh token and clears local session data.');
+        setActivePanel((current) => current === 'privacy' ? null : 'privacy');
         break;
       case 'support':
         setActivePanel((current) => current === 'support' ? null : 'support');
@@ -392,12 +426,24 @@ export default function Profile() {
               </TouchableOpacity>
               <Text style={styles.email} numberOfLines={1}>{displayEmail}</Text>
               <View style={styles.badgeRow}>
-                <View style={styles.badge}>
+                <TouchableOpacity
+                  activeOpacity={0.84}
+                  style={styles.badge}
+                  onPress={() => setActivePanel((current) => current === 'verification' ? null : 'verification')}
+                  accessibilityRole="button"
+                  accessibilityLabel="View verification status"
+                >
                   <Text style={styles.badgeText}>Verified user</Text>
-                </View>
-                <View style={styles.contributorBadge}>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  activeOpacity={0.84}
+                  style={styles.contributorBadge}
+                  onPress={() => setActivePanel((current) => current === 'contribution' ? null : 'contribution')}
+                  accessibilityRole="button"
+                  accessibilityLabel="View contribution impact"
+                >
                   <Text style={styles.contributorBadgeText}>Contributor</Text>
-                </View>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -493,6 +539,26 @@ export default function Profile() {
           ))}
         </View>
 
+        <View style={styles.operatorCard}>
+          <View style={styles.operatorIconWrap}>
+            <ActionIcon item={OPERATOR_ACTION} />
+          </View>
+          <View style={styles.operatorTextWrap}>
+            <Text style={styles.operatorEyebrow}>Admin only</Text>
+            <Text style={styles.operatorTitle}>{OPERATOR_ACTION.title}</Text>
+            <Text style={styles.operatorDescription}>{OPERATOR_ACTION.description}</Text>
+          </View>
+          <TouchableOpacity
+            activeOpacity={0.86}
+            style={styles.operatorButton}
+            onPress={() => router.push(OPERATOR_ACTION.route as never)}
+            accessibilityRole="button"
+            accessibilityLabel="Open admin operations console"
+          >
+            <Text style={styles.operatorButtonText}>Open Ops Console</Text>
+          </TouchableOpacity>
+        </View>
+
         {activePanel === 'profile' ? (
           <View style={styles.detailCard}>
             <Text style={styles.detailTitle}>Profile details</Text>
@@ -511,6 +577,96 @@ export default function Profile() {
               onPress={() => void handleSaveProfile()}
             >
               <Text style={styles.panelButtonText}>{isSavingPanel ? 'Saving…' : 'Save profile'}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {activePanel === 'privacy' ? (
+          <View style={styles.detailCard}>
+            <Text style={styles.detailTitle}>Privacy & security</Text>
+            {PRIVACY_ROWS.map((item) => (
+              <View key={item.id} style={styles.infoRow}>
+                <View style={styles.infoIconWrap}>
+                  <Ionicons name={item.icon as React.ComponentProps<typeof Ionicons>['name']} size={18} color={AppTheme.color.primary} />
+                </View>
+                <View style={styles.infoTextWrap}>
+                  <Text style={styles.infoTitle}>{item.title}</Text>
+                  <Text style={styles.infoDescription}>{item.description}</Text>
+                </View>
+              </View>
+            ))}
+            <View style={styles.panelActionRow}>
+              <TouchableOpacity
+                activeOpacity={0.86}
+                style={styles.panelSecondaryButton}
+                onPress={() => setActivePanel('notifications')}
+                accessibilityRole="button"
+                accessibilityLabel="Manage notification privacy"
+              >
+                <Text style={styles.panelSecondaryButtonText}>Manage notifications</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.86}
+                style={styles.panelButton}
+                onPress={() => void handleSignOut()}
+                accessibilityRole="button"
+                accessibilityLabel="Log out and revoke session"
+              >
+                <Text style={styles.panelButtonText}>Log out and revoke</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        {activePanel === 'verification' ? (
+          <View style={styles.detailCard}>
+            <Text style={styles.detailTitle}>Account verification</Text>
+            <View style={styles.infoRow}>
+              <View style={styles.infoIconWrap}>
+                <Ionicons name="mail-outline" size={18} color={AppTheme.color.primary} />
+              </View>
+              <View style={styles.infoTextWrap}>
+                <Text style={styles.infoTitle}>Signed-in account</Text>
+                <Text style={styles.infoDescription}>{displayEmail}</Text>
+              </View>
+            </View>
+            <View style={styles.infoRow}>
+              <View style={styles.infoIconWrap}>
+                <Ionicons name="shield-checkmark-outline" size={18} color={AppTheme.color.primary} />
+              </View>
+              <View style={styles.infoTextWrap}>
+                <Text style={styles.infoTitle}>Trusted session</Text>
+                <Text style={styles.infoDescription}>Profile changes, report submissions, and support requests use authenticated API calls.</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {activePanel === 'contribution' ? (
+          <View style={styles.detailCard}>
+            <Text style={styles.detailTitle}>Contribution impact</Text>
+            <View style={styles.impactGrid}>
+              <View style={styles.impactTile}>
+                <Text style={styles.impactValue}>{formatStat(profileStats?.reportsSubmitted)}</Text>
+                <Text style={styles.impactLabel}>Reports submitted</Text>
+              </View>
+              <View style={styles.impactTile}>
+                <Text style={styles.impactValue}>{formatStat(profileStats?.resolvedReports)}</Text>
+                <Text style={styles.impactLabel}>Resolved reports</Text>
+              </View>
+              <View style={styles.impactTile}>
+                <Text style={styles.impactValue}>{formatStat(profileStats?.communityImpact)}</Text>
+                <Text style={styles.impactLabel}>Routes improved</Text>
+              </View>
+            </View>
+            <TouchableOpacity
+              activeOpacity={0.86}
+              style={styles.panelSecondaryButton}
+              onPress={() => router.push('/hazard' as never)}
+              accessibilityRole="button"
+              accessibilityLabel="View contributed hazard reports"
+            >
+              <Text style={styles.panelSecondaryButtonText}>View hazard reports</Text>
             </TouchableOpacity>
           </View>
         ) : null}
@@ -800,6 +956,57 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...AppTheme.shadow.card,
   },
+  operatorCard: {
+    marginTop: 14,
+    backgroundColor: AppTheme.color.surface,
+    borderRadius: AppTheme.radius.lg,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    paddingHorizontal: AppTheme.space.lg,
+    paddingVertical: AppTheme.space.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: AppTheme.space.md,
+    ...AppTheme.shadow.card,
+  },
+  operatorIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppTheme.color.primarySoft,
+  },
+  operatorTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  operatorEyebrow: {
+    color: AppTheme.color.warning,
+    ...AppTheme.type.label,
+  },
+  operatorTitle: {
+    marginTop: 2,
+    color: AppTheme.color.text,
+    ...AppTheme.type.meta,
+  },
+  operatorDescription: {
+    marginTop: 3,
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.label,
+  },
+  operatorButton: {
+    minHeight: 38,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.color.text,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  operatorButtonText: {
+    color: AppTheme.color.textInverse,
+    ...AppTheme.type.label,
+  },
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -847,6 +1054,79 @@ const styles = StyleSheet.create({
     color: AppTheme.color.text,
     ...AppTheme.type.cardTitle,
     marginBottom: AppTheme.space.md,
+  },
+  infoRow: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: AppTheme.space.md,
+    paddingVertical: AppTheme.space.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: AppTheme.color.border,
+  },
+  infoIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: AppTheme.color.primarySoft,
+  },
+  infoTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  infoTitle: {
+    color: AppTheme.color.text,
+    ...AppTheme.type.label,
+  },
+  infoDescription: {
+    marginTop: 3,
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.label,
+  },
+  panelActionRow: {
+    marginTop: AppTheme.space.md,
+    gap: AppTheme.space.sm,
+  },
+  panelSecondaryButton: {
+    minHeight: 46,
+    marginTop: AppTheme.space.sm,
+    borderRadius: AppTheme.radius.md,
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  panelSecondaryButtonText: {
+    color: AppTheme.color.text,
+    ...AppTheme.type.cardTitle,
+  },
+  impactGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: AppTheme.space.sm,
+    marginBottom: AppTheme.space.md,
+  },
+  impactTile: {
+    flex: 1,
+    minWidth: 120,
+    borderRadius: AppTheme.radius.md,
+    borderWidth: 1,
+    borderColor: AppTheme.color.border,
+    backgroundColor: AppTheme.color.surfaceSubtle,
+    paddingHorizontal: AppTheme.space.md,
+    paddingVertical: AppTheme.space.md,
+  },
+  impactValue: {
+    color: AppTheme.color.text,
+    ...AppTheme.type.sectionTitle,
+  },
+  impactLabel: {
+    marginTop: 3,
+    color: AppTheme.color.textMuted,
+    ...AppTheme.type.label,
   },
   fieldLabel: {
     color: AppTheme.color.textMuted,

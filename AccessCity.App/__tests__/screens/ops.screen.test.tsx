@@ -215,6 +215,7 @@ describe('OpsScreen', () => {
     const { findByText } = render(<OpsScreen />);
 
     expect(await findByText('System Operations')).toBeTruthy();
+    expect(await findByText('Admin-only workflows')).toBeTruthy();
     expect(await findByText('Total hazards')).toBeTruthy();
     expect(await findByText('12')).toBeTruthy();
     expect(await findByText('OpenWeather configured')).toBeTruthy();

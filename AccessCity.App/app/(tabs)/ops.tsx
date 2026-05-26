@@ -205,6 +205,9 @@ function ActionButton({
       activeOpacity={0.86}
       disabled={disabled || loading}
       onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: Boolean(disabled || loading), busy: Boolean(loading) }}
       style={[
         styles.actionButton,
         secondary ? styles.actionButtonSecondary : styles.actionButtonPrimary,
@@ -703,6 +706,16 @@ export default function OpsScreen() {
           </View>
         </View>
 
+        <View style={styles.operatorNotice}>
+          <Ionicons name="lock-closed-outline" size={19} color={AppTheme.color.warning} />
+          <View style={styles.operatorNoticeCopy}>
+            <Text style={styles.operatorNoticeTitle}>Admin-only workflows</Text>
+            <Text style={styles.operatorNoticeText}>
+              These controls call privileged production endpoints. Actions that need a job, asset, or submission id stay gated by explicit inputs.
+            </Text>
+          </View>
+        </View>
+
         <Section
           title="Backend Overview"
           subtitle="Dashboard, integrations, and route graph status"
@@ -1044,6 +1057,7 @@ export default function OpsScreen() {
               label="Apply"
               icon="checkmark-outline"
               secondary
+              disabled={!verificationId.trim()}
               loading={accessibilityLoading}
               onPress={() => void reviewVerification('apply')}
             />
@@ -1051,6 +1065,7 @@ export default function OpsScreen() {
               label="Reject"
               icon="close-outline"
               secondary
+              disabled={!verificationId.trim()}
               loading={accessibilityLoading}
               onPress={() => void reviewVerification('reject')}
             />
@@ -1170,6 +1185,30 @@ const styles = StyleSheet.create({
   },
   opsStatusText: {
     color: AppTheme.color.success,
+    ...AppTheme.type.label,
+  },
+  operatorNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: AppTheme.space.md,
+    borderRadius: AppTheme.radius.lg,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    backgroundColor: AppTheme.color.warningSoft,
+    paddingHorizontal: AppTheme.space.lg,
+    paddingVertical: AppTheme.space.md,
+  },
+  operatorNoticeCopy: {
+    flex: 1,
+    minWidth: 0,
+  },
+  operatorNoticeTitle: {
+    color: AppTheme.color.text,
+    ...AppTheme.type.meta,
+  },
+  operatorNoticeText: {
+    marginTop: 3,
+    color: AppTheme.color.textMuted,
     ...AppTheme.type.label,
   },
   refreshButton: {

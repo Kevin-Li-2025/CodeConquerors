@@ -166,13 +166,28 @@ function formatGeocodingLabel(result: GeocodingResult, fallback: string) {
 }
 
 export default function MapPageWeb() {
-  const params = useLocalSearchParams<{ avoidHazardId?: string; avoidHazardTitle?: string }>();
+  const params = useLocalSearchParams<{
+    avoidHazardId?: string;
+    avoidHazardTitle?: string;
+    focusHazardId?: string;
+    focusHazardTitle?: string;
+    focusLat?: string;
+    focusLng?: string;
+  }>();
   const avoidHazardId = typeof params.avoidHazardId === 'string' && params.avoidHazardId.trim()
     ? params.avoidHazardId.trim()
     : null;
   const avoidHazardTitle = typeof params.avoidHazardTitle === 'string' && params.avoidHazardTitle.trim()
     ? params.avoidHazardTitle.trim()
     : null;
+  const focusHazardId = typeof params.focusHazardId === 'string' && params.focusHazardId.trim()
+    ? params.focusHazardId.trim()
+    : null;
+  const focusHazardTitle = typeof params.focusHazardTitle === 'string' && params.focusHazardTitle.trim()
+    ? params.focusHazardTitle.trim()
+    : null;
+  const focusLat = readCoordinate(params.focusLat);
+  const focusLng = readCoordinate(params.focusLng);
   const [hazards, setHazards] = useState<Hazard[]>([]);
   const [selectedHazard, setSelectedHazard] = useState<Hazard | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -195,11 +210,17 @@ export default function MapPageWeb() {
   const routeRequestIdRef = useRef(0);
 
   const centerCoordinate = useMemo<[number, number]>(() => {
+    if (selectedHazard) {
+      return [selectedHazard.longitude, selectedHazard.latitude];
+    }
+    if (focusLat !== null && focusLng !== null) {
+      return [focusLng, focusLat];
+    }
     const first = hazards[0];
     return first
       ? [first.longitude, first.latitude]
       : DEFAULT_MAP_CENTER_LNG_LAT;
-  }, [hazards]);
+  }, [focusLat, focusLng, hazards, selectedHazard]);
 
   const routeGeoJSON = useMemo(() => routeToGeoJson(route), [route]);
 
@@ -343,6 +364,30 @@ export default function MapPageWeb() {
     void loadHazards();
     void loadRecommendedRoute();
   }, [loadHazards, loadRecommendedRoute]);
+
+  useEffect(() => {
+    if (!focusHazardId) return;
+
+    const matchingHazard = hazards.find((hazard) => String(hazard.id) === focusHazardId);
+    if (matchingHazard) {
+      setSelectedHazard(matchingHazard);
+      return;
+    }
+
+    if (focusLat !== null && focusLng !== null) {
+      setSelectedHazard({
+        id: focusHazardId,
+        title: focusHazardTitle ?? 'Selected hazard',
+        type: 'reported_hazard',
+        latitude: focusLat,
+        longitude: focusLng,
+        description: 'Selected from the hazard list.',
+        status: 'Reported',
+        locationText: 'Open from hazard list',
+        reportedTime: 'Recently',
+      });
+    }
+  }, [focusHazardId, focusHazardTitle, focusLat, focusLng, hazards]);
 
   useEffect(() => {
     setNavigationActive(false);

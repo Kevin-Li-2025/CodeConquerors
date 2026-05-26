@@ -231,6 +231,18 @@ export default function Hazard() {
     } as never);
   }
 
+  function handleOpenOnMap(hazard: HazardItem) {
+    router.push({
+      pathname: '/map',
+      params: {
+        focusHazardId: String(hazard.id),
+        focusHazardTitle: hazard.title,
+        focusLat: String(hazard.latitude),
+        focusLng: String(hazard.longitude),
+      },
+    } as never);
+  }
+
   function handleAvoidDetailInRoute() {
     if (!selectedHazardDetail) return;
     setHazardDetailsVisible(false);
@@ -565,11 +577,17 @@ export default function Hazard() {
                 </View>
               </View>
 
-              <View style={[styles.photoTile, { backgroundColor: getHazardTone(hazard).photoBg }]}>
+              <TouchableOpacity
+                activeOpacity={0.86}
+                style={[styles.photoTile, { backgroundColor: getHazardTone(hazard).photoBg }]}
+                onPress={() => handleOpenOnMap(hazard)}
+                accessibilityRole="button"
+                accessibilityLabel={`Open ${hazard.title} on map`}
+              >
                 <View style={styles.mapPreviewGrid} />
                 <Ionicons name="location" size={18} color={getHazardTone(hazard).iconColor} />
                 <Text style={styles.mapPreviewText}>Map</Text>
-              </View>
+              </TouchableOpacity>
             </View>
 
             <View style={styles.actionRow}>

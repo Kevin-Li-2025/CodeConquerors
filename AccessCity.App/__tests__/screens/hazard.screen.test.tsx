@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, fireEvent, waitFor } from '@testing-library/react-native';
+import { router } from 'expo-router';
 import HazardScreen from '@/app/(tabs)/hazard';
 import { hazardsService } from '@/services/hazards.service';
 
@@ -112,6 +113,81 @@ describe('HazardScreen', () => {
 
     await waitFor(() => {
       expect(hazardsService.getHazardsPage).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('opens the hazard map preview on the map with focus params', async () => {
+    jest.mocked(hazardsService.getHazardsPage).mockResolvedValueOnce({
+      items: [
+        {
+          id: '1',
+          title: 'Broken pavement',
+          type: 'broken_pavement',
+          latitude: 52.48,
+          longitude: -1.89,
+          description: 'Crack near curb.',
+          status: 'Reported',
+          locationText: 'Bristol Road',
+          reportedTime: 'Today',
+        },
+      ],
+      nextCursor: null,
+      limit: 25,
+      hasMore: false,
+    });
+
+    const { findByLabelText } = render(<HazardScreen />);
+
+    fireEvent.press(await findByLabelText('Open Broken pavement on map'));
+
+    expect(router.push).toHaveBeenCalledWith({
+      pathname: '/map',
+      params: {
+        focusHazardId: '1',
+        focusHazardTitle: 'Broken pavement',
+        focusLat: '52.48',
+        focusLng: '-1.89',
+      },
+    });
+  });
+
+  it('loads details through the hazard API when Details is pressed', async () => {
+    jest.mocked(hazardsService.getHazardsPage).mockResolvedValueOnce({
+      items: [
+        {
+          id: '1',
+          title: 'Broken pavement',
+          type: 'broken_pavement',
+          latitude: 52.48,
+          longitude: -1.89,
+          description: 'Crack near curb.',
+          status: 'Reported',
+          locationText: 'Bristol Road',
+          reportedTime: 'Today',
+        },
+      ],
+      nextCursor: null,
+      limit: 25,
+      hasMore: false,
+    });
+    jest.mocked(hazardsService.getHazardById).mockResolvedValueOnce({
+      id: '1',
+      title: 'Broken pavement',
+      type: 'broken_pavement',
+      latitude: 52.48,
+      longitude: -1.89,
+      description: 'Crack near curb.',
+      status: 'Reported',
+      locationText: 'Bristol Road',
+      reportedTime: 'Today',
+    } as any);
+
+    const { findByLabelText } = render(<HazardScreen />);
+
+    fireEvent.press(await findByLabelText('View details for Broken pavement'));
+
+    await waitFor(() => {
+      expect(hazardsService.getHazardById).toHaveBeenCalledWith('1');
     });
   });
 });

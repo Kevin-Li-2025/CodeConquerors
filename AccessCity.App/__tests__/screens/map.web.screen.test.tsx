@@ -1,6 +1,12 @@
 import React from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
+const mockUseLocalSearchParams = jest.fn(() => ({}));
+
+jest.mock('expo-router', () => ({
+  useLocalSearchParams: () => mockUseLocalSearchParams(),
+}));
+
 jest.mock('@/components/MapView', () => function MockMapView(props: any) {
   const { Text, View } = require('react-native');
   return (
@@ -45,6 +51,7 @@ import { aiAssistService } from '@/services/aiAssist.service';
 describe('MapPageWeb', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUseLocalSearchParams.mockReturnValue({});
     const route = {
       path: { type: 'LineString', coordinates: [[-1.89, 52.48], [-1.88, 52.485]] },
       distance: 1200,
@@ -156,5 +163,37 @@ describe('MapPageWeb', () => {
 
     fireEvent.press(getByText('End'));
     await waitFor(() => expect(queryByText('Head east')).toBeNull());
+  });
+
+  it('opens a focused hazard from list navigation params', async () => {
+    mockUseLocalSearchParams.mockReturnValue({
+      focusHazardId: 'h1',
+      focusHazardTitle: 'Blocked pavement',
+      focusLat: '52.4862',
+      focusLng: '-1.8904',
+    });
+    jest.mocked(hazardsService.getHazardsPage).mockResolvedValue({
+      items: [
+        {
+          id: 'h1',
+          title: 'Blocked pavement',
+          type: 'obstruction',
+          latitude: 52.4862,
+          longitude: -1.8904,
+          description: 'Path blocked',
+          status: 'Reported',
+          locationText: 'Birmingham',
+          reportedTime: 'Today',
+        },
+      ],
+      nextCursor: null,
+      limit: 100,
+      hasMore: false,
+    });
+
+    const { findByText } = render(<MapPageWeb />);
+
+    expect(await findByText('Blocked pavement')).toBeTruthy();
+    expect(await findByText('Birmingham')).toBeTruthy();
   });
 });
