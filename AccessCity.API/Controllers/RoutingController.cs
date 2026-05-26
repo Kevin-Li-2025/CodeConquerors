@@ -342,6 +342,12 @@ public class RoutingController : ControllerBase
                 request,
                 async () =>
                 {
+                    await using var lease = await _routeLimiter.TryAcquireAsync(queueTimeout, workToken);
+                    if (lease is null)
+                    {
+                        return null;
+                    }
+
                     var hazards = await _hazardQueries.LoadHazardsForRouteAsync(request, workToken);
                     var contextFingerprint = await BuildRouteContextFingerprintAsync(hazards, workToken);
                     var cacheKey = _routeOptionsCache.BuildKey(
@@ -358,12 +364,6 @@ public class RoutingController : ControllerBase
                     {
                         outcome = "cache_hit";
                         return cached;
-                    }
-
-                    await using var lease = await _routeLimiter.TryAcquireAsync(queueTimeout, workToken);
-                    if (lease is null)
-                    {
-                        return null;
                     }
 
                     var computed = await _routing.FindSafePathWithVariantsAsync(request, hazards, workToken);
