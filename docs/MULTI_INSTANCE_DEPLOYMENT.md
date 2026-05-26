@@ -71,6 +71,8 @@ request coalescing.
 For longer city routes, `Routing__RouteGraphCorridorSlicingEnabled=true` narrows the merged bundle
 to cells intersecting a padded start/end corridor, so API pods and workers avoid loading the full
 rectangular bbox when most cells cannot plausibly affect the route.
+`Routing__RouteGraphAdaptiveCorridorWideningEnabled=true` preserves route quality by retrying with
+wider corridor bundles if the first slice lacks endpoint coverage or a connected accessible path.
 When `Routing__RouteGraphAltPreprocessingEnabled=true`, packed artifacts also carry ALT landmark
 tables over a minimum traversal-time metric. A* still returns exact deterministic paths because the
 landmark bound is admissible, but larger shards need fewer node expansions. Use

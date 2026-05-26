@@ -88,6 +88,9 @@ injection checks.
   city-scale route bundles near the likely route corridor instead of merging every shard in the
   padded start/end rectangle. Profile this value with real city extracts; too high raises Redis
   payload and worker hot-load tail, while too low can exclude realistic detours.
+- `Routing__RouteGraphAdaptiveCorridorWideningEnabled`: retries wider corridor bundles when the
+  first slice does not contain a connected accessible path. Keep this enabled in production so the
+  default corridor stays small for latency while unusual detours still have a recovery path.
 - `Routing__RouteGraphPackedArtifactsEnabled`: store compact versioned graph artifacts with
   precomputed edge traversal weights in the shared cache.
 - `Routing__RouteGraphMaxDistributedSnapshotBytes`: cap route graph bundle writes to Redis/L2.

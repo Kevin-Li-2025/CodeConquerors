@@ -112,34 +112,22 @@ public class RoutingService : IRoutingService
         RouteResponse response;
         RouteGraphData? graphForScoring = null;
         List<string> accessibilityGraphWarnings = new();
+        RealGraphRouteAttempt? verifiedGraphAttempt = null;
 
         if (RequiresVerifiedAccessibility(request))
         {
-            try
+            verifiedGraphAttempt = await TryFindSafePathOnRealGraphAsync(
+                request,
+                hazardList,
+                cancellationToken);
+            if (HasDrawableRoute(verifiedGraphAttempt.Response))
             {
-                graphForScoring = await _graphRepo.LoadGraphAsync(request.Start, request.End, cancellationToken);
-                if (HasUsableGraphEndpointCoverage(graphForScoring, request, MaxGraphSnapDistanceMetres, out _, out _))
-                {
-                    var graphResponse = FindSafePathOnRealGraph(request, hazardList, graphForScoring);
-                    if (HasDrawableRoute(graphResponse))
-                    {
-                        await CacheRouteAsync(cacheKey, graphResponse);
-                        return graphResponse;
-                    }
+                await CacheRouteAsync(cacheKey, verifiedGraphAttempt.Response!);
+                return verifiedGraphAttempt.Response!;
+            }
 
-                    accessibilityGraphWarnings = graphResponse.Warnings;
-                }
-                else
-                {
-                    graphForScoring = null;
-                }
-            }
-            catch (OperationCanceledException) { throw; }
-            catch
-            {
-                // Fall through to OSRM with an explicit degraded-confidence warning.
-                graphForScoring = null;
-            }
+            graphForScoring = verifiedGraphAttempt.GraphData;
+            accessibilityGraphWarnings = verifiedGraphAttempt.Warnings;
         }
 
         // ── Tier 1: OSRM with alternatives + PostGIS obstacle scoring ──
@@ -156,23 +144,18 @@ public class RoutingService : IRoutingService
         }
 
         // ── Tier 2: Real imported OSM graph (PostGIS) ──
-        try
+        var realGraphAttempt = verifiedGraphAttempt
+            ?? await TryFindSafePathOnRealGraphAsync(
+                request,
+                hazardList,
+                cancellationToken);
+        if (HasDrawableRoute(realGraphAttempt.Response))
         {
-            var realGraph = await _graphRepo.LoadGraphAsync(request.Start, request.End, cancellationToken);
-            if (HasUsableGraphEndpointCoverage(realGraph, request, MaxGraphSnapDistanceMetres, out _, out _))
-            {
-                var graphResponse = FindSafePathOnRealGraph(request, hazardList, realGraph);
-                if (HasDrawableRoute(graphResponse))
-                {
-                    await CacheRouteAsync(cacheKey, graphResponse);
-                    return graphResponse;
-                }
-
-                accessibilityGraphWarnings.AddRange(graphResponse.Warnings);
-            }
+            await CacheRouteAsync(cacheKey, realGraphAttempt.Response!);
+            return realGraphAttempt.Response!;
         }
-        catch (OperationCanceledException) { throw; }
-        catch { /* PostGIS unavailable */ }
+
+        accessibilityGraphWarnings.AddRange(realGraphAttempt.Warnings);
 
         // ── Tier 3: Synthetic grid fallback ──
         response = FindSafePathFallback(request, hazardList);
@@ -275,24 +258,110 @@ public class RoutingService : IRoutingService
 
     private async Task<RouteGraphData?> TryLoadRouteGraphAsync(RouteRequest request, CancellationToken cancellationToken)
     {
-        try
+        foreach (var loadOptions in BuildRouteGraphLoadAttempts())
         {
-            var graphData = await _graphRepo.LoadGraphAsync(request.Start, request.End, cancellationToken);
-            return HasUsableGraphEndpointCoverage(graphData, request, MaxGraphSnapDistanceMetres, out _, out _)
-                ? graphData
-                : null;
+            try
+            {
+                var graphData = await LoadRouteGraphAttemptAsync(request, loadOptions, cancellationToken);
+                if (HasUsableGraphEndpointCoverage(graphData, request, MaxGraphSnapDistanceMetres, out _, out _))
+                {
+                    return graphData;
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch
+            {
+                // Continue to wider graph attempts or degraded OSRM/fallback behavior.
+            }
         }
-        catch (OperationCanceledException) { throw; }
-        catch
+
+        return null;
+    }
+
+    private async Task<RealGraphRouteAttempt> TryFindSafePathOnRealGraphAsync(
+        RouteRequest request,
+        List<HazardReport> hazardList,
+        CancellationToken cancellationToken)
+    {
+        RouteGraphData? lastUsableGraph = null;
+        var warnings = new List<string>();
+        foreach (var loadOptions in BuildRouteGraphLoadAttempts())
         {
-            return null;
+            try
+            {
+                var graphData = await LoadRouteGraphAttemptAsync(request, loadOptions, cancellationToken);
+                if (!HasUsableGraphEndpointCoverage(graphData, request, MaxGraphSnapDistanceMetres, out _, out _))
+                {
+                    continue;
+                }
+
+                lastUsableGraph = graphData;
+                var graphResponse = FindSafePathOnRealGraph(request, hazardList, graphData);
+                if (HasDrawableRoute(graphResponse))
+                {
+                    return new RealGraphRouteAttempt(graphResponse, graphData, warnings);
+                }
+
+                warnings = graphResponse.Warnings;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch
+            {
+                // Keep the request successful by trying wider graph slices, OSRM, or fallback routing.
+            }
+        }
+
+        return new RealGraphRouteAttempt(null, lastUsableGraph, warnings);
+    }
+
+    private Task<RouteGraphData> LoadRouteGraphAttemptAsync(
+        RouteRequest request,
+        RouteGraphLoadOptions? loadOptions,
+        CancellationToken cancellationToken) =>
+        loadOptions is null
+            ? _graphRepo.LoadGraphAsync(request.Start, request.End, cancellationToken)
+            : _graphRepo.LoadGraphAsync(request.Start, request.End, loadOptions, cancellationToken);
+
+    private IEnumerable<RouteGraphLoadOptions?> BuildRouteGraphLoadAttempts()
+    {
+        yield return null;
+        if (!_routingOptions.RouteGraphAdaptiveCorridorWideningEnabled
+            || !_routingOptions.RouteGraphCorridorSlicingEnabled)
+        {
+            yield break;
+        }
+
+        var attempts = Math.Clamp(_routingOptions.RouteGraphAdaptiveCorridorWideningAttempts, 0, 4);
+        var basePadding = Math.Max(1.0, _routingOptions.RouteGraphCorridorPaddingMetres);
+        var multiplier = Math.Clamp(_routingOptions.RouteGraphAdaptiveCorridorWideningMultiplier, 1.1, 4.0);
+        var maxPadding = Math.Max(basePadding, _routingOptions.RouteGraphAdaptiveCorridorMaxPaddingMetres);
+        var previousPadding = basePadding;
+        for (var attempt = 1; attempt <= attempts; attempt++)
+        {
+            var padding = Math.Min(maxPadding, basePadding * Math.Pow(multiplier, attempt));
+            if (padding <= previousPadding + 1.0)
+            {
+                continue;
+            }
+
+            previousPadding = padding;
+            yield return new RouteGraphLoadOptions(padding);
+            if (Math.Abs(padding - maxPadding) < 0.001)
+            {
+                yield break;
+            }
         }
     }
 
     private double MaxGraphSnapDistanceMetres => Math.Max(1.0, _routingOptions.RouteGraphMaxSnapDistanceMetres);
 
-    private static bool HasDrawableRoute(RouteResponse response) =>
-        response.Path is not null
+    private sealed record RealGraphRouteAttempt(
+        RouteResponse? Response,
+        RouteGraphData? GraphData,
+        List<string> Warnings);
+
+    private static bool HasDrawableRoute(RouteResponse? response) =>
+        response?.Path is not null
         && response.Path.Coordinates.Length >= 2
         && response.Distance > 0;
 

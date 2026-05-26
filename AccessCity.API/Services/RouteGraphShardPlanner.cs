@@ -31,7 +31,8 @@ public static class RouteGraphShardPlanner
         GraphShardRegion region,
         Coordinate start,
         Coordinate end,
-        RoutingOptions options)
+        RoutingOptions options,
+        RouteGraphLoadOptions? loadOptions = null)
     {
         if (!options.RouteGraphPrepartitionedShardsEnabled)
         {
@@ -48,8 +49,10 @@ public static class RouteGraphShardPlanner
         var maxShardCount = Math.Max(1, options.RouteGraphMaxPrepartitionedShardCount);
         if (options.RouteGraphCorridorSlicingEnabled)
         {
+            var corridorPaddingMetres = loadOptions?.CorridorPaddingMetres
+                ?? options.RouteGraphCorridorPaddingMetres;
             var corridorCells = cells
-                .Where(cell => IntersectsCorridor(cell, start, end, options.RouteGraphCorridorPaddingMetres))
+                .Where(cell => IntersectsCorridor(cell, start, end, corridorPaddingMetres))
                 .OrderBy(cell => cell.MinLon)
                 .ThenBy(cell => cell.MinLat)
                 .ToArray();

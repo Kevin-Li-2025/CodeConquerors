@@ -127,6 +127,7 @@ High-value settings:
 | `Routing__RouteGraphPackedArtifactsEnabled` | Uses compact binary graph artifacts for cache/storage. |
 | `Routing__RouteGraphMaxDistributedSnapshotBytes` | Prevents oversized merged route graph bundles from being written to Redis/L2. |
 | `Routing__RouteGraphCorridorSlicingEnabled` / `Routing__RouteGraphCorridorPaddingMetres` | Loads a route corridor of reusable graph cells instead of the whole padded rectangle for city-scale routes. |
+| `Routing__RouteGraphAdaptiveCorridorWideningEnabled` | Retries a wider route graph corridor when the first slice lacks endpoint coverage or a connected accessible path. |
 | `Routing__RouteGraphProfileFailOnQualityGate` | Fails graph profiling when configured artifact/latency budgets are exceeded. |
 
 Secret rotation is documented in [Secret Rotation](docs/SECRET_ROTATION.md). Do not use the checked-in development JWT placeholder in production.

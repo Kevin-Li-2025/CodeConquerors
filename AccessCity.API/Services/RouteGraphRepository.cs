@@ -19,7 +19,15 @@ namespace AccessCity.API.Services;
 public interface IRouteGraphRepository
 {
     Task<RouteGraphData> LoadGraphAsync(Coordinate start, Coordinate end, CancellationToken cancellationToken = default);
+
+    Task<RouteGraphData> LoadGraphAsync(
+        Coordinate start,
+        Coordinate end,
+        RouteGraphLoadOptions? loadOptions,
+        CancellationToken cancellationToken = default);
 }
+
+public sealed record RouteGraphLoadOptions(double? CorridorPaddingMetres = null);
 
 public sealed class RouteGraphRepository : IRouteGraphRepository
 {
@@ -70,11 +78,18 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
     public async Task<RouteGraphData> LoadGraphAsync(
         Coordinate start,
         Coordinate end,
+        CancellationToken cancellationToken = default) =>
+        await LoadGraphAsync(start, end, loadOptions: null, cancellationToken);
+
+    public async Task<RouteGraphData> LoadGraphAsync(
+        Coordinate start,
+        Coordinate end,
+        RouteGraphLoadOptions? loadOptions,
         CancellationToken cancellationToken = default)
     {
         var edgeLimit = Math.Max(100, _options.MaxRouteGraphEdges);
         var region = ComputeShardRegion(start, end);
-        var loadRegions = ComputeLoadRegions(region, start, end);
+        var loadRegions = ComputeLoadRegions(region, start, end, loadOptions);
         var loadScope = BuildLoadScope(loadRegions);
         var stopwatch = Stopwatch.StartNew();
         var coverage = await _routeGraphStatus.GetStatusAsync(cancellationToken);
@@ -794,8 +809,9 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
     private IReadOnlyList<GraphShardRegion> ComputeLoadRegions(
         GraphShardRegion region,
         Coordinate start,
-        Coordinate end) =>
-        RouteGraphShardPlanner.ComputeLoadRegions(region, start, end, _options);
+        Coordinate end,
+        RouteGraphLoadOptions? loadOptions) =>
+        RouteGraphShardPlanner.ComputeLoadRegions(region, start, end, _options, loadOptions);
 
     private static int ComputeBasePerShardEdgeLimit(int edgeLimit, int shardCount) =>
         Math.Max(100, Math.Max(1, edgeLimit) / Math.Max(1, shardCount));

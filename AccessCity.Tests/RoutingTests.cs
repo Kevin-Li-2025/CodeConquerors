@@ -547,6 +547,126 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
     }
 
     [Fact]
+    public async Task SafePath_Widens_RouteGraph_Corridor_When_First_Slice_Is_Disconnected()
+    {
+        var start = new Coordinate(-1.8904, 52.4862);
+        var end = new Coordinate(-1.8894, 52.4862);
+        var disconnected = new RouteGraphData
+        {
+            Nodes = new Dictionary<long, GraphNode>
+            {
+                [1] = new() { Id = 1, Location = start },
+                [2] = new() { Id = 2, Location = end }
+            },
+            LoadedEdgeCount = 0
+        };
+        var connected = new RouteGraphData
+        {
+            Nodes = new Dictionary<long, GraphNode>
+            {
+                [1] = new()
+                {
+                    Id = 1,
+                    Location = start,
+                    Edges =
+                    {
+                        [2] = BuildTestEdge(end, distanceMetres: 80)
+                    }
+                },
+                [2] = new() { Id = 2, Location = end }
+            },
+            LoadedEdgeCount = 1
+        };
+
+        var risk = new Mock<IRiskScoringService>();
+        risk.Setup(x => x.QuickRisk(
+                It.IsAny<double>(),
+                It.IsAny<double>(),
+                It.IsAny<IEnumerable<HazardReport>>(),
+                It.IsAny<double>()))
+            .Returns(0);
+        var osrm = new Mock<IOsrmClient>();
+        osrm.Setup(x => x.GetAlternativeRoutesAsync(
+                It.IsAny<Coordinate>(),
+                It.IsAny<Coordinate>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<OsrmRouteResult>());
+        var routeGraph = new Mock<IRouteGraphRepository>();
+        routeGraph.Setup(x => x.LoadGraphAsync(start, end, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(disconnected);
+        routeGraph.Setup(x => x.LoadGraphAsync(
+                start,
+                end,
+                It.Is<RouteGraphLoadOptions>(options => options.CorridorPaddingMetres >= 700),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(connected);
+        var routeGraphStatus = new Mock<IRouteGraphStatusService>();
+        routeGraphStatus.Setup(x => x.GetVersionAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync("test-graph");
+        var routeCache = new Mock<IRouteCacheService>();
+        routeCache.Setup(x => x.TryGetAsync(It.IsAny<string>()))
+            .ReturnsAsync((RouteResponse?)null);
+        routeCache.Setup(x => x.SetAsync(It.IsAny<string>(), It.IsAny<RouteResponse>()))
+            .Returns(Task.CompletedTask);
+        routeCache.Setup(x => x.BuildKey(
+                It.IsAny<double>(),
+                It.IsAny<double>(),
+                It.IsAny<double>(),
+                It.IsAny<double>(),
+                It.IsAny<string>(),
+                It.IsAny<double>(),
+                It.IsAny<IEnumerable<string>?>(),
+                It.IsAny<string?>()))
+            .Returns("route:test");
+
+        var service = new RoutingService(
+            risk.Object,
+            Mock.Of<IPredictiveRiskModel>(),
+            osrm.Object,
+            routeGraph.Object,
+            routeGraphStatus.Object,
+            Mock.Of<IRiskTileCacheService>(),
+            routeCache.Object,
+            Mock.Of<IHazardRiskGrid>(),
+            Mock.Of<IHazardSpatialIndex>(),
+            Options.Create(new RoutingOptions
+            {
+                RouteGraphMaxSnapDistanceMetres = 150,
+                RouteGraphCorridorSlicingEnabled = true,
+                RouteGraphCorridorPaddingMetres = 350,
+                RouteGraphAdaptiveCorridorWideningEnabled = true,
+                RouteGraphAdaptiveCorridorWideningAttempts = 2,
+                RouteGraphAdaptiveCorridorWideningMultiplier = 2,
+                RouteGraphAdaptiveCorridorMaxPaddingMetres = 1_400
+            }));
+        var request = new RouteRequest
+        {
+            Start = start,
+            End = end,
+            Profile = "manual-wheelchair",
+            Preferences = new List<string> { "avoid-stairs" },
+            SafetyWeight = 0.8
+        };
+
+        var response = await service.FindSafePathAsync(request, Enumerable.Empty<HazardReport>());
+
+        Assert.NotNull(response.Path);
+        Assert.Equal(80, response.Distance, precision: 1);
+        routeGraph.Verify(x => x.LoadGraphAsync(start, end, It.IsAny<CancellationToken>()), Times.Once);
+        routeGraph.Verify(x => x.LoadGraphAsync(
+                start,
+                end,
+                It.Is<RouteGraphLoadOptions>(options => options.CorridorPaddingMetres >= 700),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+        osrm.Verify(x => x.GetAlternativeRoutesAsync(
+                It.IsAny<Coordinate>(),
+                It.IsAny<Coordinate>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
     public async Task SafePath_Does_Not_Snap_To_Distant_RouteGraph_Fixture()
     {
         var client = await _factory.CreateAuthenticatedClientAsync();

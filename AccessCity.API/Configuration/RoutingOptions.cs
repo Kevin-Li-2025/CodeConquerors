@@ -29,6 +29,10 @@ public sealed class RoutingOptions
     public int RouteGraphMinEdgesPerPrepartitionedShard { get; set; } = 250;
     public bool RouteGraphCorridorSlicingEnabled { get; set; } = true;
     public double RouteGraphCorridorPaddingMetres { get; set; } = 350;
+    public bool RouteGraphAdaptiveCorridorWideningEnabled { get; set; } = true;
+    public int RouteGraphAdaptiveCorridorWideningAttempts { get; set; } = 2;
+    public double RouteGraphAdaptiveCorridorWideningMultiplier { get; set; } = 2.0;
+    public double RouteGraphAdaptiveCorridorMaxPaddingMetres { get; set; } = 1_400;
     public bool RouteGraphPackedArtifactsEnabled { get; set; } = true;
     public long RouteGraphMaxDistributedSnapshotBytes { get; set; } = 8 * 1024 * 1024;
     public bool RouteGraphFileArtifactStoreEnabled { get; set; }

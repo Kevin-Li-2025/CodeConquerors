@@ -56,6 +56,10 @@ services:
       Routing__RouteGraphMinEdgesPerPrepartitionedShard: ${Routing__RouteGraphMinEdgesPerPrepartitionedShard:-250}
       Routing__RouteGraphCorridorSlicingEnabled: ${Routing__RouteGraphCorridorSlicingEnabled:-true}
       Routing__RouteGraphCorridorPaddingMetres: ${Routing__RouteGraphCorridorPaddingMetres:-350}
+      Routing__RouteGraphAdaptiveCorridorWideningEnabled: ${Routing__RouteGraphAdaptiveCorridorWideningEnabled:-true}
+      Routing__RouteGraphAdaptiveCorridorWideningAttempts: ${Routing__RouteGraphAdaptiveCorridorWideningAttempts:-2}
+      Routing__RouteGraphAdaptiveCorridorWideningMultiplier: ${Routing__RouteGraphAdaptiveCorridorWideningMultiplier:-2.0}
+      Routing__RouteGraphAdaptiveCorridorMaxPaddingMetres: ${Routing__RouteGraphAdaptiveCorridorMaxPaddingMetres:-1400}
       Routing__RouteGraphPackedArtifactsEnabled: ${Routing__RouteGraphPackedArtifactsEnabled:-true}
       Routing__RouteGraphMaxDistributedSnapshotBytes: ${Routing__RouteGraphMaxDistributedSnapshotBytes:-8388608}
       Routing__RouteGraphFileArtifactStoreEnabled: ${Routing__RouteGraphFileArtifactStoreEnabled:-true}
@@ -260,6 +264,10 @@ services:
       Routing__RouteGraphMinEdgesPerPrepartitionedShard: ${Routing__RouteGraphMinEdgesPerPrepartitionedShard:-250}
       Routing__RouteGraphCorridorSlicingEnabled: ${Routing__RouteGraphCorridorSlicingEnabled:-true}
       Routing__RouteGraphCorridorPaddingMetres: ${Routing__RouteGraphCorridorPaddingMetres:-350}
+      Routing__RouteGraphAdaptiveCorridorWideningEnabled: ${Routing__RouteGraphAdaptiveCorridorWideningEnabled:-true}
+      Routing__RouteGraphAdaptiveCorridorWideningAttempts: ${Routing__RouteGraphAdaptiveCorridorWideningAttempts:-2}
+      Routing__RouteGraphAdaptiveCorridorWideningMultiplier: ${Routing__RouteGraphAdaptiveCorridorWideningMultiplier:-2.0}
+      Routing__RouteGraphAdaptiveCorridorMaxPaddingMetres: ${Routing__RouteGraphAdaptiveCorridorMaxPaddingMetres:-1400}
       Routing__RouteGraphPackedArtifactsEnabled: ${Routing__RouteGraphPackedArtifactsEnabled:-true}
       Routing__RouteGraphMaxDistributedSnapshotBytes: ${Routing__RouteGraphMaxDistributedSnapshotBytes:-8388608}
       Routing__RouteGraphFileArtifactStoreEnabled: ${Routing__RouteGraphFileArtifactStoreEnabled:-true}
