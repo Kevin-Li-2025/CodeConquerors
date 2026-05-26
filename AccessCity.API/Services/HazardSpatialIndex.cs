@@ -113,10 +113,11 @@ public sealed class HazardSpatialIndex : IHazardSpatialIndex
             return Array.Empty<HazardReport>();
         }
 
-        var degreesApprox = radiusMetres / 111_320.0;
+        var latitudeDegrees = MetresToLatitudeDegrees(radiusMetres);
+        var longitudeDegrees = MetresToLongitudeDegrees(radiusMetres, latitude);
         var queryEnvelope = new Envelope(
-            longitude - degreesApprox, longitude + degreesApprox,
-            latitude - degreesApprox, latitude + degreesApprox);
+            longitude - longitudeDegrees, longitude + longitudeDegrees,
+            latitude - latitudeDegrees, latitude + latitudeDegrees);
 
         var candidates = snapshot.Tree.Query(queryEnvelope);
 
@@ -133,6 +134,15 @@ public sealed class HazardSpatialIndex : IHazardSpatialIndex
             }
         }
         return results;
+    }
+
+    private static double MetresToLatitudeDegrees(double metres) => metres / 111_320.0;
+
+    private static double MetresToLongitudeDegrees(double metres, double latitude)
+    {
+        var radians = latitude * Math.PI / 180.0;
+        var metresPerDegree = 111_320.0 * Math.Max(0.1, Math.Cos(radians));
+        return metres / metresPerDegree;
     }
 
     /// <inheritdoc/>

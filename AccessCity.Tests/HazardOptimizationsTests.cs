@@ -101,6 +101,26 @@ public class HazardOptimizationsTests
     }
 
     [Fact]
+    public void HazardSpatialIndex_QueryNearby_UsesLatitudeAwareLongitudeRadius()
+    {
+        var index = new HazardSpatialIndex();
+        var lat = 52.4862;
+        var lon = -1.8904;
+        var hazardTwoKilometresEast = new HazardReport
+        {
+            Id = Guid.NewGuid(),
+            Location = new Point(lon + MetresToLongitudeDegrees(2_000, lat), lat) { SRID = 4326 },
+            Type = "blocked_pavement",
+            Status = HazardStatus.Reported
+        };
+        index.Rebuild(new[] { hazardTwoKilometresEast });
+
+        var nearby = index.QueryNearby(lat, lon, 2_500);
+
+        Assert.Contains(hazardTwoKilometresEast, nearby);
+    }
+
+    [Fact]
     public void HazardRiskGrid_ComputesCorrectRiskValues()
     {
         // Arrange
@@ -160,5 +180,12 @@ public class HazardOptimizationsTests
         // Far away from the hazard, risk should decay to 0
         double farRisk = grid.GetRisk(52.5500, -1.9500);
         Assert.Equal(0.0, farRisk);
+    }
+
+    private static double MetresToLongitudeDegrees(double metres, double latitude)
+    {
+        var radians = latitude * Math.PI / 180.0;
+        var metresPerDegree = 111_320.0 * Math.Max(0.1, Math.Cos(radians));
+        return metres / metresPerDegree;
     }
 }
