@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using AccessCity.API.Models;
 using Microsoft.Extensions.Caching.Hybrid;
@@ -28,6 +29,7 @@ public sealed class RiskScoreCacheService : IRiskScoreCacheService
     private readonly TimeSpan _fillTimeout;
     private readonly int _coordinatePrecision;
     private readonly int _radiusBucketMetres;
+    private readonly ConcurrentDictionary<string, Lazy<Task<object?>>> _inflightFills = new();
 
     public RiskScoreCacheService(HybridCache cache, IConfiguration configuration)
     {
@@ -53,6 +55,33 @@ public sealed class RiskScoreCacheService : IRiskScoreCacheService
         string cacheKey,
         Func<CancellationToken, Task<T>> factory,
         CancellationToken cancellationToken = default)
+    {
+        var inflightKey = $"{typeof(T).FullName}:{cacheKey}";
+        var newFill = new Lazy<Task<object?>>(
+            () => FillCacheAsync(cacheKey, factory),
+            LazyThreadSafetyMode.ExecutionAndPublication);
+        var fill = _inflightFills.GetOrAdd(inflightKey, newFill);
+
+        if (ReferenceEquals(fill, newFill))
+        {
+            _ = fill.Value.ContinueWith(
+                completed =>
+                {
+                    _ = completed.Exception;
+                    _inflightFills.TryRemove(new KeyValuePair<string, Lazy<Task<object?>>>(inflightKey, fill));
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        var result = await fill.Value.WaitAsync(cancellationToken);
+        return (T)result!;
+    }
+
+    private async Task<object?> FillCacheAsync<T>(
+        string cacheKey,
+        Func<CancellationToken, Task<T>> factory)
     {
 #pragma warning disable EXTEXP0018
         return await _cache.GetOrCreateAsync(

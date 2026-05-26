@@ -48,22 +48,35 @@ public class RiskScoreCacheServiceTests
     }
 
     [Fact]
-    public async Task GetOrComputeAsync_DoesNotCancelSharedFillWhenCallerTimesOut()
+    public async Task GetOrComputeAsync_CallerCancellationStopsWaitingButDoesNotCancelSharedFill()
     {
         using var provider = CreateProvider();
         var cache = provider.GetRequiredService<IRiskScoreCacheService>();
+        var factoryEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFactory = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var calls = 0;
         using var canceled = new CancellationTokenSource();
         await canceled.CancelAsync();
 
-        var result = await cache.GetOrComputeAsync(
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => cache.GetOrComputeAsync(
             "risk-score:caller-canceled",
             async token =>
             {
-                await Task.Delay(1, token);
+                Interlocked.Increment(ref calls);
+                factoryEntered.SetResult(true);
+                await releaseFactory.Task.WaitAsync(token);
                 return new RiskScoreResponse { OverallRisk = 0.37 };
             },
-            canceled.Token);
+            canceled.Token));
 
+        await factoryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        releaseFactory.SetResult(true);
+
+        var result = await cache.GetOrComputeAsync(
+            "risk-score:caller-canceled",
+            _ => Task.FromResult(new RiskScoreResponse { OverallRisk = 0.99 }));
+
+        Assert.Equal(1, calls);
         Assert.Equal(0.37, result.OverallRisk);
     }
 
