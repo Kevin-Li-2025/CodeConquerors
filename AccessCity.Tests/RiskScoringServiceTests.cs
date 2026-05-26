@@ -52,6 +52,37 @@ public class RiskScoringServiceTests
         };
     }
 
+    private static async Task SeedInfrastructureRiskEdgeAsync(AppDbContext db, long idOffset = 0)
+    {
+        db.RouteNodes.AddRange(
+            new RouteNode
+            {
+                Id = idOffset + 1,
+                Location = Wgs84.CreatePoint(new Coordinate(-1.8904, 52.48))
+            },
+            new RouteNode
+            {
+                Id = idOffset + 2,
+                Location = Wgs84.CreatePoint(new Coordinate(-1.8900, 52.4804))
+            });
+        db.RouteEdges.Add(new RouteEdge
+        {
+            Id = idOffset + 1,
+            FromNodeId = idOffset + 1,
+            ToNodeId = idOffset + 2,
+            Geometry = Wgs84.CreateLineString(new[]
+            {
+                new Coordinate(-1.8904, 52.48),
+                new Coordinate(-1.8900, 52.4804)
+            }),
+            LightingQuality = 0.2,
+            HasStairs = true,
+            KerbHeight = 0.08,
+            DistanceMetres = 50
+        });
+        await db.SaveChangesAsync();
+    }
+
     // ─────────── Haversine (pure math, deterministic) ───────────
 
     [Fact]
@@ -325,33 +356,7 @@ public class RiskScoringServiceTests
     public async Task EstimateInfrastructureRiskAsync_CoalescesConcurrentColdRequests()
     {
         await using var db = CreateInMemoryDbContext();
-        db.RouteNodes.AddRange(
-            new RouteNode
-            {
-                Id = 1,
-                Location = Wgs84.CreatePoint(new Coordinate(-1.8904, 52.48))
-            },
-            new RouteNode
-            {
-                Id = 2,
-                Location = Wgs84.CreatePoint(new Coordinate(-1.8900, 52.4804))
-            });
-        db.RouteEdges.Add(new RouteEdge
-        {
-            Id = 1,
-            FromNodeId = 1,
-            ToNodeId = 2,
-            Geometry = Wgs84.CreateLineString(new[]
-            {
-                new Coordinate(-1.8904, 52.48),
-                new Coordinate(-1.8900, 52.4804)
-            }),
-            LightingQuality = 0.2,
-            HasStairs = true,
-            KerbHeight = 0.08,
-            DistanceMetres = 50
-        });
-        await db.SaveChangesAsync();
+        await SeedInfrastructureRiskEdgeAsync(db);
 
         var cache = new MemoryCache(new MemoryCacheOptions());
         var svc = CreateService(db: db, cache: cache);
@@ -363,6 +368,32 @@ public class RiskScoringServiceTests
 
         Assert.All(risks, risk => Assert.Equal(risks[0], risk));
         Assert.Equal(risks[0], svc.QuickInfrastructureRisk(52.48, -1.89, 200));
+    }
+
+    [Fact]
+    public async Task EstimateInfrastructureRiskAsync_CallerCancellationDoesNotPoisonSharedFill()
+    {
+        await using var db = CreateInMemoryDbContext();
+        await SeedInfrastructureRiskEdgeAsync(db);
+
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var svc = CreateService(db: db, cache: cache);
+
+        using var canceled = new CancellationTokenSource();
+        await canceled.CancelAsync();
+
+        try
+        {
+            _ = await svc.EstimateInfrastructureRiskAsync(52.48, -1.89, 250, canceled.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // The first caller may stop waiting, but the shared fill must remain usable.
+        }
+
+        var risk = await svc.EstimateInfrastructureRiskAsync(52.48, -1.89, 250);
+
+        Assert.Equal(risk, svc.QuickInfrastructureRisk(52.48, -1.89, 250));
     }
 
     // ─────────── Environmental data mocking ───────────

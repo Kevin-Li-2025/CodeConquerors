@@ -73,6 +73,7 @@ namespace AccessCity.API.Services
         private readonly AccessCityMetrics? _metrics;
         private readonly AppDbContext _dbContext;
         private readonly TimeSpan _externalSignalBudget;
+        private readonly TimeSpan _infrastructureRiskFillBudget;
         private readonly bool _realtimeExternalSignalsEnabled;
         private static readonly ConcurrentDictionary<string, Lazy<Task<double>>> InfrastructureRiskInFlight = new();
 
@@ -83,6 +84,7 @@ namespace AccessCity.API.Services
         private static readonly TimeSpan EnvCacheExpiry = TimeSpan.FromHours(1);
         private static readonly TimeSpan InfrastructureRiskCacheExpiry = TimeSpan.FromMinutes(10);
         private static readonly TimeSpan DefaultExternalSignalBudget = TimeSpan.FromMilliseconds(350);
+        private static readonly TimeSpan DefaultInfrastructureRiskFillBudget = TimeSpan.FromSeconds(2);
         private const double DefaultInfrastructureRisk = 0.35;
         private const double DefaultLightingRisk = 0.30;
         private const double DefaultSurveillanceRisk = 0.40;
@@ -117,6 +119,11 @@ namespace AccessCity.API.Services
             var externalBudgetMs = configuration?.GetValue("RiskScoring:ExternalSignalBudgetMilliseconds", (int)DefaultExternalSignalBudget.TotalMilliseconds)
                 ?? (int)DefaultExternalSignalBudget.TotalMilliseconds;
             _externalSignalBudget = TimeSpan.FromMilliseconds(Math.Max(50, externalBudgetMs));
+            var infrastructureFillBudgetMs = configuration?.GetValue(
+                "RiskScoring:InfrastructureRiskFillTimeoutMilliseconds",
+                (int)DefaultInfrastructureRiskFillBudget.TotalMilliseconds)
+                ?? (int)DefaultInfrastructureRiskFillBudget.TotalMilliseconds;
+            _infrastructureRiskFillBudget = TimeSpan.FromMilliseconds(Math.Clamp(infrastructureFillBudgetMs, 100, 10_000));
             _realtimeExternalSignalsEnabled = configuration?.GetValue("RiskScoring:RealtimeExternalSignalsEnabled", true) ?? true;
         }
 
@@ -574,33 +581,35 @@ namespace AccessCity.API.Services
                 return cached.Value;
             }
 
-            var fill = InfrastructureRiskInFlight.GetOrAdd(
-                cacheKey,
-                _ => new Lazy<Task<double>>(
-                    () => ComputeAndCacheInfrastructureRiskAsync(cacheKey, lat, lng, radiusMetres, cancellationToken),
-                    LazyThreadSafetyMode.ExecutionAndPublication));
+            var newFill = new Lazy<Task<double>>(
+                () => ComputeAndCacheInfrastructureRiskAsync(cacheKey, lat, lng, radiusMetres),
+                LazyThreadSafetyMode.ExecutionAndPublication);
+            var fill = InfrastructureRiskInFlight.GetOrAdd(cacheKey, newFill);
 
-            try
+            if (ReferenceEquals(fill, newFill))
             {
-                return await fill.Value;
+                _ = fill.Value.ContinueWith(
+                    completed =>
+                    {
+                        _ = completed.Exception;
+                        InfrastructureRiskInFlight.TryRemove(new KeyValuePair<string, Lazy<Task<double>>>(cacheKey, fill));
+                    },
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
             }
-            finally
-            {
-                if (fill.IsValueCreated && fill.Value.IsCompleted)
-                {
-                    InfrastructureRiskInFlight.TryRemove(new KeyValuePair<string, Lazy<Task<double>>>(cacheKey, fill));
-                }
-            }
+
+            return await fill.Value.WaitAsync(cancellationToken);
         }
 
         private async Task<double> ComputeAndCacheInfrastructureRiskAsync(
             string cacheKey,
             double lat,
             double lng,
-            double radiusMetres,
-            CancellationToken cancellationToken)
+            double radiusMetres)
         {
-            var risk = await ComputeInfrastructureRiskAsync(lat, lng, radiusMetres, cancellationToken);
+            using var fillTimeout = new CancellationTokenSource(_infrastructureRiskFillBudget);
+            var risk = await ComputeInfrastructureRiskAsync(lat, lng, radiusMetres, fillTimeout.Token);
             await SetCachedAsync(cacheKey, risk, InfrastructureRiskCacheExpiry);
             return risk;
         }
