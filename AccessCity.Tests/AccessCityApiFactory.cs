@@ -72,6 +72,8 @@ public class AccessCityApiFactory : WebApplicationFactory<Program>
                 ["OsmImport:FilePath"] = OsmFixturePath,
                 ["OsmImport:ImportOnStartup"] = "false",
                 ["OsmImport:ReplaceExisting"] = "true",
+                ["ExternalApis:Overpass:RealtimeHazardsEnabled"] = "false",
+                ["ExternalApis:Overpass:HazardFetchBudgetSeconds"] = "1",
                 ["Routing:DispatchJobsToWorker"] = "false",
                 ["AiEnrichment:Provider"] = "local-rules",
                 ["AiEnrichment:NebiusApiKey"] = string.Empty,

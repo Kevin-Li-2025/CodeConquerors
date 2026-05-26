@@ -56,6 +56,8 @@ jobs:
       ConnectionStrings__Redis: localhost:6379
       Jwt__Key: AccessCity_CI_Test_Jwt_Key_2026_Change_For_Production_At_Deploy_Time_64_Bytes
       OsmImport__ImportOnStartup: "false"
+      ExternalApis__Overpass__RealtimeHazardsEnabled: "false"
+      ExternalApis__Overpass__HazardFetchBudgetSeconds: "1"
       Postgres__CommandTimeoutSeconds: "60"
       Workers__OsmImport__Enabled: "false"
       Workers__Routing__Enabled: "false"

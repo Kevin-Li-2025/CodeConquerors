@@ -26,6 +26,8 @@ variables:
   DATABASE_URL: "postgresql://accesscity:accesscity123@postgres:5432/accesscitydb?sslmode=disable"
   ConnectionStrings__Redis: "redis:6379"
   Jwt__Key: "AccessCity_CI_Test_Jwt_Key_2026_Change_For_Production_At_Deploy_Time_64_Bytes"
+  ExternalApis__Overpass__RealtimeHazardsEnabled: "false"
+  ExternalApis__Overpass__HazardFetchBudgetSeconds: "1"
   # npm audit needs the official advisories API (many mirrors do not implement it).
   NPM_CONFIG_REGISTRY: "https://registry.npmjs.org/"
 

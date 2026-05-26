@@ -46,6 +46,7 @@ public class RealHazardDataService : IRealHazardDataService
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(15);
     private static readonly TimeSpan FailureCacheExpiration = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan StaleCacheExpiration = TimeSpan.FromHours(12);
+    private static readonly TimeSpan DistributedCacheWriteTimeout = TimeSpan.FromMilliseconds(750);
 
     private static readonly JsonSerializerOptions DistributedCacheJsonOptions = new(JsonSerializerDefaults.Web);
 
@@ -234,19 +235,29 @@ public class RealHazardDataService : IRealHazardDataService
     {
         try
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             var payload = JsonSerializer.Serialize(
                 hazards
                     .Where(hazard => hazard.Location is not null)
                     .Select(ToCachedHazardReport),
                 DistributedCacheJsonOptions);
 
+            using var cacheWriteTimeout = new CancellationTokenSource(DistributedCacheWriteTimeout);
             await _distributedCache
                 .SetStringAsync(
                     cacheKey,
                     payload,
                     new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = cacheTtl },
-                    cancellationToken)
+                    cacheWriteTimeout.Token)
                 .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException ex)
+        {
+            _logger.LogDebug(ex, "Distributed hazard cache write timed out or was skipped for key {CacheKey}.", cacheKey);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

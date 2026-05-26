@@ -11,6 +11,7 @@ AccessCity uses GitHub Actions as the primary CI/CD path and keeps GitLab CI as 
 - Manifests: Docker Compose config validation, worker/migration/AI profile validation, nginx config validation, and Kubernetes plus capacity-test kustomize rendering.
 - Container security: fresh API image build with pulled base layers, then a Grype fixed high/critical vulnerability gate.
 - Pull requests also run GitHub dependency review for new high+ dependency risk.
+- CI disables live Overpass hazard enrichment so tests remain deterministic and do not depend on external API tail latency.
 
 ## CD path
 
