@@ -27,6 +27,8 @@ public sealed class RoutingOptions
     public bool RouteGraphPrepartitionedShardsEnabled { get; set; }
     public int RouteGraphMaxPrepartitionedShardCount { get; set; } = 64;
     public int RouteGraphMinEdgesPerPrepartitionedShard { get; set; } = 250;
+    public bool RouteGraphCorridorSlicingEnabled { get; set; } = true;
+    public double RouteGraphCorridorPaddingMetres { get; set; } = 350;
     public bool RouteGraphPackedArtifactsEnabled { get; set; } = true;
     public long RouteGraphMaxDistributedSnapshotBytes { get; set; } = 8 * 1024 * 1024;
     public bool RouteGraphFileArtifactStoreEnabled { get; set; }

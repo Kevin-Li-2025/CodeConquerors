@@ -74,7 +74,8 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
     {
         var edgeLimit = Math.Max(100, _options.MaxRouteGraphEdges);
         var region = ComputeShardRegion(start, end);
-        var loadRegions = ComputeLoadRegions(region);
+        var loadRegions = ComputeLoadRegions(region, start, end);
+        var loadScope = BuildLoadScope(loadRegions);
         var stopwatch = Stopwatch.StartNew();
         var coverage = await _routeGraphStatus.GetStatusAsync(cancellationToken);
         var graphVersion = coverage.Version;
@@ -90,7 +91,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
                         region,
                         edgeLimit,
                         graphVersion,
-                        loadRegions.Count > 1 ? $"bundle{loadRegions.Count}" : "region")
+                        loadScope)
                 };
             }
 
@@ -101,7 +102,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             region,
             edgeLimit,
             graphVersion,
-            loadRegions.Count > 1 ? $"bundle{loadRegions.Count}" : "region");
+            loadScope);
 
         if (_cache.TryGetValue(cacheKey, out RouteGraphData? cached) && cached is not null)
         {
@@ -769,13 +770,6 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         return graphEdge;
     }
 
-    private static double ComputePaddingDegrees(Coordinate start, Coordinate end)
-    {
-        var latitudeDelta = Math.Abs(start.Y - end.Y);
-        var longitudeDelta = Math.Abs(start.X - end.X);
-        return Math.Max(0.01, Math.Max(latitudeDelta, longitudeDelta) * 0.35);
-    }
-
     private static double ComputeOverlapArea(GraphShardRegion a, GraphShardRegion b)
     {
         var lonOverlap = Math.Max(0.0, Math.Min(a.MaxLon, b.MaxLon) - Math.Max(a.MinLon, b.MinLon));
@@ -794,56 +788,14 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         return lonDelta * lonDelta + latDelta * latDelta;
     }
 
-    private GraphShardRegion ComputeShardRegion(Coordinate start, Coordinate end)
-    {
-        var padding = ComputePaddingDegrees(start, end);
-        var minLon = Math.Min(start.X, end.X) - padding;
-        var maxLon = Math.Max(start.X, end.X) + padding;
-        var minLat = Math.Min(start.Y, end.Y) - padding;
-        var maxLat = Math.Max(start.Y, end.Y) + padding;
-        var shardSize = Math.Clamp(_options.RouteGraphShardSizeDegrees, 0.002, 0.05);
+    private GraphShardRegion ComputeShardRegion(Coordinate start, Coordinate end) =>
+        RouteGraphShardPlanner.ComputePaddedRegion(start, end, _options);
 
-        return new GraphShardRegion(
-            Math.Floor(minLon / shardSize) * shardSize,
-            Math.Floor(minLat / shardSize) * shardSize,
-            Math.Ceiling(maxLon / shardSize) * shardSize,
-            Math.Ceiling(maxLat / shardSize) * shardSize);
-    }
-
-    private IReadOnlyList<GraphShardRegion> ComputeLoadRegions(GraphShardRegion region)
-    {
-        if (!_options.RouteGraphPrepartitionedShardsEnabled)
-        {
-            return new[] { region };
-        }
-
-        var shardSize = Math.Clamp(_options.RouteGraphShardSizeDegrees, 0.002, 0.05);
-        var minX = (int)Math.Floor(region.MinLon / shardSize);
-        var minY = (int)Math.Floor(region.MinLat / shardSize);
-        var maxX = (int)Math.Ceiling(region.MaxLon / shardSize) - 1;
-        var maxY = (int)Math.Ceiling(region.MaxLat / shardSize) - 1;
-        var shardCount = (maxX - minX + 1) * (maxY - minY + 1);
-
-        if (shardCount <= 1 || shardCount > Math.Max(1, _options.RouteGraphMaxPrepartitionedShardCount))
-        {
-            return new[] { region };
-        }
-
-        var regions = new List<GraphShardRegion>(shardCount);
-        for (var x = minX; x <= maxX; x++)
-        {
-            for (var y = minY; y <= maxY; y++)
-            {
-                regions.Add(new GraphShardRegion(
-                    x * shardSize,
-                    y * shardSize,
-                    (x + 1) * shardSize,
-                    (y + 1) * shardSize));
-            }
-        }
-
-        return regions;
-    }
+    private IReadOnlyList<GraphShardRegion> ComputeLoadRegions(
+        GraphShardRegion region,
+        Coordinate start,
+        Coordinate end) =>
+        RouteGraphShardPlanner.ComputeLoadRegions(region, start, end, _options);
 
     private static int ComputeBasePerShardEdgeLimit(int edgeLimit, int shardCount) =>
         Math.Max(100, Math.Max(1, edgeLimit) / Math.Max(1, shardCount));
@@ -907,9 +859,16 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         return graphData;
     }
 
+    private static string BuildLoadScope(IReadOnlyList<GraphShardRegion> regions) =>
+        regions.Count <= 1
+            ? "region"
+            : string.Create(
+                CultureInfo.InvariantCulture,
+                $"bundle{regions.Count}:{RouteGraphShardPlanner.BuildRegionSetFingerprint(regions)}");
+
     private static string BuildCacheKey(GraphShardRegion region, int edgeLimit, string graphVersion, string scope) =>
         string.Create(CultureInfo.InvariantCulture,
-            $"route_graph:v7:{RouteGraphArtifactCodec.SchemaVersion}:ew{RouteEdgeCostModel.EdgeWeightVersion}:alt{RouteGraphPreprocessor.AltAlgorithmVersion}:{scope}:{graphVersion}:{edgeLimit}:{region.MinLon:F4}:{region.MinLat:F4}:{region.MaxLon:F4}:{region.MaxLat:F4}");
+            $"route_graph:v8:{RouteGraphArtifactCodec.SchemaVersion}:ew{RouteEdgeCostModel.EdgeWeightVersion}:alt{RouteGraphPreprocessor.AltAlgorithmVersion}:{scope}:{graphVersion}:{edgeLimit}:{region.MinLon:F4}:{region.MinLat:F4}:{region.MaxLon:F4}:{region.MaxLat:F4}");
 
     private static string BuildArtifactManifestVersion(RouteGraphArtifactManifest manifest)
     {

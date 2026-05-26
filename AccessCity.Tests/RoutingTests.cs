@@ -656,6 +656,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         Assert.Equal(first.Nodes.Count, second.Nodes.Count);
 
         await transaction.RollbackAsync();
+        routeGraphStatus.InvalidateLocalCache();
     }
 
     [Fact]
@@ -888,6 +889,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         Assert.Equal(first.Nodes.Count, second.Nodes.Count);
 
         await transaction.RollbackAsync();
+        routeGraphStatus.InvalidateLocalCache();
     }
 
     [Fact]
@@ -1129,7 +1131,7 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
 
         return string.Create(
             CultureInfo.InvariantCulture,
-            $"route_graph:v7:{RouteGraphArtifactCodec.SchemaVersion}:ew{RouteEdgeCostModel.EdgeWeightVersion}:alt{RouteGraphPreprocessor.AltAlgorithmVersion}:region:{graphVersion}:{edgeLimit}:{minLon:F4}:{minLat:F4}:{maxLon:F4}:{maxLat:F4}");
+            $"route_graph:v8:{RouteGraphArtifactCodec.SchemaVersion}:ew{RouteEdgeCostModel.EdgeWeightVersion}:alt{RouteGraphPreprocessor.AltAlgorithmVersion}:region:{graphVersion}:{edgeLimit}:{minLon:F4}:{minLat:F4}:{maxLon:F4}:{maxLat:F4}");
     }
 
     private static RouteGraphData CreateTinyRouteGraphData(string shardKey)

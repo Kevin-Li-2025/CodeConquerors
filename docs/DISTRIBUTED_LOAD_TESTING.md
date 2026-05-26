@@ -84,6 +84,10 @@ injection checks.
 - `Routing__MaxRouteGraphEdges`: cap on route graph fanout before falling back.
 - `Routing__RouteGraphPrepartitionedShardsEnabled`: split route graph loads into reusable grid
   cell artifacts instead of caching only exact route-sized graph blobs.
+- `Routing__RouteGraphCorridorSlicingEnabled` / `Routing__RouteGraphCorridorPaddingMetres`: keep
+  city-scale route bundles near the likely route corridor instead of merging every shard in the
+  padded start/end rectangle. Profile this value with real city extracts; too high raises Redis
+  payload and worker hot-load tail, while too low can exclude realistic detours.
 - `Routing__RouteGraphPackedArtifactsEnabled`: store compact versioned graph artifacts with
   precomputed edge traversal weights in the shared cache.
 - `Routing__RouteGraphMaxDistributedSnapshotBytes`: cap route graph bundle writes to Redis/L2.

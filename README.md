@@ -126,6 +126,7 @@ High-value settings:
 | `Routing__DispatchJobsToWorker` | Sends route jobs to workers rather than computing in the API process. |
 | `Routing__RouteGraphPackedArtifactsEnabled` | Uses compact binary graph artifacts for cache/storage. |
 | `Routing__RouteGraphMaxDistributedSnapshotBytes` | Prevents oversized merged route graph bundles from being written to Redis/L2. |
+| `Routing__RouteGraphCorridorSlicingEnabled` / `Routing__RouteGraphCorridorPaddingMetres` | Loads a route corridor of reusable graph cells instead of the whole padded rectangle for city-scale routes. |
 | `Routing__RouteGraphProfileFailOnQualityGate` | Fails graph profiling when configured artifact/latency budgets are exceeded. |
 
 Secret rotation is documented in [Secret Rotation](docs/SECRET_ROTATION.md). Do not use the checked-in development JWT placeholder in production.

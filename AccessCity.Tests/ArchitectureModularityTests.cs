@@ -217,7 +217,7 @@ public sealed class ArchitectureModularityTests
         Assert.Contains("ComputeShardRegion", repository, StringComparison.Ordinal);
         Assert.Contains("ComputeLoadRegions", repository, StringComparison.Ordinal);
         Assert.Contains("MergeGraphShards", repository, StringComparison.Ordinal);
-        Assert.Contains("route_graph:v7", repository, StringComparison.Ordinal);
+        Assert.Contains("route_graph:v8", repository, StringComparison.Ordinal);
         Assert.Contains("Routing__RouteGraphPrepartitionedShardsEnabled: \"true\"", configMap, StringComparison.Ordinal);
         Assert.Contains("Routing__RouteGraphPackedArtifactsEnabled: \"true\"", configMap, StringComparison.Ordinal);
         Assert.Contains("Routing__RouteGraphAltPreprocessingEnabled: \"true\"", configMap, StringComparison.Ordinal);

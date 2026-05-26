@@ -388,7 +388,7 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
 
     private RouteGraphData SliceGraph(
         OfflineShardIndex shardIndex,
-        IReadOnlyList<OfflineGraphShardRegion> regions,
+        IReadOnlyList<GraphShardRegion> regions,
         string filePath,
         int edgeLimit)
     {
@@ -465,7 +465,7 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
     private OfflineShardIndex BuildShardIndex(RouteGraphData graphData, string filePath)
     {
         var shards = new Dictionary<string, List<OfflineEdgeRef>>(StringComparer.Ordinal);
-        var shardRegions = new Dictionary<string, OfflineGraphShardRegion>(StringComparer.Ordinal);
+        var shardRegions = new Dictionary<string, GraphShardRegion>(StringComparer.Ordinal);
         foreach (var fromNode in graphData.Nodes.Values)
         {
             foreach (var edge in fromNode.Edges.Values)
@@ -496,7 +496,7 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
 
     private static IEnumerable<string> ResolveShardKeysForRegion(
         OfflineShardIndex shardIndex,
-        OfflineGraphShardRegion region)
+        GraphShardRegion region)
     {
         foreach (var (shardKey, shardRegion) in shardIndex.ShardRegions)
         {
@@ -507,82 +507,32 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
         }
     }
 
-    private static bool Overlaps(OfflineGraphShardRegion a, OfflineGraphShardRegion b) =>
+    private static bool Overlaps(GraphShardRegion a, GraphShardRegion b) =>
         a.MinLon < b.MaxLon
         && a.MaxLon > b.MinLon
         && a.MinLat < b.MaxLat
         && a.MaxLat > b.MinLat;
 
-    private OfflineGraphShardRegion ComputeShardRegionForCoordinate(Coordinate coordinate)
+    private GraphShardRegion ComputeShardRegionForCoordinate(Coordinate coordinate)
     {
-        var shardSize = Math.Clamp(_options.RouteGraphShardSizeDegrees, 0.002, 0.05);
+        var shardSize = RouteGraphShardPlanner.ClampShardSize(_options.RouteGraphShardSizeDegrees);
         var x = Math.Floor(coordinate.X / shardSize);
         var y = Math.Floor(coordinate.Y / shardSize);
-        return new OfflineGraphShardRegion(
+        return new GraphShardRegion(
             x * shardSize,
             y * shardSize,
             (x + 1) * shardSize,
             (y + 1) * shardSize);
     }
 
-    private IReadOnlyList<OfflineGraphShardRegion> ComputeProfileShardRegions(Coordinate start, Coordinate end)
+    private IReadOnlyList<GraphShardRegion> ComputeProfileShardRegions(Coordinate start, Coordinate end)
     {
         var region = ComputeShardRegion(start, end);
-        if (!_options.RouteGraphPrepartitionedShardsEnabled)
-        {
-            return new[] { region };
-        }
-
-        var shardSize = Math.Clamp(_options.RouteGraphShardSizeDegrees, 0.002, 0.05);
-        var minX = (int)Math.Floor(region.MinLon / shardSize);
-        var minY = (int)Math.Floor(region.MinLat / shardSize);
-        var maxX = (int)Math.Ceiling(region.MaxLon / shardSize) - 1;
-        var maxY = (int)Math.Ceiling(region.MaxLat / shardSize) - 1;
-        var shardCount = (maxX - minX + 1) * (maxY - minY + 1);
-
-        if (shardCount <= 1 || shardCount > Math.Max(1, _options.RouteGraphMaxPrepartitionedShardCount))
-        {
-            return new[] { region };
-        }
-
-        var regions = new List<OfflineGraphShardRegion>(shardCount);
-        for (var x = minX; x <= maxX; x++)
-        {
-            for (var y = minY; y <= maxY; y++)
-            {
-                regions.Add(new OfflineGraphShardRegion(
-                    x * shardSize,
-                    y * shardSize,
-                    (x + 1) * shardSize,
-                    (y + 1) * shardSize));
-            }
-        }
-
-        return regions;
+        return RouteGraphShardPlanner.ComputeLoadRegions(region, start, end, _options);
     }
 
-    private OfflineGraphShardRegion ComputeShardRegion(Coordinate start, Coordinate end)
-    {
-        var padding = ComputePaddingDegrees(start, end);
-        var minLon = Math.Min(start.X, end.X) - padding;
-        var maxLon = Math.Max(start.X, end.X) + padding;
-        var minLat = Math.Min(start.Y, end.Y) - padding;
-        var maxLat = Math.Max(start.Y, end.Y) + padding;
-        var shardSize = Math.Clamp(_options.RouteGraphShardSizeDegrees, 0.002, 0.05);
-
-        return new OfflineGraphShardRegion(
-            Math.Floor(minLon / shardSize) * shardSize,
-            Math.Floor(minLat / shardSize) * shardSize,
-            Math.Ceiling(maxLon / shardSize) * shardSize,
-            Math.Ceiling(maxLat / shardSize) * shardSize);
-    }
-
-    private static double ComputePaddingDegrees(Coordinate start, Coordinate end)
-    {
-        var latitudeDelta = Math.Abs(start.Y - end.Y);
-        var longitudeDelta = Math.Abs(start.X - end.X);
-        return Math.Max(0.01, Math.Max(latitudeDelta, longitudeDelta) * 0.35);
-    }
+    private GraphShardRegion ComputeShardRegion(Coordinate start, Coordinate end) =>
+        RouteGraphShardPlanner.ComputePaddedRegion(start, end, _options);
 
     private static GraphNode GetOrAddNode(Dictionary<long, GraphNode> nodes, GraphNode source)
     {
@@ -822,13 +772,13 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
     private static string BuildOfflineSourceKey(string filePath) =>
         $"osm-extract:{Path.GetFileName(filePath)}:{RouteGraphArtifactCodec.SchemaVersion}:ew{RouteEdgeCostModel.EdgeWeightVersion}:alt{RouteGraphPreprocessor.AltAlgorithmVersion}";
 
-    private static string BuildOfflineShardKey(string filePath, OfflineGraphShardRegion region) =>
+    private static string BuildOfflineShardKey(string filePath, GraphShardRegion region) =>
         string.Create(CultureInfo.InvariantCulture,
             $"{BuildOfflineSourceKey(filePath)}:cell:{region.MinLon:F4}:{region.MinLat:F4}:{region.MaxLon:F4}:{region.MaxLat:F4}");
 
     private static string BuildOfflineBundleKey(
         string filePath,
-        IReadOnlyList<OfflineGraphShardRegion> regions,
+        IReadOnlyList<GraphShardRegion> regions,
         int edgeLimit)
     {
         var minLon = regions.Min(region => region.MinLon);
@@ -836,7 +786,7 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
         var maxLon = regions.Max(region => region.MaxLon);
         var maxLat = regions.Max(region => region.MaxLat);
         return string.Create(CultureInfo.InvariantCulture,
-            $"{BuildOfflineSourceKey(filePath)}:bundle{regions.Count}:{edgeLimit}:{minLon:F4}:{minLat:F4}:{maxLon:F4}:{maxLat:F4}");
+            $"{BuildOfflineSourceKey(filePath)}:bundle{regions.Count}:{RouteGraphShardPlanner.BuildRegionSetFingerprint(regions)}:{edgeLimit}:{minLon:F4}:{minLat:F4}:{maxLon:F4}:{maxLat:F4}");
     }
 
     private static bool IsWalkable(Way way)
@@ -1144,11 +1094,10 @@ public sealed class OsmRouteGraphExtractProfileService : IOsmRouteGraphExtractPr
         "motorway", "motorway_link", "trunk", "trunk_link", "proposed", "construction"
     };
 
-    private readonly record struct OfflineGraphShardRegion(double MinLon, double MinLat, double MaxLon, double MaxLat);
     private readonly record struct OfflineEdgeRef(GraphNode FromNode, GraphNode ToNode, GraphEdge Edge);
     private sealed record OfflineShardIndex(
         IReadOnlyDictionary<string, List<OfflineEdgeRef>> Shards,
-        IReadOnlyDictionary<string, OfflineGraphShardRegion> ShardRegions);
+        IReadOnlyDictionary<string, GraphShardRegion> ShardRegions);
     private readonly record struct OfflineShardArtifactBuildResult(
         int Count,
         long Bytes,

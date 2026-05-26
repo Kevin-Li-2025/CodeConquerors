@@ -68,6 +68,9 @@ into stable grid cells; each cell artifact carries schema, accessibility-cost, e
 versions so graph data is invalidated when routing cost logic changes. Nearby but non-identical
 route requests can then reuse the same city graph partitions instead of depending only on exact
 request coalescing.
+For longer city routes, `Routing__RouteGraphCorridorSlicingEnabled=true` narrows the merged bundle
+to cells intersecting a padded start/end corridor, so API pods and workers avoid loading the full
+rectangular bbox when most cells cannot plausibly affect the route.
 When `Routing__RouteGraphAltPreprocessingEnabled=true`, packed artifacts also carry ALT landmark
 tables over a minimum traversal-time metric. A* still returns exact deterministic paths because the
 landmark bound is admissible, but larger shards need fewer node expansions. Use
