@@ -49,6 +49,21 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         Status = HazardStatus.Reported
     };
 
+    private static SafePathOptionsResponse BuildOptionsResponse(
+        RouteRequest request,
+        double distance,
+        double safetyScore) => new()
+        {
+            Recommended = new RouteResponse
+            {
+                Path = new LineString(new[] { request.Start, request.End }),
+                Distance = distance,
+                EstimatedTime = Math.Max(1, distance / 1.2),
+                SafetyScore = safetyScore
+            },
+            Variants = new List<RoutedOptionVariant>()
+        };
+
     [Fact]
     public void RouteRequestFingerprint_Changes_For_Preferences_And_Hazards()
     {
@@ -144,6 +159,63 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             Assert.Equal(123, result!.Recommended.Distance);
             Assert.Equal(0.82, result.Recommended.SafetyScore);
         });
+    }
+
+    [Fact]
+    public async Task RouteOptionsCoalescing_DropsExpiredHungEntryInsteadOfJoiningIt()
+    {
+        var coalescing = new RouteCoalescingService(
+            NullLogger<RouteCoalescingService>.Instance,
+            new AccessCityMetrics(),
+            Options.Create(new RoutingOptions
+            {
+                DistributedCoalescingEnabled = false,
+                LocalCoalescingEntryTtlSeconds = 1
+            }));
+        var request = new RouteRequest
+        {
+            Start = new Coordinate(-1.8904, 52.4862),
+            End = new Coordinate(-1.8894, 52.4862),
+            Profile = "manual-wheelchair",
+            SafetyWeight = 0.7,
+            Preferences = new List<string> { "wheelchair", "prefer-crossings" }
+        };
+        var firstEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var computeCount = 0;
+
+        var firstTask = coalescing.GetOrComputeOptionsAsync(
+            request,
+            "hazards:test:graph:test",
+            async () =>
+            {
+                Interlocked.Increment(ref computeCount);
+                firstEntered.TrySetResult(true);
+                await releaseFirst.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                return BuildOptionsResponse(request, 111, 0.71);
+            });
+
+        await firstEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.Delay(TimeSpan.FromMilliseconds(1_100));
+
+        var second = await coalescing.GetOrComputeOptionsAsync(
+            request,
+            "hazards:test:graph:test",
+            () =>
+            {
+                Interlocked.Increment(ref computeCount);
+                return Task.FromResult<SafePathOptionsResponse?>(BuildOptionsResponse(request, 222, 0.92));
+            }).WaitAsync(TimeSpan.FromSeconds(5));
+
+        releaseFirst.SetResult(true);
+        var first = await firstTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(2, Volatile.Read(ref computeCount));
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.Equal(111, first!.Recommended.Distance);
+        Assert.Equal(222, second!.Recommended.Distance);
+        Assert.Equal(0.92, second.Recommended.SafetyScore);
     }
 
     [Fact]

@@ -72,6 +72,7 @@ public sealed class RoutingOptions
     public int RouteGraphDistributedLoadLockTtlSeconds { get; set; } = 8;
     public int RouteGraphDistributedLoadWaitMilliseconds { get; set; } = 3_500;
     public bool DistributedCoalescingEnabled { get; set; } = true;
+    public int LocalCoalescingEntryTtlSeconds { get; set; } = 30;
     public int DistributedCoalescingLockTtlSeconds { get; set; } = 6;
     public int DistributedCoalescingResultTtlSeconds { get; set; } = 10;
     public int DistributedCoalescingWaitMilliseconds { get; set; } = 3_500;

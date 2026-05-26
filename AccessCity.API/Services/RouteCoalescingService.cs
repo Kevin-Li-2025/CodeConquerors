@@ -52,6 +52,7 @@ public sealed class RouteCoalescingService : IRouteCoalescingService
     private readonly ILogger<RouteCoalescingService> _logger;
     private readonly AccessCityMetrics _metrics;
     private readonly RoutingOptions _options;
+    private readonly TimeSpan _localEntryTtl;
     private readonly IConnectionMultiplexer? _redis;
 
     public RouteCoalescingService(ILogger<RouteCoalescingService> logger, AccessCityMetrics metrics)
@@ -68,6 +69,7 @@ public sealed class RouteCoalescingService : IRouteCoalescingService
         _logger = logger;
         _metrics = metrics;
         _options = options.Value;
+        _localEntryTtl = TimeSpan.FromSeconds(Math.Clamp(_options.LocalCoalescingEntryTtlSeconds, 1, 300));
         _redis = redis;
     }
 
@@ -100,7 +102,7 @@ public sealed class RouteCoalescingService : IRouteCoalescingService
         string kind,
         Func<Task<T?>> factory)
     {
-        if (inflight.TryGetValue(key, out var existing) && !existing.IsExpired)
+        if (TryGetActiveEntry(inflight, key, _localEntryTtl, out var existing))
         {
             _logger.LogDebug("Route {Kind} request coalesced for key {Key}", kind, key);
             _metrics.RouteCoalescing($"{kind}:joined_existing");
@@ -127,11 +129,11 @@ public sealed class RouteCoalescingService : IRouteCoalescingService
             finally
             {
                 // Allow re-computation after a short window while still absorbing near-simultaneous duplicates.
-                _ = RemoveAfterDelay(inflight, key, TimeSpan.FromMilliseconds(500));
+                _ = RemoveAfterDelay(inflight, key, entry, TimeSpan.FromMilliseconds(500));
             }
         }
 
-        if (inflight.TryGetValue(key, out var raceWinner))
+        if (TryGetActiveEntry(inflight, key, _localEntryTtl, out var raceWinner))
         {
             _metrics.RouteCoalescing($"{kind}:joined_race_winner");
             return await raceWinner.Task;
@@ -307,16 +309,37 @@ public sealed class RouteCoalescingService : IRouteCoalescingService
     private static async Task RemoveAfterDelay<T>(
         ConcurrentDictionary<string, CoalescedEntry<T>> inflight,
         string key,
+        CoalescedEntry<T> entry,
         TimeSpan delay)
     {
         await Task.Delay(delay);
-        inflight.TryRemove(key, out _);
+        inflight.TryRemove(new KeyValuePair<string, CoalescedEntry<T>>(key, entry));
     }
 
     private sealed record CoalescedEntry<T>(Task<T?> Task, DateTime CreatedAt)
     {
-        /// <summary>Entries older than 30 seconds are considered expired.</summary>
-        public bool IsExpired => DateTime.UtcNow - CreatedAt > TimeSpan.FromSeconds(30);
+        public bool IsExpired(TimeSpan ttl) => DateTime.UtcNow - CreatedAt > ttl;
+    }
+
+    private static bool TryGetActiveEntry<T>(
+        ConcurrentDictionary<string, CoalescedEntry<T>> inflight,
+        string key,
+        TimeSpan ttl,
+        out CoalescedEntry<T> entry)
+    {
+        while (inflight.TryGetValue(key, out var current))
+        {
+            if (!current.IsExpired(ttl))
+            {
+                entry = current;
+                return true;
+            }
+
+            inflight.TryRemove(new KeyValuePair<string, CoalescedEntry<T>>(key, current));
+        }
+
+        entry = null!;
+        return false;
     }
 
     private static JsonSerializerOptions CreateDistributedResultJsonOptions()
