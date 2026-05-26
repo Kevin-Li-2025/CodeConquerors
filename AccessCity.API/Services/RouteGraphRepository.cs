@@ -234,6 +234,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         }
 
         var shards = new List<RouteGraphData>(matchingShards.Length);
+        var failedShardCount = 0;
         foreach (var shard in matchingShards)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -243,7 +244,8 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
                 var artifact = await _artifactStore.TryReadManifestShardAsync(shard, cancellationToken);
                 if (artifact is null)
                 {
-                    return null;
+                    failedShardCount++;
+                    continue;
                 }
 
                 graphData = RouteGraphArtifactCodec.Unpack(artifact.Artifact);
@@ -251,21 +253,29 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
 
             if (!graphData.HasCoverage)
             {
-                return null;
+                failedShardCount++;
+                continue;
             }
 
             shards.Add(graphData);
+        }
+
+        if (shards.Count == 0)
+        {
+            return null;
         }
 
         var loaded = shards.Count == 1
             ? shards[0]
             : MergeGraphShards(shards, cacheKey, edgeLimit);
         _logger.LogDebug(
-            "Loaded route graph shard {ShardKey} from {ShardCount} manifest artifacts ({NodeCount} nodes, {EdgeCount} edges)",
+            "Loaded route graph shard {ShardKey} from {ShardCount}/{MatchingShardCount} manifest artifacts ({NodeCount} nodes, {EdgeCount} edges, failed={FailedShardCount})",
             cacheKey,
             shards.Count,
+            matchingShards.Length,
             loaded.Nodes.Count,
-            loaded.LoadedEdgeCount);
+            loaded.LoadedEdgeCount,
+            failedShardCount);
         return loaded;
     }
 

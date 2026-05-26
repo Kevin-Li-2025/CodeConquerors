@@ -759,6 +759,19 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
             new[]
             {
                 new RouteGraphArtifactManifestShard(
+                    "000-missing-route-graph-shard",
+                    -1.92,
+                    52.47,
+                    -1.86,
+                    52.50,
+                    first.Nodes.Count,
+                    first.LoadedEdgeCount,
+                    1,
+                    DateTime.UtcNow,
+                    "unit-test-manifest",
+                    "missing-route-graph-shard.acrg",
+                    "missing"),
+                new RouteGraphArtifactManifestShard(
                     manifestShardCacheKey,
                     -1.92,
                     52.47,
