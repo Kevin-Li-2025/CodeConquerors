@@ -223,15 +223,34 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             return null;
         }
 
-        var matchingShards = manifest.Shards
-            .Where(shard => Overlaps(region, new GraphShardRegion(shard.MinLon, shard.MinLat, shard.MaxLon, shard.MaxLat)))
-            .OrderBy(shard => shard.CacheKey, StringComparer.Ordinal)
+        var maxShardLoads = Math.Max(1, _options.RouteGraphMaxFileArtifactShardLoadCount);
+        var overlappingShards = manifest.Shards
+            .Select(shard =>
+            {
+                var shardRegion = new GraphShardRegion(shard.MinLon, shard.MinLat, shard.MaxLon, shard.MaxLat);
+                return new
+                {
+                    Shard = shard,
+                    OverlapArea = ComputeOverlapArea(region, shardRegion),
+                    CenterDistance = ComputeCenterDistanceSquared(region, shardRegion)
+                };
+            })
+            .Where(candidate => candidate.OverlapArea > 0)
             .ToArray();
-        if (matchingShards.Length == 0
-            || matchingShards.Length > Math.Max(1, _options.RouteGraphMaxFileArtifactShardLoadCount))
+        if (overlappingShards.Length == 0)
         {
             return null;
         }
+
+        var matchingShards = overlappingShards
+            .OrderByDescending(candidate => candidate.OverlapArea)
+            .ThenBy(candidate => candidate.CenterDistance)
+            .ThenByDescending(candidate => candidate.Shard.EdgeCount)
+            .ThenByDescending(candidate => candidate.Shard.PayloadBytes)
+            .ThenBy(candidate => candidate.Shard.CacheKey, StringComparer.Ordinal)
+            .Take(maxShardLoads)
+            .Select(candidate => candidate.Shard)
+            .ToArray();
 
         var shards = new List<RouteGraphData>(matchingShards.Length);
         var failedShardCount = 0;
@@ -272,7 +291,7 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
             "Loaded route graph shard {ShardKey} from {ShardCount}/{MatchingShardCount} manifest artifacts ({NodeCount} nodes, {EdgeCount} edges, failed={FailedShardCount})",
             cacheKey,
             shards.Count,
-            matchingShards.Length,
+            overlappingShards.Length,
             loaded.Nodes.Count,
             loaded.LoadedEdgeCount,
             failedShardCount);
@@ -713,11 +732,23 @@ public sealed class RouteGraphRepository : IRouteGraphRepository
         return Math.Max(0.01, Math.Max(latitudeDelta, longitudeDelta) * 0.35);
     }
 
-    private static bool Overlaps(GraphShardRegion a, GraphShardRegion b) =>
-        a.MinLon < b.MaxLon
-        && a.MaxLon > b.MinLon
-        && a.MinLat < b.MaxLat
-        && a.MaxLat > b.MinLat;
+    private static double ComputeOverlapArea(GraphShardRegion a, GraphShardRegion b)
+    {
+        var lonOverlap = Math.Max(0.0, Math.Min(a.MaxLon, b.MaxLon) - Math.Max(a.MinLon, b.MinLon));
+        var latOverlap = Math.Max(0.0, Math.Min(a.MaxLat, b.MaxLat) - Math.Max(a.MinLat, b.MinLat));
+        return lonOverlap * latOverlap;
+    }
+
+    private static double ComputeCenterDistanceSquared(GraphShardRegion a, GraphShardRegion b)
+    {
+        var aCenterLon = (a.MinLon + a.MaxLon) * 0.5;
+        var aCenterLat = (a.MinLat + a.MaxLat) * 0.5;
+        var bCenterLon = (b.MinLon + b.MaxLon) * 0.5;
+        var bCenterLat = (b.MinLat + b.MaxLat) * 0.5;
+        var lonDelta = aCenterLon - bCenterLon;
+        var latDelta = aCenterLat - bCenterLat;
+        return lonDelta * lonDelta + latDelta * latDelta;
+    }
 
     private GraphShardRegion ComputeShardRegion(Coordinate start, Coordinate end)
     {

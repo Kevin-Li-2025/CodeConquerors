@@ -818,6 +818,120 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         await transaction.RollbackAsync();
     }
 
+    [Fact]
+    public async Task RouteGraphRepository_Loads_Relevant_File_Manifest_Shards_When_Matches_Exceed_Limit()
+    {
+        var dbOptions = new DbContextOptionsBuilder<AppDbContext>()
+            .UseInMemoryDatabase($"route_graph_manifest_limit_{Guid.NewGuid():N}")
+            .Options;
+        await using var dbContext = new AppDbContext(dbOptions);
+        using var memoryCache = new MemoryCache(new MemoryCacheOptions());
+        var distributedCache = new MemoryDistributedCache(Options.Create(new MemoryDistributedCacheOptions()));
+        var routeGraphStatus = new Mock<IRouteGraphStatusService>();
+        routeGraphStatus
+            .Setup(status => status.GetStatusAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RouteGraphCoverageStatus(
+                0,
+                0,
+                false,
+                "osm:empty:unit-test",
+                null,
+                null,
+                null,
+                null,
+                "empty graph"));
+        var routingOptions = Options.Create(new RoutingOptions
+        {
+            RouteGraphPackedArtifactsEnabled = true,
+            RouteGraphFileArtifactStoreEnabled = true,
+            RouteGraphFileArtifactManifestEnabled = true,
+            RouteGraphFileArtifactWriteThroughEnabled = false,
+            RouteGraphMaxFileArtifactShardLoadCount = 1,
+            RouteGraphShardSizeDegrees = 0.01,
+            MaxRouteGraphEdges = 1_000
+        });
+
+        var goodGraph = CreateTinyRouteGraphData("relevant-shard");
+        var artifact = RouteGraphArtifactCodec.Pack(goodGraph);
+        var payload = RouteGraphArtifactCodec.SerializeRedisPayload(artifact);
+        var readResult = new RouteGraphArtifactStoreReadResult(
+            artifact,
+            "relevant-shard.acrg",
+            payload.Length,
+            DateTime.UtcNow,
+            "unit-test",
+            payload);
+        var manifest = new RouteGraphArtifactManifest(
+            RouteGraphArtifactCodec.SchemaVersion,
+            RouteEdgeCostModel.Version,
+            RouteEdgeCostModel.EdgeWeightVersion,
+            RouteGraphPreprocessor.AltAlgorithmVersion,
+            routingOptions.Value.RouteGraphShardSizeDegrees,
+            "unit-test.osm",
+            DateTime.UtcNow,
+            new[]
+            {
+                new RouteGraphArtifactManifestShard(
+                    "tiny-overlap-missing-shard",
+                    -1.9100,
+                    52.4700,
+                    -1.9050,
+                    52.4750,
+                    1,
+                    1,
+                    1,
+                    DateTime.UtcNow,
+                    "unit-test",
+                    "missing.acrg",
+                    "missing"),
+                new RouteGraphArtifactManifestShard(
+                    goodGraph.ShardKey!,
+                    -1.9100,
+                    52.4700,
+                    -1.8700,
+                    52.5000,
+                    goodGraph.Nodes.Count,
+                    goodGraph.LoadedEdgeCount,
+                    payload.Length,
+                    DateTime.UtcNow,
+                    "unit-test",
+                    "relevant-shard.acrg",
+                    "valid")
+            });
+        var artifactStore = new Mock<IRouteGraphArtifactStore>();
+        artifactStore.SetupGet(store => store.IsEnabled).Returns(true);
+        artifactStore
+            .Setup(store => store.TryReadManifestAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(manifest);
+        artifactStore
+            .Setup(store => store.TryReadManifestShardAsync(
+                It.Is<RouteGraphArtifactManifestShard>(shard => shard.CacheKey == goodGraph.ShardKey),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(readResult);
+
+        var repository = new RouteGraphRepository(
+            dbContext,
+            memoryCache,
+            distributedCache,
+            new AccessCityMetrics(),
+            routeGraphStatus.Object,
+            routingOptions,
+            NullLogger<RouteGraphRepository>.Instance,
+            artifactStore.Object);
+
+        var loaded = await repository.LoadGraphAsync(
+            new Coordinate(-1.8904, 52.4862),
+            new Coordinate(-1.8894, 52.4862));
+
+        Assert.True(loaded.HasCoverage);
+        Assert.Equal(goodGraph.LoadedEdgeCount, loaded.LoadedEdgeCount);
+        artifactStore.Verify(
+            store => store.TryReadManifestShardAsync(
+                It.Is<RouteGraphArtifactManifestShard>(shard => shard.CacheKey == "tiny-overlap-missing-shard"),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
     private static string BuildRouteGraphCacheKey(
         Coordinate start,
         Coordinate end,
@@ -837,6 +951,41 @@ public class RoutingTests : IClassFixture<AccessCityApiFactory>
         return string.Create(
             CultureInfo.InvariantCulture,
             $"route_graph:v7:{RouteGraphArtifactCodec.SchemaVersion}:ew{RouteEdgeCostModel.EdgeWeightVersion}:alt{RouteGraphPreprocessor.AltAlgorithmVersion}:region:{graphVersion}:{edgeLimit}:{minLon:F4}:{minLat:F4}:{maxLon:F4}:{maxLat:F4}");
+    }
+
+    private static RouteGraphData CreateTinyRouteGraphData(string shardKey)
+    {
+        var graphData = new RouteGraphData
+        {
+            ShardKey = shardKey,
+            SourceShardKeys = new[] { shardKey },
+            LoadedEdgeCount = 1,
+            Nodes = new Dictionary<long, GraphNode>
+            {
+                [1] = new()
+                {
+                    Id = 1,
+                    Location = new Coordinate(-1.8904, 52.4862),
+                    Edges =
+                    {
+                        [2] = new GraphEdge { TargetNodeId = 2, DistanceMetres = 90 }
+                    }
+                },
+                [2] = new()
+                {
+                    Id = 2,
+                    Location = new Coordinate(-1.8894, 52.4862)
+                }
+            }
+        };
+        RouteGraphSpatialIndex.BuildSpatialBuckets(graphData);
+        RouteGraphPreprocessor.TryAttachPreprocessing(graphData, new RoutingOptions
+        {
+            RouteGraphAltPreprocessingEnabled = true,
+            RouteGraphAltLandmarkCount = 2,
+            RouteGraphMaxAltPreprocessedNodes = 10
+        });
+        return graphData;
     }
 
     [Fact]
