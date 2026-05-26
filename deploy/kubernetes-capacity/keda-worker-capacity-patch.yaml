@@ -1,0 +1,23 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: accesscity-worker-kafka
+spec:
+  minReplicaCount: 30
+  maxReplicaCount: 100
+  idleReplicaCount: 0
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: accesscity-workers
+        topic: accesscity_routejobrequestedevent
+        lagThreshold: "3"
+        activationLagThreshold: "1"
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: accesscity-workers
+        topic: accesscity_osmimportstartedevent
+        lagThreshold: "2"
+        activationLagThreshold: "1"

@@ -1,0 +1,10 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: accesscity-api-scalability
+spec:
+  minReplicaCount: 10
+  maxReplicaCount: 40
+  fallback:
+    failureThreshold: 3
+    replicas: 10

@@ -19,3 +19,25 @@ spec:
       server_lifetime: "1800"
       query_wait_timeout: "5"
       ignore_startup_parameters: "extra_float_digits"
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Pooler
+metadata:
+  name: accesscity-postgres-ro-pooler
+spec:
+  cluster:
+    name: accesscity-postgres
+  instances: 3
+  type: ro
+  pgbouncer:
+    poolMode: transaction
+    parameters:
+      max_client_conn: "2000"
+      default_pool_size: "80"
+      min_pool_size: "20"
+      reserve_pool_size: "30"
+      reserve_pool_timeout: "3"
+      server_idle_timeout: "60"
+      server_lifetime: "1800"
+      query_wait_timeout: "5"
+      ignore_startup_parameters: "extra_float_digits"

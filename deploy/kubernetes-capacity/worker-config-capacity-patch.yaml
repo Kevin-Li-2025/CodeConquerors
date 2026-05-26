@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: accesscity-worker-config
+data:
+  Kafka__TopicPartitions: "96"
+  Postgres__MaxPoolSize: "6"
+  Postgres__DbContextPoolSize: "96"
+  Routing__MaxConcurrentComputations: "2"
+  Routing__RouteJobDispatchConcurrency: "3"
+  Routing__JobComputationQueueTimeoutSeconds: "45"
+  Routing__RouteGraphWarmupEnabled: "true"
+  Routing__RouteGraphFileArtifactWarmupEnabled: "true"

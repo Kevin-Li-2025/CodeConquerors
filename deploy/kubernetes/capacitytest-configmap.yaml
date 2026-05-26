@@ -1,0 +1,250 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: accesscity-capacitytest-script
+data:
+  accesscity-capacity.js: |
+    import http from 'k6/http';
+    import { check, sleep } from 'k6';
+    import exec from 'k6/execution';
+    import { Rate } from 'k6/metrics';
+
+    const baseUrl = __ENV.BASE_URL || 'http://accesscity-api';
+    const testDuration = __ENV.TEST_DURATION || '10m';
+    const routeRate = Number(__ENV.ROUTE_RATE || 80);
+    const riskRate = Number(__ENV.RISK_RATE || 220);
+    const poiRate = Number(__ENV.POI_RATE || 80);
+    const hazardRate = Number(__ENV.HAZARD_RATE || 60);
+    const dashboardRate = Number(__ENV.DASHBOARD_RATE || 40);
+    const readinessRate = Number(__ENV.READINESS_RATE || 40);
+    const tileRate = Number(__ENV.TILE_RATE || 0);
+    const routePollTimeoutSeconds = Number(__ENV.ROUTE_POLL_TIMEOUT_SECONDS || 25);
+    const authToken = __ENV.AUTH_TOKEN || '';
+
+    export const routeCriticalFailures = new Rate('route_critical_failures');
+    export const routeJobTimeouts = new Rate('route_job_timeouts');
+    export const hotReadFailures = new Rate('hot_read_failures');
+    export const readinessFailures = new Rate('readiness_failures');
+    export const tileFailures = new Rate('tile_failures');
+
+    function scenario(rate, preAllocatedVUs, maxVUs, execName) {
+      return {
+        executor: 'constant-arrival-rate',
+        rate,
+        timeUnit: '1s',
+        duration: testDuration,
+        preAllocatedVUs,
+        maxVUs,
+        exec: execName,
+        gracefulStop: '30s'
+      };
+    }
+
+    const scenarios = {};
+    if (routeRate > 0) scenarios.route_jobs = scenario(routeRate, 300, 2500, 'routeJobs');
+    if (riskRate > 0) scenarios.risk_reads = scenario(riskRate, 120, 800, 'riskReads');
+    if (poiRate > 0) scenarios.poi_reads = scenario(poiRate, 80, 600, 'poiReads');
+    if (hazardRate > 0) scenarios.hazard_pages = scenario(hazardRate, 60, 400, 'hazardPages');
+    if (dashboardRate > 0) scenarios.dashboard_reads = scenario(dashboardRate, 60, 400, 'dashboardReads');
+    if (readinessRate > 0) scenarios.readiness = scenario(readinessRate, 40, 240, 'readiness');
+    if (tileRate > 0 && authToken) scenarios.tile_reads = scenario(tileRate, 80, 600, 'tileReads');
+
+    export const options = {
+      scenarios,
+      thresholds: {
+        http_req_failed: ['rate<0.01'],
+        http_req_duration: ['p(95)<1200', 'p(99)<3000'],
+        checks: ['rate>0.99'],
+        route_critical_failures: ['rate<0.01'],
+        route_job_timeouts: ['rate<0.01'],
+        hot_read_failures: ['rate<0.005'],
+        readiness_failures: ['rate<0.001'],
+        tile_failures: ['rate<0.01'],
+        'http_req_duration{name:route-submit}': ['p(95)<350', 'p(99)<900'],
+        'http_req_duration{name:route-poll}': ['p(95)<250', 'p(99)<750'],
+        'http_req_duration{name:risk-score}': ['p(95)<250', 'p(99)<750'],
+        'http_req_duration{name:poi}': ['p(95)<350', 'p(99)<1000'],
+        'http_req_duration{name:hazards-page}': ['p(95)<350', 'p(99)<1000'],
+        'http_req_duration{name:dashboard-summary}': ['p(95)<350', 'p(99)<1000'],
+        'http_req_duration{name:ready}': ['p(95)<150', 'p(99)<500']
+      }
+    };
+
+    const jsonHeaders = { headers: { 'Content-Type': 'application/json' }, timeout: '8s' };
+    const authed = {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+      timeout: '4s'
+    };
+
+    const routePairs = [
+      [-1.8985, 52.4814, -1.9300, 52.4510],
+      [-1.8904, 52.4862, -1.8894, 52.4862],
+      [-1.8885, 52.4835, -1.8936, 52.4795],
+      [-1.9125, 52.4855, -1.9015, 52.4805],
+      [-1.8855, 52.4815, -1.8925, 52.4805],
+      [-1.9020, 52.4780, -1.8910, 52.4880]
+    ];
+
+    function jitter(base, iteration) {
+      const bucket = Math.floor(iteration / routePairs.length);
+      const latJitter = ((bucket % 101) - 50) * 0.00002;
+      const lonJitter = (((bucket * 37) % 101) - 50) * 0.00002;
+      return {
+        start: { x: base[0] + lonJitter, y: base[1] + latJitter },
+        end: { x: base[2] - lonJitter, y: base[3] - latJitter }
+      };
+    }
+
+    function parseJson(response) {
+      try {
+        return response.json();
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function pointOffset(iteration, width, step) {
+      return ((iteration % width) - Math.floor(width / 2)) * step;
+    }
+
+    export function readiness() {
+      const response = http.get(`${baseUrl}/health/ready`, { timeout: '2s', tags: { name: 'ready' } });
+      const ok = response.status === 200;
+      readinessFailures.add(!ok);
+      check(response, { 'ready ok': () => ok });
+    }
+
+    export function riskReads() {
+      const offset = pointOffset(exec.scenario.iterationInTest, 401, 0.00001);
+      const response = http.get(
+        `${baseUrl}/api/v1/routing/risk-score?lat=${52.4862 + offset}&lng=${-1.8904 - offset}&radius=500`,
+        { timeout: '3s', tags: { name: 'risk-score' } }
+      );
+      const ok = response.status === 200;
+      hotReadFailures.add(!ok);
+      check(response, { 'risk-score ok': () => ok });
+    }
+
+    export function poiReads() {
+      const offset = pointOffset(exec.scenario.iterationInTest, 251, 0.000015);
+      const response = http.get(
+        `${baseUrl}/api/v1/spatial/poi?lat=${52.48625 + offset}&lng=${-1.8899 - offset}&radius=750`,
+        { timeout: '3s', tags: { name: 'poi' } }
+      );
+      const ok = response.status === 200;
+      hotReadFailures.add(!ok);
+      check(response, { 'poi ok': () => ok });
+    }
+
+    export function hazardPages() {
+      const response = http.get(
+        `${baseUrl}/api/v1/hazards/page?minLat=52.45&minLng=-1.95&maxLat=52.52&maxLng=-1.88&limit=25`,
+        { timeout: '3s', tags: { name: 'hazards-page' } }
+      );
+      const ok = response.status === 200;
+      hotReadFailures.add(!ok);
+      check(response, { 'hazards page ok': () => ok });
+    }
+
+    export function dashboardReads() {
+      const response = http.get(`${baseUrl}/api/v1/dashboard/summary`, {
+        timeout: '3s',
+        tags: { name: 'dashboard-summary' }
+      });
+      const ok = response.status === 200;
+      hotReadFailures.add(!ok);
+      check(response, { 'dashboard summary ok': () => ok });
+    }
+
+    export function tileReads() {
+      const z = 15;
+      const i = exec.scenario.iterationInTest;
+      const x = 16204 + (i % 4);
+      const y = 10843 + (Math.floor(i / 4) % 4);
+      const response = http.get(`${baseUrl}/api/v1/tiles/${z}/${x}/${y}.pbf`, {
+        ...authed,
+        tags: { name: 'tile' }
+      });
+      const ok = response.status === 200 || response.status === 204;
+      tileFailures.add(!ok);
+      check(response, { 'tile ok': () => ok });
+    }
+
+    export function routeJobs() {
+      const iteration = exec.scenario.iterationInTest;
+      const base = routePairs[iteration % routePairs.length];
+      const pair = jitter(base, iteration);
+      const profile = iteration % 3 === 0 ? 'manual-wheelchair' : 'standard';
+      const body = JSON.stringify({
+        start: pair.start,
+        end: pair.end,
+        preferences: profile === 'manual-wheelchair' ? ['wheelchair'] : [],
+        safetyWeight: 0.5,
+        profile
+      });
+
+      const submit = http.post(`${baseUrl}/api/v1/routing/safe-path/options`, body, {
+        ...jsonHeaders,
+        tags: { name: 'route-submit' }
+      });
+
+      const accepted = submit.status === 200 || submit.status === 202;
+      routeCriticalFailures.add(!accepted);
+      check(submit, { 'route accepted or completed': () => accepted });
+      if (submit.status !== 202) {
+        return;
+      }
+
+      const payload = parseJson(submit);
+      if (!payload || !payload.jobId) {
+        routeCriticalFailures.add(true);
+        check(submit, { 'route job id present': () => false });
+        return;
+      }
+
+      const deadline = Date.now() + routePollTimeoutSeconds * 1000;
+      while (Date.now() < deadline) {
+        const poll = http.get(`${baseUrl}/api/v1/routing/jobs/${payload.jobId}`, {
+          timeout: '3s',
+          tags: { name: 'route-poll' }
+        });
+        const pollBody = parseJson(poll);
+        const completed = poll.status === 200 && pollBody && (pollBody.status === 'Completed' || pollBody.status === 2);
+        if (completed) {
+          routeJobTimeouts.add(false);
+          check(poll, { 'route job completed': () => true });
+          return;
+        }
+
+        const failed = poll.status === 200 && pollBody && (pollBody.status === 'Failed' || pollBody.status === 3);
+        if (failed || poll.status >= 500 || poll.status === 429) {
+          routeCriticalFailures.add(true);
+          check(poll, { 'route job completed': () => false });
+          return;
+        }
+
+        sleep(0.2);
+      }
+
+      routeJobTimeouts.add(true);
+      check(submit, { 'route job completed': () => false });
+    }
+
+    export function handleSummary(data) {
+      const compact = {
+        http_reqs_per_second: data.metrics.http_reqs?.values?.rate,
+        http_req_failed_rate: data.metrics.http_req_failed?.values?.rate,
+        http_req_duration_p95: data.metrics.http_req_duration?.values?.['p(95)'],
+        http_req_duration_p99: data.metrics.http_req_duration?.values?.['p(99)'],
+        route_critical_failures: data.metrics.route_critical_failures?.values?.rate,
+        route_job_timeouts: data.metrics.route_job_timeouts?.values?.rate,
+        hot_read_failures: data.metrics.hot_read_failures?.values?.rate,
+        readiness_failures: data.metrics.readiness_failures?.values?.rate,
+        tile_failures: data.metrics.tile_failures?.values?.rate
+      };
+
+      return {
+        stdout: JSON.stringify(compact, null, 2),
+        '/results/k6-summary.json': JSON.stringify(data, null, 2)
+      };
+    }

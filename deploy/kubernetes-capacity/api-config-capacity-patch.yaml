@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: accesscity-api-config
+data:
+  Kafka__TopicPartitions: "96"
+  Postgres__MaxPoolSize: "12"
+  Postgres__DbContextPoolSize: "160"
+  Routing__MaxConcurrentComputations: "3"
+  Routing__RouteJobDispatchConcurrency: "8"
+  Routing__AsyncFirstForCacheMiss: "true"
+  Routing__AsyncFirstCacheProbeMilliseconds: "0"
+  RateLimiting__RoutingHeavy__PermitLimit: "1200"
+  RateLimiting__RoutingPoll__PermitLimit: "6000"
+  RateLimiting__HotRead__PermitLimit: "6000"
+  RateLimiting__Tile__PermitLimit: "12000"
+  RateLimiting__Write__PermitLimit: "300"
+  RateLimiting__AiAssist__PermitLimit: "120"
+  RequestProtection__RouteSyncTimeoutSeconds: "5"
+  RequestProtection__RouteAsyncSubmitTimeoutSeconds: "3"

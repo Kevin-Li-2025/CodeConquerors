@@ -11,6 +11,10 @@ This repo includes a Kubernetes-native k6 job for testing the real multi-replica
 
 The load test is intentionally not part of the default kustomization, so normal deploys do not create traffic.
 
+For production-scale validation with 10+ API pods, 30-100 workers, 96 Kafka partitions, PgBouncer
+read/write and read-only paths, and a linear scaling matrix, use
+`docs/CAPACITY_VALIDATION.md` and `tools/run-k8s-capacity-validation.sh`.
+
 ## Run
 
 ```bash
