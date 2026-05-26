@@ -182,12 +182,14 @@ export default function AuthScreen() {
                 <>
                   <View style={styles.tabContainer}>
                     <Pressable
+                      testID="index-auth-login-tab"
                       style={[styles.tab, !isSignup && styles.tabActive]}
                       onPress={() => setIsSignup(false)}
                     >
                       <Text style={[styles.tabText, !isSignup && styles.tabTextActive]}>Log In</Text>
                     </Pressable>
                     <Pressable
+                      testID="index-auth-signup-tab"
                       style={[styles.tab, isSignup && styles.tabActive]}
                       onPress={() => setIsSignup(true)}
                     >

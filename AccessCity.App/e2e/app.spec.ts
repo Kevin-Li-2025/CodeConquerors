@@ -144,7 +144,7 @@ test.describe('AccessCity web (Expo)', () => {
 
   test('can switch to Sign Up tab and see full name field', async ({ page }) => {
     await page.goto('/');
-    await page.getByText('Sign Up', { exact: true }).click();
+    await page.getByTestId('index-auth-signup-tab').click();
     await expect(page.getByPlaceholder('Full Name')).toBeVisible({ timeout: 15_000 });
   });
 
