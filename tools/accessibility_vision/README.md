@@ -61,6 +61,58 @@ python export_project_sidewalk_subset.py \
 
 The exporter writes separate `train.jsonl`, `validation.jsonl`, and `test.jsonl` files. It downloads selected validator images directly from the Hub file URLs so large balanced exports do not fill the Hugging Face cache with unused images; tune `--validator-download-workers`, `--hf-download-min-interval`, and `--hf-download-timeout-seconds` for the network you are using. Use `validation` only for threshold calibration/model selection and reserve `test` for final holdout reporting. `RampNet crop` rows strengthen curb-ramp positives; `RampNet panorama` rows add large-scale curb-ramp positive/negative labels from `curb_ramp_points_normalized`.
 
+## RampNet-Style Detection Benchmark
+
+The crop classifier is useful for review triage, but curb-ramp quality needs a true panorama/keypoint benchmark. Use the official Project Sidewalk RampNet dataset and model for that path:
+
+```bash
+python evaluate_rampnet_detection.py \
+  --dataset projectsidewalk/rampnet-dataset \
+  --model projectsidewalk/rampnet-model \
+  --split validation \
+  --output-dir runs/rampnet-detection-validation-v1 \
+  --max-examples 256 \
+  --input-height 2048 \
+  --input-width 4096 \
+  --device cuda
+```
+
+The evaluator reports point-detection AP, precision, recall, F1, image-level AP/AUROC/F1/ECE, latency p50/p95/p99, and per-city slices inferred from panorama coordinates (`nyc`, `portland`, `bend`). Use `--include-cities` / `--exclude-cities` to build city-shift checks, and keep `--synthetic-smoke` for CI or offline validation when Hugging Face is unreachable.
+
+## City-Shift Validation
+
+Random train/validation/test splits overstate quality for accessibility imagery because the same city style can appear in every split. Build an explicit city-shift classifier split before claiming cross-city performance:
+
+```bash
+python build_accessibility_vision_city_split.py \
+  --source-root data/projectsidewalk-rampnet-best-v7 \
+  --output-dir data/projectsidewalk-city-shift-v1 \
+  --train-cities seattle,chicago \
+  --validation-cities pittsburgh,taipei \
+  --test-cities amsterdam,keelung,mexico_city \
+  --train-task-overrides obstacle_present=1600,surface_problem_present=1200 \
+  --overwrite
+```
+
+Then train and report the city-shift holdout separately from the normal random holdout:
+
+```bash
+python train_accessibility_vision.py \
+  --model convnext_tiny \
+  --dataset-root data/projectsidewalk-city-shift-v1 \
+  --output-dir runs/city-shift-convnext-tiny-v1 \
+  --epochs 8 \
+  --batch-size 48 \
+  --image-size 224 \
+  --learning-rate 1e-4 \
+  --task-balanced-loss \
+  --temperature-scale \
+  --calibration-split validation \
+  --holdout-split test
+```
+
+The first L20 city-shift baseline (`seattle,chicago -> amsterdam,keelung,mexico_city`) reached holdout macro F1 `0.6179` and macro ECE `0.1798`; weak-head F1 was `0.6084` for `obstacle_present` and `0.5616` for `surface_problem_present`. This is the honest cross-city baseline to beat with more city-specific hard examples and better detector features.
+
 If a long export is interrupted, rerun with `--splits train`, `--splits validation`, or `--splits test` to rebuild only the missing split. Skipped split JSONL files are still loaded into `metadata.json`, so the dataset record remains complete.
 
 When one task is underperforming, add more training rows for that head without changing the validation or final holdout distribution:

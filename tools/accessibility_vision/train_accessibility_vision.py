@@ -18,7 +18,7 @@ import torch.nn as nn
 from datasets import concatenate_datasets, load_dataset
 from PIL import Image
 from PIL import ImageDraw
-from sklearn.metrics import accuracy_score, brier_score_loss, f1_score, precision_score, recall_score, roc_auc_score
+from sklearn.metrics import accuracy_score, average_precision_score, brier_score_loss, f1_score, precision_score, recall_score, roc_auc_score
 from torch.utils.data import DataLoader, Dataset
 from torchvision import models, transforms
 from tqdm import tqdm
@@ -580,6 +580,10 @@ def evaluate(
         except ValueError:
             auc = float("nan")
         try:
+            average_precision = average_precision_score(y_true, y_score)
+        except ValueError:
+            average_precision = float("nan")
+        try:
             brier = brier_score_loss(y_true, y_score)
         except ValueError:
             brier = float("nan")
@@ -598,6 +602,7 @@ def evaluate(
             "recall": float(recall_score(y_true, y_pred, zero_division=0)),
             "f1": float(best["f1"]),
             "roc_auc": None if math.isnan(auc) else float(auc),
+            "average_precision": None if math.isnan(average_precision) else float(average_precision),
             "brier": None if math.isnan(brier) else float(brier),
             "ece": expected_calibration_error(y_true, y_score, calibration_bins),
             "confusion": {

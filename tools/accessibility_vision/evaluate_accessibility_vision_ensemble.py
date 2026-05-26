@@ -9,7 +9,7 @@ from typing import Any
 
 import numpy as np
 import torch
-from sklearn.metrics import accuracy_score, brier_score_loss, f1_score, precision_score, recall_score, roc_auc_score
+from sklearn.metrics import accuracy_score, average_precision_score, brier_score_loss, f1_score, precision_score, recall_score, roc_auc_score
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm import tqdm
@@ -248,6 +248,10 @@ def task_metrics_for_threshold(
     except ValueError:
         auc = float("nan")
     try:
+        average_precision = average_precision_score(y_true, y_score)
+    except ValueError:
+        average_precision = float("nan")
+    try:
         brier = brier_score_loss(y_true, y_score)
     except ValueError:
         brier = float("nan")
@@ -261,6 +265,7 @@ def task_metrics_for_threshold(
         "recall": float(recall_score(y_true, y_pred, zero_division=0)),
         "f1": float(f1_score(y_true, y_pred, zero_division=0)),
         "roc_auc": None if math.isnan(auc) else float(auc),
+        "average_precision": None if math.isnan(average_precision) else float(average_precision),
         "brier": None if math.isnan(brier) else float(brier),
         "ece": expected_calibration_error(y_true, y_score, calibration_bins),
         "confusion": {
