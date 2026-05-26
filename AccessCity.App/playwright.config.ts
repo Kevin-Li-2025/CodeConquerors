@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const port = Number(process.env.EXPO_WEB_PORT || 8081);
+const port = Number(process.env.EXPO_WEB_PORT || 19007);
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || `http://localhost:${port}`;
 
 export default defineConfig({

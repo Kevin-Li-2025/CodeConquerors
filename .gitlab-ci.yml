@@ -33,6 +33,17 @@ default:
   interruptible: true
 
 # ─── Quality: static analysis & dependency risk ─────────────────────────────
+quality:backend-format:
+  stage: quality
+  image: mcr.microsoft.com/dotnet/sdk:9.0
+  timeout: 15m
+  script:
+    - dotnet restore CodeConquerors.sln
+    - dotnet format CodeConquerors.sln --verify-no-changes --no-restore --verbosity minimal
+  rules:
+    - exists:
+        - CodeConquerors.sln
+
 quality:frontend-lint:
   stage: quality
   image: node:20-bookworm
@@ -87,6 +98,24 @@ quality:security-npm:
     - exists:
         - AccessCity.App/package.json
 
+quality:frontend-export:
+  stage: quality
+  image: node:20-bookworm
+  timeout: 20m
+  cache:
+    key:
+      files:
+        - AccessCity.App/package-lock.json
+    paths:
+      - AccessCity.App/node_modules/
+  script:
+    - cd AccessCity.App
+    - npm ci
+    - npx expo export --platform web --output-dir dist-ci
+  rules:
+    - exists:
+        - AccessCity.App/package.json
+
 quality:security-dotnet:
   stage: quality
   image: mcr.microsoft.com/dotnet/sdk:9.0
@@ -98,6 +127,19 @@ quality:security-dotnet:
   rules:
     - exists:
         - CodeConquerors.sln
+
+quality:compose:
+  stage: quality
+  image: docker:28-cli
+  timeout: 15m
+  script:
+    - docker compose config --quiet
+    - docker compose --profile worker config --quiet
+    - docker compose --profile migrate config --quiet
+    - docker compose --profile ai config --quiet
+  rules:
+    - exists:
+        - docker-compose.yml
 
 # ─── Backend (xUnit + WebApplicationFactory; real Postgres + Redis) ─────────
 backend:test:
@@ -293,6 +335,7 @@ e2e:playwright:
   script:
     - cd AccessCity.App
     - npm ci
+    - npx playwright install chromium
     - npx playwright test
   rules:
     - exists:

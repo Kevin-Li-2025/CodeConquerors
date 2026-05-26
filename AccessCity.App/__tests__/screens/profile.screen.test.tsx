@@ -83,6 +83,7 @@ describe('ProfileScreen', () => {
     jest.mocked(accountService.submitSupportContact).mockResolvedValue({
       id: 'support-1',
       status: 'received',
+      createdAtUtc: '2026-05-26T12:00:00Z',
     });
   });
 

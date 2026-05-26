@@ -12,6 +12,7 @@
     "test": "jest",
     "test:ci": "jest --ci --watchAll=false --runInBand --testTimeout=30000",
     "test:watch": "jest --watch",
+    "build:web": "expo export --platform web --output-dir dist",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "postinstall": "patch-package"

@@ -7,8 +7,8 @@ AccessCity uses GitHub Actions as the primary CI/CD path and keeps GitLab CI as 
 `.github/workflows/ci.yml` runs on pull requests, pushes to `main`, `master`, and `codex/**`, and manual dispatches.
 
 - Backend: restore, release build, `dotnet format --verify-no-changes`, NuGet vulnerability scan, xUnit integration tests with PostGIS and Redis.
-- Frontend: `npm ci`, Expo lint, TypeScript typecheck, `npm audit --audit-level=high`, Jest in CI-safe serial mode.
-- Manifests: Docker Compose config validation, worker/migration profile validation, nginx config validation, and Kubernetes kustomize rendering.
+- Frontend: `npm ci`, Expo lint, TypeScript typecheck, `npm audit --audit-level=high`, Expo web export, Jest in CI-safe serial mode, and Playwright web E2E.
+- Manifests: Docker Compose config validation, worker/migration/AI profile validation, nginx config validation, and Kubernetes plus capacity-test kustomize rendering.
 - Container security: fresh API image build with pulled base layers, then a Grype fixed high/critical vulnerability gate.
 - Pull requests also run GitHub dependency review for new high+ dependency risk.
 
@@ -37,12 +37,16 @@ npm ci
 npm run lint
 npx tsc -p tsconfig.json --noEmit
 npm audit --audit-level=high
+npm run build:web
 npm run test:ci
+npm run test:e2e
 
 docker compose config --quiet
 docker compose --profile worker config --quiet
 docker compose --profile migrate config --quiet
+docker compose --profile ai config --quiet
 kubectl kustomize deploy/kubernetes >/tmp/accesscity-kubernetes.yaml
+kubectl kustomize deploy/kubernetes-capacity >/tmp/accesscity-capacity.yaml
 docker build --pull -t accesscity-api:ci ./AccessCity.API
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock ghcr.io/anchore/grype:v0.112.0 accesscity-api:ci --only-fixed --fail-on high
 ```
